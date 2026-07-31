@@ -24,5 +24,7 @@ class DatabaseSeeder extends Seeder
             ['email' => 'admin@bismar.test'],
             ['name' => 'Администратор', 'password' => 'password'],
         )->syncRoles(Role::Admin->value);
+
+        $this->call(KnowledgeSeeder::class);
     }
 }

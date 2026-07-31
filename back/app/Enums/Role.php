@@ -54,6 +54,11 @@ enum Role: string
                 Permission::CreateDeals,
                 Permission::UpdateDeals,
                 Permission::DeleteDeals,
+                Permission::ViewKnowledge,
+                Permission::CreateKnowledge,
+                Permission::UpdateKnowledge,
+                Permission::DeleteKnowledge,
+                Permission::PublishKnowledge,
                 Permission::ViewUsers,
             ],
 
@@ -67,12 +72,16 @@ enum Role: string
                 Permission::ViewDeals,
                 Permission::CreateDeals,
                 Permission::UpdateDeals,
+                Permission::ViewKnowledge,
+                Permission::CreateKnowledge,
+                Permission::UpdateKnowledge,
             ],
 
             self::Viewer => [
                 Permission::ViewContacts,
                 Permission::ViewCompanies,
                 Permission::ViewDeals,
+                Permission::ViewKnowledge,
             ],
         };
     }

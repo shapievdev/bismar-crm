@@ -28,6 +28,12 @@ enum Permission: string
     case UpdateDeals = 'deals.update';
     case DeleteDeals = 'deals.delete';
 
+    case ViewKnowledge = 'knowledge.view';
+    case CreateKnowledge = 'knowledge.create';
+    case UpdateKnowledge = 'knowledge.update';
+    case DeleteKnowledge = 'knowledge.delete';
+    case PublishKnowledge = 'knowledge.publish';
+
     case ViewUsers = 'users.view';
     case ManageUsers = 'users.manage';
     case ManageRoles = 'roles.manage';
@@ -50,6 +56,11 @@ enum Permission: string
             self::CreateDeals => 'Создание сделок',
             self::UpdateDeals => 'Редактирование сделок',
             self::DeleteDeals => 'Удаление сделок',
+            self::ViewKnowledge => 'Просмотр базы знаний',
+            self::CreateKnowledge => 'Создание статей',
+            self::UpdateKnowledge => 'Редактирование статей',
+            self::DeleteKnowledge => 'Удаление статей',
+            self::PublishKnowledge => 'Публикация статей',
             self::ViewUsers => 'Просмотр пользователей',
             self::ManageUsers => 'Управление пользователями',
             self::ManageRoles => 'Управление ролями',
