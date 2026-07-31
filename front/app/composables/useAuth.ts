@@ -35,6 +35,20 @@ export function useAuth() {
   const isAuthenticated = computed(() => user.value !== null)
 
   /**
+   * Whether the user holds a permission.
+   *
+   * This drives what the UI offers, not what it is allowed to do — the API
+   * re-checks every request, so a stale answer here is a cosmetic issue only.
+   */
+  function can(permission: string): boolean {
+    return user.value?.permissions.includes(permission) ?? false
+  }
+
+  function hasRole(role: string): boolean {
+    return user.value?.roles.includes(role) ?? false
+  }
+
+  /**
    * Restores the session after a page load. A 401 simply means "not logged in",
    * so it resolves to null rather than throwing.
    */
@@ -88,6 +102,8 @@ export function useAuth() {
   return {
     user: readonly(user),
     isAuthenticated,
+    can,
+    hasRole,
     fetchUser,
     login,
     register,

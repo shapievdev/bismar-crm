@@ -4,6 +4,23 @@ export interface User {
   email: string
   email_verified_at: string | null
   created_at: string | null
+  roles: string[]
+  permissions: string[]
+}
+
+export interface Role {
+  id: number
+  name: string
+  label: string
+  is_built_in: boolean
+  permissions: string[]
+  users_count?: number
+}
+
+export interface PermissionOption {
+  name: string
+  label: string
+  group: string
 }
 
 export interface LoginCredentials {

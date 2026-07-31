@@ -1,8 +1,15 @@
 <script setup lang="ts">
-const { user, isAuthenticated, logout } = useAuth()
+const { user, isAuthenticated, can, logout } = useAuth()
 const router = useRouter()
 
 const isLoggingOut = ref(false)
+
+/** Links the current user is allowed to reach; the API enforces the same rules. */
+const navigation = computed(() => [
+  { to: '/', label: 'Панель', visible: true },
+  { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
+  { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
+].filter(link => link.visible))
 
 async function handleLogout() {
   isLoggingOut.value = true
@@ -23,6 +30,12 @@ async function handleLogout() {
       <NuxtLink to="/" class="shell__brand">
         Bismar CRM
       </NuxtLink>
+
+      <nav v-if="isAuthenticated" class="shell__nav">
+        <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to">
+          {{ link.label }}
+        </NuxtLink>
+      </nav>
 
       <div v-if="isAuthenticated" class="shell__account">
         <span class="shell__user">{{ user?.name }}</span>
@@ -59,6 +72,23 @@ async function handleLogout() {
   font-weight: 600;
   color: inherit;
   text-decoration: none;
+}
+
+.shell__nav {
+  display: flex;
+  gap: 1rem;
+  margin-right: auto;
+  font-size: 0.9rem;
+}
+
+.shell__nav a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.shell__nav a.router-link-exact-active {
+  color: var(--color-text);
+  font-weight: 500;
 }
 
 .shell__account {
