@@ -50,7 +50,9 @@ class Course extends Model
      */
     public function modules(): HasMany
     {
-        return $this->hasMany(CourseModule::class)->orderBy('position');
+        // Ties on position are broken by id so the order can never flap
+        // between requests while a reorder is half-applied.
+        return $this->hasMany(CourseModule::class)->orderBy('position')->orderBy('id');
     }
 
     /**
@@ -63,7 +65,9 @@ class Course extends Model
     {
         return $this->hasManyThrough(Lesson::class, CourseModule::class, 'course_id', 'module_id')
             ->orderBy('course_modules.position')
-            ->orderBy('lessons.position');
+            ->orderBy('course_modules.id')
+            ->orderBy('lessons.position')
+            ->orderBy('lessons.id');
     }
 
     /**

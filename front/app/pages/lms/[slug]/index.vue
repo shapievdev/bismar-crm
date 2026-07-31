@@ -47,9 +47,15 @@ async function join() {
 
 <template>
   <section v-if="course">
-    <NuxtLink to="/lms" class="back">
-      ← К курсам
-    </NuxtLink>
+    <div class="topbar">
+      <NuxtLink to="/lms" class="back">
+        ← К курсам
+      </NuxtLink>
+
+      <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-plain">
+        Редактировать курс
+      </NuxtLink>
+    </div>
 
     <header class="header">
       <h1>{{ course.title }}</h1>
@@ -109,15 +115,31 @@ async function join() {
     </div>
 
     <p v-if="!(course.modules ?? []).length" class="empty">
-      {{ can('courses.update') ? 'Курс пуст. Добавьте модули и уроки через API.' : 'Курс ещё готовится.' }}
+      {{ can('courses.update') ? 'Курс пуст — добавьте модули и уроки в редакторе.' : 'Курс ещё готовится.' }}
     </p>
   </section>
 </template>
 
 <style scoped>
-.back {
-  display: inline-block;
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.back {
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.button-plain {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
   font-size: 0.9rem;
   text-decoration: none;
 }

@@ -107,6 +107,34 @@ export interface CoursePayload {
   status: CourseStatus
 }
 
+export interface ModulePayload {
+  title: string
+  description: string | null
+  position?: number
+}
+
+export interface LessonPayload {
+  title: string
+  content: string | null
+  video_url: string | null
+  duration_minutes: number | null
+  position?: number
+}
+
+/** What the quiz editor sends: the whole quiz, replacing whatever was there. */
+export interface QuizPayload {
+  title: string
+  description: string | null
+  passing_score: number
+  max_attempts: number | null
+  questions: {
+    text: string
+    type: QuestionType
+    points: number
+    options: { text: string, is_correct: boolean }[]
+  }[]
+}
+
 export interface StatusOption {
   value: CourseStatus
   label: string

@@ -3,9 +3,14 @@ import type {
   Course,
   CoursePayload,
   Enrollment,
+  LessonAttachment,
+  LessonPayload,
   LessonSummary,
+  ModulePayload,
   PaginatedResponse,
+  Quiz,
   QuizAttempt,
+  QuizPayload,
   StatusOption,
 } from '~/types/lms'
 
@@ -62,19 +67,41 @@ export function useLmsApi() {
         body: { answers },
       }),
 
-    addModule: (slug: string, body: { title: string, description?: string | null }) =>
+    addModule: (slug: string, body: ModulePayload) =>
       $api(`/api/lms/courses/${slug}/modules`, { method: 'POST', body }),
 
-    addLesson: (
-      moduleId: number,
-      body: { title: string, content?: string | null, video_url?: string | null },
-    ) => $api(`/api/lms/modules/${moduleId}/lessons`, { method: 'POST', body }),
+    updateModule: (moduleId: number, body: ModulePayload) =>
+      $api(`/api/lms/modules/${moduleId}`, { method: 'PUT', body }),
 
-    uploadAttachment: (lessonId: number, file: File) => {
+    deleteModule: (moduleId: number) =>
+      $api(`/api/lms/modules/${moduleId}`, { method: 'DELETE' }),
+
+    addLesson: (moduleId: number, body: LessonPayload) =>
+      $api(`/api/lms/modules/${moduleId}/lessons`, { method: 'POST', body }),
+
+    updateLesson: (lessonId: number | string, body: LessonPayload) =>
+      $api(`/api/lms/lessons/${lessonId}`, { method: 'PUT', body }),
+
+    deleteLesson: (lessonId: number | string) =>
+      $api(`/api/lms/lessons/${lessonId}`, { method: 'DELETE' }),
+
+    uploadAttachment: (lessonId: number | string, file: File) => {
       const form = new FormData()
       form.append('file', file)
 
-      return $api(`/api/lms/lessons/${lessonId}/attachments`, { method: 'POST', body: form })
+      return $api<ResourceResponse<LessonAttachment>>(`/api/lms/lessons/${lessonId}/attachments`, {
+        method: 'POST',
+        body: form,
+      })
     },
+
+    deleteAttachment: (attachmentId: number) =>
+      $api(`/api/lms/attachments/${attachmentId}`, { method: 'DELETE' }),
+
+    saveQuiz: (lessonId: number | string, body: QuizPayload): Promise<ResourceResponse<Quiz>> =>
+      $api<ResourceResponse<Quiz>>(`/api/lms/lessons/${lessonId}/quiz`, { method: 'PUT', body }),
+
+    deleteQuiz: (lessonId: number | string) =>
+      $api(`/api/lms/lessons/${lessonId}/quiz`, { method: 'DELETE' }),
   }
 }

@@ -30,7 +30,7 @@ class Quiz extends Model
      */
     public function questions(): HasMany
     {
-        return $this->hasMany(QuizQuestion::class)->orderBy('position');
+        return $this->hasMany(QuizQuestion::class)->orderBy('position')->orderBy('id');
     }
 
     /**

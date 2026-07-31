@@ -5,6 +5,7 @@ definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
 const { fetchLesson, completeLesson, submitQuiz } = useLmsApi()
+const { can } = useAuth()
 
 const lessonId = computed(() => String(route.params.lesson))
 const courseSlug = computed(() => String(route.params.slug))
@@ -106,6 +107,14 @@ function formatSize(bytes: number): string {
     <header class="header">
       <h1>{{ lesson.title }}</h1>
       <span v-if="isCompleted" class="done">Пройден</span>
+
+      <NuxtLink
+        v-if="can('courses.update')"
+        :to="`/lms/${courseSlug}/lessons/${lessonId}/edit`"
+        class="edit-link"
+      >
+        Редактировать
+      </NuxtLink>
     </header>
 
     <div v-if="lesson.video_url" class="video">
@@ -201,6 +210,12 @@ function formatSize(bytes: number): string {
 .header h1 {
   margin: 0;
   font-size: 1.6rem;
+}
+
+.edit-link {
+  margin-left: auto;
+  font-size: 0.9rem;
+  text-decoration: none;
 }
 
 .done {
