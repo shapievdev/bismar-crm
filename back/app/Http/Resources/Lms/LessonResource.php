@@ -1,0 +1,37 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Resources\Lms;
+
+use App\Models\Lesson;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin Lesson
+ */
+final class LessonResource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'slug' => $this->slug,
+            'video_url' => $this->video_url,
+            'duration_minutes' => $this->duration_minutes,
+            'position' => $this->position,
+            'has_quiz' => $this->whenLoaded('quiz', fn (): bool => $this->quiz !== null),
+            // Only the lesson endpoint loads the body; outlines stay light.
+            'content' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?string => $this->content),
+            'attachments' => LessonAttachmentResource::collection($this->whenLoaded('attachments')),
+            'quiz' => QuizResource::make($this->whenLoaded('quiz')),
+            // Attached by the controller from the learner's completions.
+            'is_completed' => $this->is_completed_by_learner,
+        ];
+    }
+}

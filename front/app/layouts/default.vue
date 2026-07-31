@@ -7,7 +7,7 @@ const isLoggingOut = ref(false)
 /** Links the current user is allowed to reach; the API enforces the same rules. */
 const navigation = computed(() => [
   { to: '/', label: 'Панель', visible: true },
-  { to: '/knowledge', label: 'База знаний', visible: can('knowledge.view') },
+  { to: '/lms', label: 'Обучение', visible: can('courses.view') },
   { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
   { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
 ].filter(link => link.visible))

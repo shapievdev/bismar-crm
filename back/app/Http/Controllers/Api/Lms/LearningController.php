@@ -1,0 +1,168 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api\Lms;
+
+use App\Actions\Lms\CompleteLesson;
+use App\Actions\Lms\EnrollLearner;
+use App\Actions\Lms\GradeQuizAttempt;
+use App\Exceptions\ConflictException;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Lms\SubmitQuizRequest;
+use App\Http\Resources\Lms\EnrollmentResource;
+use App\Http\Resources\Lms\LessonResource;
+use App\Http\Resources\Lms\QuizAttemptResource;
+use App\Models\Course;
+use App\Models\Enrollment;
+use App\Models\Lesson;
+use App\Models\User;
+use App\Support\Lms\ProgressCalculator;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
+
+/**
+ * Everything a learner does: enrolling, reading lessons, marking them done and
+ * sitting quizzes.
+ */
+final class LearningController extends Controller
+{
+    public function __construct(
+        private readonly ProgressCalculator $progress,
+        private readonly CompleteLesson $completeLesson,
+    ) {}
+
+    /**
+     * The signed-in learner's own courses, each with its progress.
+     */
+    public function myEnrollments(Request $request): AnonymousResourceCollection
+    {
+        $enrollments = Enrollment::query()
+            ->where('user_id', $request->user()?->getKey())
+            ->with(['course.author', 'completions'])
+            ->latest('enrolled_at')
+            ->get()
+            ->each(fn (Enrollment $enrollment) => $this->attachProgress($enrollment));
+
+        return EnrollmentResource::collection($enrollments);
+    }
+
+    public function enroll(Request $request, Course $course, EnrollLearner $enrollLearner): JsonResponse
+    {
+        if (Gate::denies('view', $course)) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        /** @var User $learner */
+        $learner = $request->user();
+
+        $enrollment = $enrollLearner->handle($course, $learner);
+        $enrollment->load('course', 'completions');
+
+        return EnrollmentResource::make($this->attachProgress($enrollment))
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    public function showLesson(Request $request, Lesson $lesson): LessonResource
+    {
+        $course = $this->courseFor($lesson);
+
+        if (Gate::denies('view', $course)) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        $lesson->load('attachments', 'quiz.questions.options');
+
+        $enrollment = $this->enrollmentFor($request, $course);
+
+        $lesson->setAttribute(
+            'is_completed_by_learner',
+            $enrollment?->completions()->where('lesson_id', $lesson->getKey())->exists() ?? false,
+        );
+
+        return LessonResource::make($lesson);
+    }
+
+    /**
+     * @throws ConflictException
+     */
+    public function completeLesson(Request $request, Lesson $lesson): JsonResponse
+    {
+        $enrollment = $this->requireEnrollment($request, $this->courseFor($lesson));
+        $enrollment = $this->completeLesson->handle($enrollment, $lesson);
+
+        return response()->json([
+            'data' => [
+                'progress' => $this->progress->percentage($enrollment),
+                'is_completed' => $enrollment->isCompleted(),
+            ],
+        ]);
+    }
+
+    /**
+     * @throws ConflictException
+     */
+    public function submitQuiz(
+        SubmitQuizRequest $request,
+        Lesson $lesson,
+        GradeQuizAttempt $gradeQuizAttempt,
+    ): JsonResponse {
+        $enrollment = $this->requireEnrollment($request, $this->courseFor($lesson));
+
+        $lesson->loadMissing('quiz');
+
+        if ($lesson->quiz === null) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        /** @var User $learner */
+        $learner = $request->user();
+
+        $attempt = $gradeQuizAttempt->handle($lesson->quiz, $learner, $request->answers(), $enrollment);
+
+        return QuizAttemptResource::make($attempt)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    private function attachProgress(Enrollment $enrollment): Enrollment
+    {
+        return $enrollment->setAttribute('progress_percentage', $this->progress->percentage($enrollment));
+    }
+
+    private function courseFor(Lesson $lesson): Course
+    {
+        $course = $lesson->loadMissing('module.course')->module->course;
+
+        // A lesson without a course would mean corrupt data, not a bad request.
+        abort_if($course === null, HttpResponse::HTTP_NOT_FOUND);
+
+        return $course;
+    }
+
+    private function enrollmentFor(Request $request, Course $course): ?Enrollment
+    {
+        return Enrollment::query()
+            ->where('course_id', $course->getKey())
+            ->where('user_id', $request->user()?->getKey())
+            ->first();
+    }
+
+    /**
+     * @throws ConflictException
+     */
+    private function requireEnrollment(Request $request, Course $course): Enrollment
+    {
+        $enrollment = $this->enrollmentFor($request, $course);
+
+        if ($enrollment === null) {
+            throw new ConflictException('Сначала запишитесь на курс.');
+        }
+
+        return $enrollment;
+    }
+}

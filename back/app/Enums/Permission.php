@@ -28,11 +28,12 @@ enum Permission: string
     case UpdateDeals = 'deals.update';
     case DeleteDeals = 'deals.delete';
 
-    case ViewKnowledge = 'knowledge.view';
-    case CreateKnowledge = 'knowledge.create';
-    case UpdateKnowledge = 'knowledge.update';
-    case DeleteKnowledge = 'knowledge.delete';
-    case PublishKnowledge = 'knowledge.publish';
+    case ViewCourses = 'courses.view';
+    case CreateCourses = 'courses.create';
+    case UpdateCourses = 'courses.update';
+    case DeleteCourses = 'courses.delete';
+    case PublishCourses = 'courses.publish';
+    case ManageEnrollments = 'enrollments.manage';
 
     case ViewUsers = 'users.view';
     case ManageUsers = 'users.manage';
@@ -56,11 +57,12 @@ enum Permission: string
             self::CreateDeals => 'Создание сделок',
             self::UpdateDeals => 'Редактирование сделок',
             self::DeleteDeals => 'Удаление сделок',
-            self::ViewKnowledge => 'Просмотр базы знаний',
-            self::CreateKnowledge => 'Создание статей',
-            self::UpdateKnowledge => 'Редактирование статей',
-            self::DeleteKnowledge => 'Удаление статей',
-            self::PublishKnowledge => 'Публикация статей',
+            self::ViewCourses => 'Просмотр курсов',
+            self::CreateCourses => 'Создание курсов',
+            self::UpdateCourses => 'Редактирование курсов',
+            self::DeleteCourses => 'Удаление курсов',
+            self::PublishCourses => 'Публикация курсов',
+            self::ManageEnrollments => 'Управление записью на курсы',
             self::ViewUsers => 'Просмотр пользователей',
             self::ManageUsers => 'Управление пользователями',
             self::ManageRoles => 'Управление ролями',

@@ -1,0 +1,139 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api\Lms;
+
+use App\Actions\Lms\SaveCourse;
+use App\Enums\CourseStatus;
+use App\Enums\Permission;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Lms\StoreCourseRequest;
+use App\Http\Requests\Lms\UpdateCourseRequest;
+use App\Http\Resources\Lms\CourseResource;
+use App\Models\Course;
+use App\Models\Enrollment;
+use App\Models\User;
+use App\Support\Lms\ProgressCalculator;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
+
+final class CourseController extends Controller
+{
+    public function __construct(private readonly ProgressCalculator $progress) {}
+
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $courses = Course::query()
+            ->with('author')
+            ->withCount(['lessons', 'enrollments'])
+            ->matching($request->query('search'))
+            ->when(
+                // Unpublished courses stay hidden from learners.
+                $user->cannot(Permission::UpdateCourses->value),
+                fn ($query) => $query->openToLearners(),
+                fn ($query) => $query->when(
+                    $request->filled('status'),
+                    fn ($query) => $query->where('status', $request->query('status')),
+                ),
+            )
+            ->orderByDesc('published_at')
+            ->orderByDesc('updated_at')
+            ->paginate(15)
+            ->withQueryString();
+
+        return CourseResource::collection($courses);
+    }
+
+    public function show(Request $request, Course $course): CourseResource
+    {
+        if (Gate::denies('view', $course)) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        $course->load(['author', 'modules.lessons.quiz'])->loadCount(['lessons', 'enrollments']);
+
+        $course->setAttribute('learner_enrollment', $this->enrollmentPayload($request, $course));
+
+        return CourseResource::make($course);
+    }
+
+    public function store(StoreCourseRequest $request, SaveCourse $saveCourse): JsonResponse
+    {
+        /** @var User $author */
+        $author = $request->user();
+
+        /** @var array{title: string, summary?: ?string, description?: ?string, status: string} $attributes */
+        $attributes = $request->validated();
+
+        return CourseResource::make($saveCourse->create($attributes, $author))
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    public function update(UpdateCourseRequest $request, Course $course, SaveCourse $saveCourse): CourseResource
+    {
+        /** @var array{title: string, summary?: ?string, description?: ?string, status: string} $attributes */
+        $attributes = $request->validated();
+
+        return CourseResource::make($saveCourse->update($course, $attributes));
+    }
+
+    public function destroy(Course $course): Response
+    {
+        // Soft delete: a course carries learner progress worth recovering.
+        $course->delete();
+
+        return response()->noContent();
+    }
+
+    /**
+     * The status vocabulary, so the editor never hardcodes it.
+     */
+    public function statuses(): JsonResponse
+    {
+        $statuses = array_map(
+            static fn (CourseStatus $status): array => [
+                'value' => $status->value,
+                'label' => $status->label(),
+            ],
+            CourseStatus::cases(),
+        );
+
+        return response()->json(['data' => $statuses]);
+    }
+
+    /**
+     * The signed-in learner's own progress, or null if they are not enrolled.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function enrollmentPayload(Request $request, Course $course): ?array
+    {
+        $enrollment = Enrollment::query()
+            ->where('course_id', $course->getKey())
+            ->where('user_id', $request->user()?->getKey())
+            ->with('completions')
+            ->first();
+
+        if ($enrollment === null) {
+            return null;
+        }
+
+        return [
+            'id' => $enrollment->id,
+            'enrolled_at' => $enrollment->enrolled_at?->toIso8601String(),
+            'completed_at' => $enrollment->completed_at?->toIso8601String(),
+            'is_completed' => $enrollment->isCompleted(),
+            'progress' => $this->progress->percentage($enrollment),
+            'completed_lesson_ids' => $enrollment->completions->pluck('lesson_id')->values(),
+        ];
+    }
+}

@@ -56,7 +56,10 @@ return [
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-            'throw' => false,
+            // Lesson attachments live here. A silent false on a failed upload
+            // would leave a lesson pointing at an object that does not exist,
+            // so storage errors must surface as exceptions.
+            'throw' => true,
             'report' => false,
         ],
 

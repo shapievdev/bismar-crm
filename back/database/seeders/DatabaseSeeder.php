@@ -25,6 +25,6 @@ class DatabaseSeeder extends Seeder
             ['name' => 'Администратор', 'password' => 'password'],
         )->syncRoles(Role::Admin->value);
 
-        $this->call(KnowledgeSeeder::class);
+        $this->call(LmsSeeder::class);
     }
 }

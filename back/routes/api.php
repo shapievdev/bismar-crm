@@ -6,8 +6,11 @@ use App\Enums\Permission;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Auth\RegisteredUserController;
-use App\Http\Controllers\Api\Knowledge\ArticleController;
-use App\Http\Controllers\Api\Knowledge\CategoryController;
+use App\Http\Controllers\Api\Lms\CourseController;
+use App\Http\Controllers\Api\Lms\CourseStructureController;
+use App\Http\Controllers\Api\Lms\LearningController;
+use App\Http\Controllers\Api\Lms\LessonAttachmentController;
+use App\Http\Controllers\Api\Lms\QuizController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
@@ -23,50 +26,49 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
     });
 });
 
-Route::middleware('auth:sanctum')
-    ->prefix('knowledge')
-    ->as('knowledge.')
-    ->group(function (): void {
-        Route::get('statuses', [ArticleController::class, 'statuses'])
-            ->middleware('can:'.Permission::ViewKnowledge->value)
-            ->name('statuses');
+Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function (): void {
+    $view = 'can:'.Permission::ViewCourses->value;
+    $create = 'can:'.Permission::CreateCourses->value;
+    $update = 'can:'.Permission::UpdateCourses->value;
+    $delete = 'can:'.Permission::DeleteCourses->value;
 
-        Route::get('categories', [CategoryController::class, 'index'])
-            ->middleware('can:'.Permission::ViewKnowledge->value)
-            ->name('categories.index');
+    Route::get('statuses', [CourseController::class, 'statuses'])->middleware($view)->name('statuses');
 
-        Route::post('categories', [CategoryController::class, 'store'])
-            ->middleware('can:'.Permission::UpdateKnowledge->value)
-            ->name('categories.store');
+    // Learning. Per-course visibility is decided by the policy, which also has
+    // to hide unpublished courses — a route-level check cannot express that.
+    Route::get('my-courses', [LearningController::class, 'myEnrollments'])->middleware($view)->name('my-courses');
+    Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');
+    Route::get('lessons/{lesson}', [LearningController::class, 'showLesson'])->middleware($view)->name('lessons.show');
+    Route::post('lessons/{lesson}/complete', [LearningController::class, 'completeLesson'])->middleware($view)->name('lessons.complete');
+    Route::post('lessons/{lesson}/quiz/submit', [LearningController::class, 'submitQuiz'])->middleware($view)->name('quiz.submit');
 
-        Route::put('categories/{category}', [CategoryController::class, 'update'])
-            ->middleware('can:'.Permission::UpdateKnowledge->value)
-            ->name('categories.update');
+    // Catalogue.
+    Route::get('courses', [CourseController::class, 'index'])->middleware($view)->name('courses.index');
+    Route::get('courses/{course}', [CourseController::class, 'show'])->middleware($view)->name('courses.show');
 
-        Route::delete('categories/{category}', [CategoryController::class, 'destroy'])
-            ->middleware('can:'.Permission::DeleteKnowledge->value)
-            ->name('categories.destroy');
+    // Authoring.
+    Route::post('courses', [CourseController::class, 'store'])->middleware($create)->name('courses.store');
+    Route::put('courses/{course}', [CourseController::class, 'update'])->middleware($update)->name('courses.update');
+    Route::delete('courses/{course}', [CourseController::class, 'destroy'])->middleware($delete)->name('courses.destroy');
 
-        // Per-article authorisation lives in the policy: it also has to hide
-        // drafts, which a route-level permission check cannot express.
-        Route::get('articles', [ArticleController::class, 'index'])
-            ->middleware('can:'.Permission::ViewKnowledge->value)
-            ->name('articles.index');
+    Route::middleware($update)->group(function (): void {
+        Route::post('courses/{course}/modules', [CourseStructureController::class, 'storeModule'])->name('modules.store');
+        Route::put('modules/{module}', [CourseStructureController::class, 'updateModule'])->name('modules.update');
+        Route::post('modules/{module}/lessons', [CourseStructureController::class, 'storeLesson'])->name('lessons.store');
+        Route::put('lessons/{lesson}', [CourseStructureController::class, 'updateLesson'])->name('lessons.update');
 
-        Route::post('articles', [ArticleController::class, 'store'])
-            ->middleware('can:'.Permission::CreateKnowledge->value)
-            ->name('articles.store');
+        Route::post('lessons/{lesson}/attachments', [LessonAttachmentController::class, 'store'])->name('attachments.store');
+        Route::delete('attachments/{attachment}', [LessonAttachmentController::class, 'destroy'])->name('attachments.destroy');
 
-        Route::get('articles/{article}', [ArticleController::class, 'show'])
-            ->middleware('can:'.Permission::ViewKnowledge->value)
-            ->name('articles.show');
-
-        Route::put('articles/{article}', [ArticleController::class, 'update'])
-            ->name('articles.update');
-
-        Route::delete('articles/{article}', [ArticleController::class, 'destroy'])
-            ->name('articles.destroy');
+        Route::put('lessons/{lesson}/quiz', [QuizController::class, 'save'])->name('quiz.save');
+        Route::delete('lessons/{lesson}/quiz', [QuizController::class, 'destroy'])->name('quiz.destroy');
     });
+
+    Route::middleware($delete)->group(function (): void {
+        Route::delete('modules/{module}', [CourseStructureController::class, 'destroyModule'])->name('modules.destroy');
+        Route::delete('lessons/{lesson}', [CourseStructureController::class, 'destroyLesson'])->name('lessons.destroy');
+    });
+});
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('permissions', [PermissionController::class, 'index'])
