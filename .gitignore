@@ -1,0 +1,11 @@
+# Editors
+/.idea
+/.vscode
+/.fleet
+/.zed
+
+# OS
+.DS_Store
+Thumbs.db
+
+# back/ and front/ keep their own .gitignore for framework-specific artefacts.
