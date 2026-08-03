@@ -45,7 +45,7 @@ async function handleSubmit() {
 
 <template>
   <div class="auth-card">
-    <BrandMark :size="30" class="auth-card__logo" />
+    <BrandMark :size="52" class="auth-card__logo" />
 
     <h1 class="auth-card__title">
       Вход

@@ -23,7 +23,7 @@ const initials = computed(() =>
     <header class="topbar">
       <div class="topbar__inner">
         <NuxtLink to="/" class="brand" aria-label="Bismar">
-          <BrandMark :size="34" />
+          <BrandMark :size="44" />
         </NuxtLink>
 
         <nav v-if="isAuthenticated" class="nav">
