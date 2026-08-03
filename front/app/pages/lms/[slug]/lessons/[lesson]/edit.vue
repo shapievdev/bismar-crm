@@ -169,12 +169,18 @@ async function removeQuiz() {
 
       <div class="field">
         <label class="field-label">Содержание урока</label>
-        <RichTextEditor
-          v-model="document"
-          :upload-image="uploadInlineImage"
-          :upload-video="uploadInlineVideo"
-          placeholder="Заголовки, текст, цитаты, таблицы, изображения, видео и блоки HTML…"
-        />
+        <ClientOnly>
+          <EditorRichTextEditor
+            v-model="document"
+            :upload-image="uploadInlineImage"
+            :upload-video="uploadInlineVideo"
+            placeholder="Заголовки, текст, цитаты, таблицы, изображения, видео и блоки HTML…"
+          />
+
+          <template #fallback>
+            <div class="editor-skeleton skeleton" />
+          </template>
+        </ClientOnly>
         <p v-if="errors.content_json?.length" class="field__error">
           {{ errors.content_json[0] }}
         </p>
@@ -293,6 +299,11 @@ async function removeQuiz() {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.editor-skeleton {
+  height: 22rem;
+  border-radius: var(--radius);
 }
 
 .muted {

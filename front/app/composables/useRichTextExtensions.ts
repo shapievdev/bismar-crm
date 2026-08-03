@@ -19,7 +19,10 @@ export function useRichTextExtensions(options: { placeholder?: string } = {}) {
   return [
     StarterKit.configure({
       heading: { levels: [2, 3, 4] },
+      // Both are configured below with our own options; StarterKit already
+      // bundles them, and registering twice makes Tiptap warn about duplicates.
       link: false,
+      underline: false,
     }),
 
     Underline,

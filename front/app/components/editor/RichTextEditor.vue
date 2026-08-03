@@ -11,6 +11,9 @@ const props = defineProps<{
 
 const model = defineModel<JSONContent | null>({ required: true })
 
+// ProseMirror needs a DOM, so this component is mounted inside <ClientOnly>.
+// Rendering it during SSR produces an empty surface and a hydration mismatch.
+
 const editor = useEditor({
   content: model.value ?? undefined,
   extensions: useRichTextExtensions({ placeholder: props.placeholder }),

@@ -20,6 +20,16 @@ class Lesson extends Model
     use HasFactory;
 
     /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        // Without this the jsonb column comes back as a raw string and every
+        // consumer would have to decode it by hand.
+        return ['content_json' => 'array'];
+    }
+
+    /**
      * @return BelongsTo<CourseModule, $this>
      */
     public function module(): BelongsTo

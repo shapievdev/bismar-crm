@@ -73,6 +73,10 @@ function resize(delta: number) {
       </div>
     </div>
 
+    <!--
+      No loading="lazy" here. A srcdoc frame has no network request to trigger
+      the deferred load, so Chrome leaves it blank indefinitely.
+    -->
     <iframe
       v-else-if="html"
       class="html-block__frame"
@@ -80,7 +84,6 @@ function resize(delta: number) {
       :sandbox="SANDBOX"
       :srcdoc="html"
       title="Встроенный HTML"
-      loading="lazy"
     />
 
     <p v-else class="html-block__empty faint">
