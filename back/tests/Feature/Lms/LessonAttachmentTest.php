@@ -128,6 +128,109 @@ final class LessonAttachmentTest extends TestCase
             ->assertJsonPath('data.attachments.0.name', 'notes.pdf');
     }
 
+    public function test_an_author_can_upload_a_lesson_video(): void
+    {
+        $lesson = $this->lesson();
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.video.store', $lesson), [
+                'video' => UploadedFile::fake()->create('урок.mp4', 2048, 'video/mp4'),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.video_name', 'урок.mp4');
+
+        $stored = $lesson->refresh();
+
+        $this->assertSame('s3', $stored->video_disk);
+        Storage::disk('s3')->assertExists($stored->video_path);
+        // The object key is generated, never taken from the client's filename.
+        $this->assertStringStartsWith("lessons/{$lesson->id}/video/", $stored->video_path);
+    }
+
+    public function test_replacing_a_video_removes_the_previous_object(): void
+    {
+        $lesson = $this->lesson();
+        $author = $this->author();
+
+        $this->actingAs($author)->postJson(route('lms.video.store', $lesson), [
+            'video' => UploadedFile::fake()->create('first.mp4', 512, 'video/mp4'),
+        ])->assertOk();
+
+        $first = $lesson->refresh()->video_path;
+
+        $this->actingAs($author)->postJson(route('lms.video.store', $lesson), [
+            'video' => UploadedFile::fake()->create('second.mp4', 512, 'video/mp4'),
+        ])->assertOk();
+
+        $second = $lesson->refresh()->video_path;
+
+        $this->assertNotSame($first, $second);
+        Storage::disk('s3')->assertMissing($first);
+        Storage::disk('s3')->assertExists($second);
+    }
+
+    public function test_a_non_video_file_is_refused_as_a_video(): void
+    {
+        $this->actingAs($this->author())
+            ->postJson(route('lms.video.store', $this->lesson()), [
+                'video' => UploadedFile::fake()->create('notes.pdf', 64, 'application/pdf'),
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('video');
+    }
+
+    public function test_deleting_a_video_removes_it_from_storage(): void
+    {
+        $lesson = $this->lesson();
+        $author = $this->author();
+
+        $this->actingAs($author)->postJson(route('lms.video.store', $lesson), [
+            'video' => UploadedFile::fake()->create('clip.mp4', 512, 'video/mp4'),
+        ])->assertOk();
+
+        $path = $lesson->refresh()->video_path;
+
+        $this->actingAs($author)->deleteJson(route('lms.video.destroy', $lesson))->assertOk();
+
+        $this->assertNull($lesson->refresh()->video_path);
+        Storage::disk('s3')->assertMissing($path);
+    }
+
+    public function test_a_learner_cannot_upload_a_video(): void
+    {
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.video.store', $this->lesson()), [
+                'video' => UploadedFile::fake()->create('clip.mp4', 128, 'video/mp4'),
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_documents_beyond_the_original_list_are_accepted(): void
+    {
+        $lesson = $this->lesson();
+        $author = $this->author();
+
+        foreach ([['note.rtf', 'application/rtf'], ['sheet.ods', 'application/vnd.oasis.opendocument.spreadsheet']] as [$name, $mime]) {
+            $this->actingAs($author)
+                ->postJson(route('lms.attachments.store', $lesson), [
+                    'file' => UploadedFile::fake()->create($name, 32, $mime),
+                ])
+                ->assertCreated();
+        }
+
+        $this->assertSame(2, LessonAttachment::query()->count());
+    }
+
+    public function test_svg_is_refused_because_it_can_carry_script(): void
+    {
+        $this->actingAs($this->author())
+            ->postJson(route('lms.attachments.store', $this->lesson()), [
+                'file' => UploadedFile::fake()->create('logo.svg', 8, 'image/svg+xml'),
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('file');
+    }
+
     private function lesson(): Lesson
     {
         return Course::factory()->withLessons(1)->create()->lessons()->firstOrFail();

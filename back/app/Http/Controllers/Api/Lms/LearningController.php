@@ -77,7 +77,9 @@ final class LearningController extends Controller
 
         $lesson->load('attachments', 'quiz.questions.options');
 
-        $enrollment = $this->enrollmentFor($request, $course);
+        // A knowledge base has no sign-up step: opening a lesson is enough to
+        // start tracking progress, so the enrolment is created on the spot.
+        $enrollment = $this->ensureEnrollment($request, $course);
 
         $lesson->setAttribute(
             'is_completed_by_learner',
@@ -195,14 +197,34 @@ final class LearningController extends Controller
     }
 
     /**
+     * Returns the reader's enrolment, creating it if the material is published.
+     *
+     * Draft material is previewed by editors, whose reading is not progress
+     * worth recording, so no enrolment is created for it.
+     */
+    private function ensureEnrollment(Request $request, Course $course): ?Enrollment
+    {
+        $existing = $this->enrollmentFor($request, $course);
+
+        if ($existing !== null || ! $course->status->isOpenToLearners()) {
+            return $existing;
+        }
+
+        /** @var User $reader */
+        $reader = $request->user();
+
+        return app(EnrollLearner::class)->handle($course, $reader);
+    }
+
+    /**
      * @throws ConflictException
      */
     private function requireEnrollment(Request $request, Course $course): Enrollment
     {
-        $enrollment = $this->enrollmentFor($request, $course);
+        $enrollment = $this->ensureEnrollment($request, $course);
 
         if ($enrollment === null) {
-            throw new ConflictException('Сначала запишитесь на курс.');
+            throw new ConflictException('Материал не опубликован — прогресс не сохраняется.');
         }
 
         return $enrollment;

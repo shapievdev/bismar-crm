@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['module_id', 'title', 'slug', 'content', 'video_url', 'duration_minutes', 'position'])]
+#[Fillable(['module_id', 'title', 'slug', 'content', 'video_url', 'video_path', 'video_disk', 'video_name', 'video_size', 'duration_minutes', 'position'])]
 class Lesson extends Model
 {
     /** @use HasFactory<LessonFactory> */
@@ -40,6 +41,29 @@ class Lesson extends Model
     public function quiz(): HasOne
     {
         return $this->hasOne(Quiz::class);
+    }
+
+    /**
+     * A short-lived signed URL for an uploaded video, or null when the lesson
+     * has none. Links to YouTube or Vimeo live in video_url instead.
+     */
+    public function videoUrl(): ?string
+    {
+        if ($this->video_path === null || $this->video_disk === null) {
+            return null;
+        }
+
+        return Storage::disk($this->video_disk)->temporaryUrl(
+            $this->video_path,
+            now()->addMinutes(config('lms.attachment_url_ttl_minutes')),
+        );
+    }
+
+    public function deleteVideoFromStorage(): void
+    {
+        if ($this->video_path !== null && $this->video_disk !== null) {
+            Storage::disk($this->video_disk)->delete($this->video_path);
+        }
     }
 
     /**

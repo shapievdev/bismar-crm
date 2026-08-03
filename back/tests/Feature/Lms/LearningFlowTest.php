@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
+use App\Actions\Lms\CompleteLesson;
 use App\Enums\Role as RoleEnum;
+use App\Exceptions\ConflictException;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\User;
+use Database\Factories\CourseModuleFactory;
+use Database\Factories\LessonFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\TestCase;
@@ -160,26 +164,63 @@ final class LearningFlowTest extends TestCase
         $this->assertNull(Enrollment::query()->sole()->completed_at);
     }
 
-    public function test_a_lesson_cannot_be_completed_without_enrolling(): void
+    public function test_opening_a_lesson_enrols_the_reader_automatically(): void
     {
-        $course = Course::factory()->withLessons(1)->create();
+        $course = Course::factory()->withLessons(2)->create();
+
+        $this->assertSame(0, Enrollment::query()->count());
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.lessons.complete', $course->lessons()->first()))
+            ->getJson(route('lms.lessons.show', $course->lessons()->first()))
+            ->assertOk();
+
+        // A knowledge base has no sign-up step: reading starts the tracking.
+        $this->assertSame(1, Enrollment::query()->count());
+    }
+
+    public function test_reading_draft_material_does_not_create_an_enrolment(): void
+    {
+        $course = Course::factory()->create();
+        CourseModuleFactory::new()->create(['course_id' => $course->id]);
+        $lesson = LessonFactory::new()->create(['module_id' => $course->modules()->first()->id]);
+
+        // Authors preview drafts; that is not progress worth recording.
+        $this->actingAs($this->author())
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertOk();
+
+        $this->assertSame(0, Enrollment::query()->count());
+    }
+
+    public function test_a_lesson_in_unpublished_material_cannot_be_completed(): void
+    {
+        $course = Course::factory()->create();
+        CourseModuleFactory::new()->create(['course_id' => $course->id]);
+        $lesson = LessonFactory::new()->create(['module_id' => $course->modules()->first()->id]);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.lessons.complete', $lesson))
             ->assertConflict();
     }
 
-    public function test_a_lesson_from_another_course_cannot_be_completed(): void
+    /**
+     * With enrolment created on demand, the HTTP layer can no longer present a
+     * lesson/enrolment mismatch — but the guard still has to hold, so it is
+     * asserted directly against the action.
+     */
+    public function test_a_lesson_outside_the_enrolments_course_is_refused(): void
     {
         $course = Course::factory()->withLessons(1)->create();
         $other = Course::factory()->withLessons(1)->create();
-        $learner = $this->learner();
 
-        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+        $enrollment = Enrollment::factory()->create([
+            'course_id' => $course->id,
+            'user_id' => $this->learner()->id,
+        ]);
 
-        $this->actingAs($learner)
-            ->postJson(route('lms.lessons.complete', $other->lessons()->first()))
-            ->assertConflict();
+        $this->expectException(ConflictException::class);
+
+        app(CompleteLesson::class)->handle($enrollment, $other->lessons()->firstOrFail());
     }
 
     public function test_a_lesson_with_a_quiz_cannot_be_ticked_off_without_passing(): void

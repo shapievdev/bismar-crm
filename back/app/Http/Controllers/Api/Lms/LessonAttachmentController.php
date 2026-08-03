@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\StoreLessonAttachment;
+use App\Actions\Lms\StoreLessonVideo;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\StoreAttachmentRequest;
+use App\Http\Requests\Lms\StoreVideoRequest;
 use App\Http\Resources\Lms\LessonAttachmentResource;
+use App\Http\Resources\Lms\LessonResource;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
 use Illuminate\Http\JsonResponse;
@@ -33,5 +36,18 @@ final class LessonAttachmentController extends Controller
         $storeAttachment->delete($attachment);
 
         return response()->noContent();
+    }
+
+    public function storeVideo(
+        StoreVideoRequest $request,
+        Lesson $lesson,
+        StoreLessonVideo $storeVideo,
+    ): LessonResource {
+        return LessonResource::make($storeVideo->handle($lesson, $request->file('video')));
+    }
+
+    public function destroyVideo(Lesson $lesson, StoreLessonVideo $storeVideo): LessonResource
+    {
+        return LessonResource::make($storeVideo->remove($lesson));
     }
 }

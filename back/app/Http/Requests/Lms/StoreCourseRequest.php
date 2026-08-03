@@ -21,6 +21,7 @@ class StoreCourseRequest extends FormRequest
             'title' => ['required', 'string', 'max:255'],
             'summary' => ['nullable', 'string', 'max:500'],
             'description' => ['nullable', 'string'],
+            'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')],
             'status' => ['required', Rule::enum(CourseStatus::class)],
         ];
     }

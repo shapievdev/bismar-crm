@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { ValidationErrors } from '~/composables/useAuth'
-import type { CoursePayload, StatusOption } from '~/types/lms'
+import type { Category, CoursePayload, StatusOption } from '~/types/lms'
 
 defineProps<{
   statuses: StatusOption[]
+  categories: Category[]
   errors: ValidationErrors
   isSubmitting: boolean
   submitLabel: string
@@ -35,6 +36,21 @@ const { can } = useAuth()
       <textarea id="description" v-model="model.description" rows="8" />
       <p v-if="errors.description?.length" class="field__error">
         {{ errors.description[0] }}
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="category">Категория</label>
+      <select id="category" v-model="model.category_id">
+        <option :value="null">
+          Без категории
+        </option>
+        <option v-for="item in categories" :key="item.id" :value="item.id">
+          {{ item.name }}
+        </option>
+      </select>
+      <p v-if="errors.category_id?.length" class="field__error">
+        {{ errors.category_id[0] }}
       </p>
     </div>
 

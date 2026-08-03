@@ -6,16 +6,20 @@ definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
 const router = useRouter()
-const { fetchCourse, updateCourse, fetchStatuses, uploadCover, deleteCover } = useLmsApi()
+const { fetchCourse, updateCourse, fetchStatuses, fetchCategories, uploadCover, deleteCover } = useLmsApi()
 
 const slug = computed(() => String(route.params.slug))
 
 const { data, error, refresh } = await useAsyncData(
   () => `lms.edit.${slug.value}`,
   async () => {
-    const [course, statuses] = await Promise.all([fetchCourse(slug.value), fetchStatuses()])
+    const [course, statuses, categories] = await Promise.all([
+      fetchCourse(slug.value),
+      fetchStatuses(),
+      fetchCategories(),
+    ])
 
-    return { course: course.data, statuses: statuses.data }
+    return { course: course.data, statuses: statuses.data, categories: categories.data }
   },
 )
 
@@ -30,6 +34,7 @@ const form = ref<CoursePayload>({
   summary: data.value?.course.summary ?? '',
   description: data.value?.course.description ?? '',
   status: data.value?.course.status ?? 'draft',
+  category_id: data.value?.course.category?.id ?? null,
 })
 
 const errors = ref<ValidationErrors>({})
@@ -107,7 +112,7 @@ async function submit(payload: CoursePayload) {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось сохранить курс.'
+      generalError.value = 'Не удалось сохранить материал.'
     }
   }
   finally {
@@ -120,10 +125,10 @@ async function submit(payload: CoursePayload) {
   <section v-if="data">
     <header class="page-header">
       <h1 class="page-title">
-        Редактирование курса
+        Редактирование материала
       </h1>
       <NuxtLink :to="`/lms/${slug}`" class="back">
-        ← К курсу
+        ← К материалу
       </NuxtLink>
     </header>
 
@@ -177,6 +182,7 @@ async function submit(payload: CoursePayload) {
     <CourseForm
       v-model="form"
       :statuses="data.statuses"
+      :categories="data.categories"
       :errors="errors"
       :is-submitting="isSubmitting"
       submit-label="Сохранить"

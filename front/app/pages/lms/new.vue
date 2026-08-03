@@ -3,18 +3,23 @@ import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth
 import type { CoursePayload } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.create' })
-useHead({ title: 'Новый курс' })
+useHead({ title: 'Новый материал' })
 
-const { createCourse, fetchStatuses } = useLmsApi()
+const { createCourse, fetchStatuses, fetchCategories } = useLmsApi()
 const router = useRouter()
 
-const { data: statuses } = await useAsyncData('lms.statuses', () => fetchStatuses())
+const { data: reference } = await useAsyncData('lms.new.reference', async () => {
+  const [statuses, categories] = await Promise.all([fetchStatuses(), fetchCategories()])
+
+  return { statuses: statuses.data, categories: categories.data }
+})
 
 const form = ref<CoursePayload>({
   title: '',
   summary: '',
   description: '',
   status: 'draft',
+  category_id: null,
 })
 
 const errors = ref<ValidationErrors>({})
@@ -41,7 +46,7 @@ async function submit(payload: CoursePayload) {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось создать курс.'
+      generalError.value = 'Не удалось создать материал.'
     }
   }
   finally {
@@ -53,9 +58,11 @@ async function submit(payload: CoursePayload) {
 <template>
   <section>
     <header class="page-header">
-      <h1>Новый курс</h1>
+      <h1 class="page-title">
+        Новый материал
+      </h1>
       <NuxtLink to="/lms" class="back">
-        ← К курсам
+        ← К базе знаний
       </NuxtLink>
     </header>
 
@@ -65,10 +72,11 @@ async function submit(payload: CoursePayload) {
 
     <CourseForm
       v-model="form"
-      :statuses="statuses?.data ?? []"
+      :statuses="reference?.statuses ?? []"
+      :categories="reference?.categories ?? []"
       :errors="errors"
       :is-submitting="isSubmitting"
-      submit-label="Создать курс"
+      submit-label="Создать"
       @submit="submit"
     />
   </section>

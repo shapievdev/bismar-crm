@@ -181,14 +181,11 @@ function formatSize(bytes: number): string {
         </div>
       </header>
 
-      <p v-if="!isEnrolled" class="alert alert--danger notice">
-        Вы не записаны на курс — отмечать уроки и проходить тесты нельзя.
-        <NuxtLink :to="`/lms/${courseSlug}`">
-          Записаться
-        </NuxtLink>
-      </p>
+      <div v-if="lesson.video_upload_url" class="video">
+        <video :src="lesson.video_upload_url" controls preload="metadata" />
+      </div>
 
-      <div v-if="embedUrl" class="video">
+      <div v-else-if="embedUrl" class="video">
         <iframe
           :src="embedUrl"
           title="Видео урока"
@@ -466,7 +463,8 @@ function formatSize(bytes: number): string {
   background: #000;
 }
 
-.video iframe {
+.video iframe,
+.video video {
   width: 100%;
   height: 100%;
   border: 0;

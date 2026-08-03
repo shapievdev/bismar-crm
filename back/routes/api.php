@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Auth\RegisteredUserController;
+use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseController;
 use App\Http\Controllers\Api\Lms\CourseStructureController;
 use App\Http\Controllers\Api\Lms\LearningController;
@@ -33,6 +34,7 @@ Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function ():
     $delete = 'can:'.Permission::DeleteCourses->value;
 
     Route::get('statuses', [CourseController::class, 'statuses'])->middleware($view)->name('statuses');
+    Route::get('categories', [CategoryController::class, 'index'])->middleware($view)->name('categories.index');
 
     // Learning. Per-course visibility is decided by the policy, which also has
     // to hide unpublished courses — a route-level check cannot express that.
@@ -60,7 +62,13 @@ Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function ():
         Route::post('modules/{module}/lessons', [CourseStructureController::class, 'storeLesson'])->name('lessons.store');
         Route::put('lessons/{lesson}', [CourseStructureController::class, 'updateLesson'])->name('lessons.update');
 
+        Route::post('categories', [CategoryController::class, 'store'])->name('categories.store');
+        Route::put('categories/{category}', [CategoryController::class, 'update'])->name('categories.update');
+        Route::delete('categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+
         Route::post('lessons/{lesson}/attachments', [LessonAttachmentController::class, 'store'])->name('attachments.store');
+        Route::post('lessons/{lesson}/video', [LessonAttachmentController::class, 'storeVideo'])->name('video.store');
+        Route::delete('lessons/{lesson}/video', [LessonAttachmentController::class, 'destroyVideo'])->name('video.destroy');
         Route::delete('attachments/{attachment}', [LessonAttachmentController::class, 'destroy'])->name('attachments.destroy');
 
         Route::put('lessons/{lesson}/quiz', [QuizController::class, 'save'])->name('quiz.save');

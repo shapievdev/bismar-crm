@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Enums\CourseStatus;
 use App\Enums\QuestionType;
+use App\Models\Category;
 use App\Models\Course;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -20,10 +21,23 @@ final class LmsSeeder extends Seeder
     {
         $author = User::query()->orderBy('id')->first();
 
+        $categories = [
+            ['name' => 'Онбординг', 'slug' => 'onbording', 'position' => 0],
+            ['name' => 'Продажи', 'slug' => 'prodazhi', 'position' => 1],
+            ['name' => 'Регламенты', 'slug' => 'reglamenty', 'position' => 2],
+        ];
+
+        foreach ($categories as $attributes) {
+            Category::firstOrCreate(['slug' => $attributes['slug']], $attributes);
+        }
+
+        $onboarding = Category::firstWhere('slug', 'onbording');
+
         $course = Course::firstOrCreate(
             ['slug' => 'vvedenie-v-bismar-crm'],
             [
                 'author_id' => $author?->getKey(),
+                'category_id' => $onboarding?->getKey(),
                 'title' => 'Введение в Bismar CRM',
                 'summary' => 'Базовый курс для новых сотрудников: как устроена система и что от вас требуется.',
                 'description' => 'Курс знакомит с интерфейсом CRM, правилами ведения данных и разграничением доступа. Пройдите его в первую неделю работы.',

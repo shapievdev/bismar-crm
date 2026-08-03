@@ -6,6 +6,9 @@ export interface LessonSummary {
   title: string
   slug: string
   video_url: string | null
+  video_upload_url?: string | null
+  video_name?: string | null
+  video_size?: number | null
   duration_minutes: number | null
   position: number
   has_quiz?: boolean
@@ -19,6 +22,21 @@ export interface LessonSummary {
   course_title?: string
   course_slug?: string
   own_attempts?: QuizAttempt[]
+}
+
+export interface Category {
+  id: number
+  name: string
+  slug: string
+  description: string | null
+  position: number
+  courses_count?: number
+}
+
+export interface CategoryPayload {
+  name: string
+  description: string | null
+  position?: number
 }
 
 export interface LessonLink {
@@ -87,6 +105,7 @@ export interface Course {
   status_label: string
   published_at: string | null
   cover_url: string | null
+  category: Category | null
   lessons_count?: number
   enrollments_count?: number
   author: { id: number, name: string } | null
@@ -116,6 +135,7 @@ export interface CoursePayload {
   summary: string | null
   description: string | null
   status: CourseStatus
+  category_id: number | null
 }
 
 export interface ModulePayload {
@@ -128,6 +148,9 @@ export interface LessonPayload {
   title: string
   content: string | null
   video_url: string | null
+  video_upload_url?: string | null
+  video_name?: string | null
+  video_size?: number | null
   duration_minutes: number | null
   position?: number
 }

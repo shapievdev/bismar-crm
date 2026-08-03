@@ -15,7 +15,7 @@ final readonly class SaveCourse
     public function __construct(private SlugGenerator $slugGenerator) {}
 
     /**
-     * @param  array{title: string, summary?: ?string, description?: ?string, status: string}  $attributes
+     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, category_id?: ?int}  $attributes
      */
     public function create(array $attributes, User $author): Course
     {
@@ -24,6 +24,7 @@ final readonly class SaveCourse
 
             return Course::create([
                 'author_id' => $author->getKey(),
+                'category_id' => $attributes['category_id'] ?? null,
                 'title' => $attributes['title'],
                 'slug' => $this->slugGenerator->generate($attributes['title'], Course::class),
                 'summary' => $attributes['summary'] ?? null,
@@ -35,7 +36,7 @@ final readonly class SaveCourse
     }
 
     /**
-     * @param  array{title: string, summary?: ?string, description?: ?string, status: string}  $attributes
+     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, category_id?: ?int}  $attributes
      */
     public function update(Course $course, array $attributes): Course
     {
@@ -54,6 +55,7 @@ final readonly class SaveCourse
 
             $course->fill([
                 'title' => $attributes['title'],
+                'category_id' => $attributes['category_id'] ?? null,
                 'summary' => $attributes['summary'] ?? null,
                 'description' => $attributes['description'] ?? null,
                 'status' => $status,

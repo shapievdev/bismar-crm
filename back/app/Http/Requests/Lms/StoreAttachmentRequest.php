@@ -20,7 +20,13 @@ final class StoreAttachmentRequest extends FormRequest
                 'max:'.config('lms.attachment_max_kb'),
                 // An allow-list, not a deny-list: anything not named here is
                 // rejected, so a new dangerous extension is refused by default.
-                'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,png,jpg,jpeg,gif,webp,svg,mp4,webm,mp3,zip',
+                // SVG is deliberately absent — it can carry script, and a
+                // viewer opening it would run that script in the storage
+                // origin alongside every other file in the bucket.
+                'mimes:pdf,doc,docx,rtf,odt,xls,xlsx,ods,csv,ppt,pptx,odp,txt,md,'
+                .'png,jpg,jpeg,gif,webp,heic,'
+                .'mp4,webm,mov,mp3,wav,m4a,'
+                .'zip,7z,rar',
             ],
         ];
     }

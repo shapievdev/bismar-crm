@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['author_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'published_at'])]
+#[Fillable(['author_id', 'category_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'published_at'])]
 class Course extends Model
 {
     /** @use HasFactory<CourseFactory> */
@@ -60,6 +60,14 @@ class Course extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');
+    }
+
+    /**
+     * @return BelongsTo<Category, $this>
+     */
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(Category::class);
     }
 
     /**

@@ -2,7 +2,7 @@
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
-const { fetchCourse, enroll } = useLmsApi()
+const { fetchCourse } = useLmsApi()
 const { can } = useAuth()
 
 const slug = computed(() => String(route.params.slug))
@@ -43,32 +43,13 @@ const fallbackGradient = computed(() => {
   return `linear-gradient(135deg, hsl(${hue} 62% 52%), hsl(${(hue + 48) % 360} 58% 42%))`
 })
 
-const isEnrolling = ref(false)
-const enrollError = ref<string | null>(null)
-
-async function join() {
-  isEnrolling.value = true
-  enrollError.value = null
-
-  try {
-    await enroll(slug.value)
-    await refresh()
-  }
-  catch (caught) {
-    const conflict = caught as { data?: { message?: string } }
-    enrollError.value = conflict.data?.message ?? 'Не удалось записаться на курс.'
-  }
-  finally {
-    isEnrolling.value = false
-  }
-}
 </script>
 
 <template>
   <section v-if="course">
     <nav class="crumbs">
       <NuxtLink to="/lms">
-        Обучение
+        База знаний
       </NuxtLink>
       <span aria-hidden="true">/</span>
       <span class="faint">{{ course.title }}</span>
@@ -101,6 +82,7 @@ async function join() {
         <div class="hero__meta">
           <span>{{ course.lessons_count ?? 0 }} {{ pluralise(course.lessons_count ?? 0, 'урок', 'урока', 'уроков') }}</span>
           <span v-if="totalMinutes">≈ {{ totalMinutes }} мин</span>
+          <span v-if="course.category" class="badge">{{ course.category.name }}</span>
           <span v-if="course.author">Автор: {{ course.author.name }}</span>
         </div>
 
@@ -116,18 +98,19 @@ async function join() {
             <span v-else class="badge badge--success">Все уроки пройдены</span>
           </template>
 
-          <button v-else type="button" class="button-primary" :disabled="isEnrolling" @click="join">
-            {{ isEnrolling ? 'Записываем…' : 'Записаться на курс' }}
-          </button>
+          <NuxtLink
+            v-else-if="nextLesson"
+            :to="`/lms/${course.slug}/lessons/${nextLesson.id}`"
+            class="button-primary"
+          >
+            Начать чтение
+          </NuxtLink>
 
           <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-secondary">
             Редактировать
           </NuxtLink>
         </div>
 
-        <p v-if="enrollError" class="alert alert--danger" role="alert">
-          {{ enrollError }}
-        </p>
       </div>
 
       <aside v-if="enrollment" class="hero__progress">

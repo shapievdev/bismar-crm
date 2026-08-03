@@ -160,6 +160,12 @@ async function removeQuiz() {
       </div>
     </form>
 
+    <LessonVideoManager
+      :lesson-id="lessonId"
+      :lesson="lesson"
+      @changed="refresh"
+    />
+
     <AttachmentManager
       :lesson-id="lessonId"
       :attachments="lesson.attachments ?? []"

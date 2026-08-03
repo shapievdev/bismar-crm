@@ -30,4 +30,18 @@ return [
 
     'attachment_url_ttl_minutes' => (int) env('LESSON_ATTACHMENT_URL_TTL', 15),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Lesson video
+    |--------------------------------------------------------------------------
+    |
+    | Uploaded lesson videos are larger than ordinary attachments, so they get
+    | their own limit. PHP's upload_max_filesize and post_max_size cap this in
+    | practice — raise them to match, or the request is rejected by PHP before
+    | Laravel ever validates it.
+    |
+    */
+
+    'video_max_kb' => (int) env('LESSON_VIDEO_MAX_KB', 512000),
+
 ];

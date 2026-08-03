@@ -1,5 +1,7 @@
 import type { ResourceResponse } from '~/types/auth'
 import type {
+  Category,
+  CategoryPayload,
   Course,
   CoursePayload,
   Enrollment,
@@ -16,6 +18,7 @@ import type {
 
 export interface CourseQuery {
   search?: string
+  category?: string
   status?: string
   page?: number
 }
@@ -116,5 +119,30 @@ export function useLmsApi() {
 
     deleteCover: (slug: string) =>
       $api(`/api/lms/courses/${slug}/cover`, { method: 'DELETE' }),
+
+    fetchCategories: (): Promise<ResourceResponse<Category[]>> =>
+      $api<ResourceResponse<Category[]>>('/api/lms/categories'),
+
+    createCategory: (body: CategoryPayload): Promise<ResourceResponse<Category>> =>
+      $api<ResourceResponse<Category>>('/api/lms/categories', { method: 'POST', body }),
+
+    updateCategory: (slug: string, body: CategoryPayload): Promise<ResourceResponse<Category>> =>
+      $api<ResourceResponse<Category>>(`/api/lms/categories/${slug}`, { method: 'PUT', body }),
+
+    deleteCategory: (slug: string) =>
+      $api(`/api/lms/categories/${slug}`, { method: 'DELETE' }),
+
+    uploadVideo: (lessonId: number | string, file: File): Promise<ResourceResponse<LessonSummary>> => {
+      const form = new FormData()
+      form.append('video', file)
+
+      return $api<ResourceResponse<LessonSummary>>(`/api/lms/lessons/${lessonId}/video`, {
+        method: 'POST',
+        body: form,
+      })
+    },
+
+    deleteVideo: (lessonId: number | string) =>
+      $api(`/api/lms/lessons/${lessonId}/video`, { method: 'DELETE' }),
   }
 }

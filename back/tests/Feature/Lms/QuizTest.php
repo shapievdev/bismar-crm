@@ -132,13 +132,18 @@ final class QuizTest extends TestCase
         $this->actingAs($learner)->postJson(route('lms.quiz.submit', $lesson), $wrong)->assertConflict();
     }
 
-    public function test_a_quiz_cannot_be_taken_without_enrolling(): void
+    public function test_taking_a_quiz_enrols_the_reader_on_demand(): void
     {
         [, $lesson, $quiz] = $this->courseWithQuiz();
 
+        $this->assertSame(0, Enrollment::query()->count());
+
         $this->actingAs($this->learner())
             ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
-            ->assertConflict();
+            ->assertCreated()
+            ->assertJsonPath('data.passed', true);
+
+        $this->assertSame(1, Enrollment::query()->count());
     }
 
     public function test_an_author_can_save_a_quiz(): void

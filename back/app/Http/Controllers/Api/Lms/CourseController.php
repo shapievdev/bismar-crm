@@ -34,9 +34,13 @@ final class CourseController extends Controller
         $user = $request->user();
 
         $courses = Course::query()
-            ->with('author')
+            ->with('author', 'category')
             ->withCount(['lessons', 'enrollments'])
             ->matching($request->query('search'))
+            ->when(
+                $request->filled('category'),
+                fn ($query) => $query->whereRelation('category', 'slug', $request->query('category')),
+            )
             ->when(
                 // Unpublished courses stay hidden from learners.
                 $user->cannot(Permission::UpdateCourses->value),
@@ -60,7 +64,7 @@ final class CourseController extends Controller
             abort(HttpResponse::HTTP_NOT_FOUND);
         }
 
-        $course->load(['author', 'modules.lessons.quiz'])->loadCount(['lessons', 'enrollments']);
+        $course->load(['author', 'category', 'modules.lessons.quiz'])->loadCount(['lessons', 'enrollments']);
 
         $course->setAttribute('learner_enrollment', $this->enrollmentPayload($request, $course));
 

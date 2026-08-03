@@ -2,9 +2,9 @@
 import type { Course } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
-useHead({ title: 'Обучение' })
+useHead({ title: 'База знаний' })
 
-const { fetchCourses, myCourses } = useLmsApi()
+const { fetchCourses, myCourses, fetchCategories } = useLmsApi()
 const { can } = useAuth()
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +12,7 @@ const router = useRouter()
 type Tab = 'all' | 'mine' | 'drafts'
 
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
+const category = ref(typeof route.query.category === 'string' ? route.query.category : '')
 const tab = ref<Tab>(
   ['all', 'mine', 'drafts'].includes(String(route.query.tab)) ? route.query.tab as Tab : 'all',
 )
@@ -19,12 +20,14 @@ const tab = ref<Tab>(
 const { data, pending, error } = await useAsyncData(
   'lms.catalogue',
   async () => {
-    const [courses, enrolments] = await Promise.all([
+    const [courses, enrolments, categories] = await Promise.all([
       fetchCourses({
         search: search.value || undefined,
+        category: category.value || undefined,
         status: tab.value === 'drafts' ? 'draft' : undefined,
       }),
       myCourses(),
+      fetchCategories(),
     ])
 
     // The catalogue endpoint does not know who is enrolled, so progress is
@@ -49,15 +52,16 @@ const { data, pending, error } = await useAsyncData(
         : null,
     }))
 
-    return { courses: withProgress, total: courses.meta.total }
+    return { courses: withProgress, total: courses.meta.total, categories: categories.data }
   },
-  { watch: [search, tab] },
+  { watch: [search, tab, category] },
 )
 
 watchEffect(() => {
   router.replace({
     query: {
       ...(search.value ? { search: search.value } : {}),
+      ...(category.value ? { category: category.value } : {}),
       ...(tab.value === 'all' ? {} : { tab: tab.value }),
     },
   })
@@ -77,8 +81,8 @@ const completedCount = computed(
 )
 
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
-  { id: 'all', label: 'Все курсы', visible: true },
-  { id: 'mine', label: 'Мои', visible: true },
+  { id: 'all', label: 'Всё', visible: true },
+  { id: 'mine', label: 'Открытое мной', visible: true },
   { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
 ]
 </script>
@@ -88,16 +92,21 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     <header class="head">
       <div>
         <h1 class="page-title">
-          Обучение
+          База знаний
         </h1>
         <p class="page-subtitle">
-          Курсы для команды — проходите последовательно, прогресс сохраняется автоматически.
+          Материалы команды по категориям. Прогресс сохраняется сам, записываться не нужно.
         </p>
       </div>
 
-      <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
-        Новый курс
-      </NuxtLink>
+      <div class="head__actions">
+        <NuxtLink v-if="can('courses.update')" to="/lms/categories" class="button-secondary">
+          Категории
+        </NuxtLink>
+        <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
+          Новый материал
+        </NuxtLink>
+      </div>
     </header>
 
     <div v-if="inProgressCount || completedCount" class="stats">
@@ -111,7 +120,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </div>
       <div class="stat">
         <span class="stat__value">{{ data?.total ?? 0 }}</span>
-        <span class="stat__label">всего доступно</span>
+        <span class="stat__label">материалов</span>
       </div>
     </div>
 
@@ -135,9 +144,31 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         v-model.trim="search"
         type="search"
         class="input search"
-        placeholder="Поиск по курсам…"
-        aria-label="Поиск по курсам"
+        placeholder="Поиск по базе знаний…"
+        aria-label="Поиск по базе знаний"
       >
+    </div>
+
+    <div v-if="(data?.categories.length ?? 0) > 0" class="chips">
+      <button
+        type="button"
+        class="chip"
+        :class="{ 'chip--active': category === '' }"
+        @click="category = ''"
+      >
+        Все категории
+      </button>
+      <button
+        v-for="item in data?.categories ?? []"
+        :key="item.slug"
+        type="button"
+        class="chip"
+        :class="{ 'chip--active': category === item.slug }"
+        @click="category = item.slug"
+      >
+        {{ item.name }}
+        <span class="chip__count">{{ item.courses_count ?? 0 }}</span>
+      </button>
     </div>
 
     <p v-if="error" class="alert alert--danger" role="alert">
@@ -157,16 +188,16 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 
     <UiEmptyState
       v-else-if="!visibleCourses.length"
-      :title="tab === 'mine' ? 'Вы пока не записаны ни на один курс' : 'Курсов пока нет'"
+      :title="tab === 'mine' ? 'Вы ещё ничего не открывали' : 'Материалов пока нет'"
       :description="tab === 'mine'
-        ? 'Откройте вкладку «Все курсы» и запишитесь на подходящий.'
-        : (search ? 'Попробуйте изменить запрос.' : 'Как только появятся курсы, они будут здесь.')"
+        ? 'Откройте любой материал — он появится здесь вместе с прогрессом.'
+        : (search || category ? 'Попробуйте изменить запрос или категорию.' : 'Как только появятся материалы, они будут здесь.')"
     >
       <button v-if="tab === 'mine'" type="button" class="button-secondary" @click="tab = 'all'">
-        Ко всем курсам
+        Ко всем материалам
       </button>
       <NuxtLink v-else-if="can('courses.create')" to="/lms/new" class="button-primary">
-        Создать первый курс
+        Создать первый материал
       </NuxtLink>
     </UiEmptyState>
 
@@ -211,6 +242,53 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .stat__label {
   color: var(--color-text-muted);
   font-size: 0.82rem;
+}
+
+.head__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.head__actions a {
+  text-decoration: none;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.chip--active {
+  background: var(--color-accent-soft);
+  border-color: transparent;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.chip__count {
+  font-size: 0.78rem;
+  opacity: 0.7;
 }
 
 .toolbar {
