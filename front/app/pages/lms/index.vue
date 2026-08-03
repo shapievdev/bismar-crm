@@ -85,16 +85,26 @@ const completedCount = computed(
  * depth rather than by structure.
  */
 const flatCategories = computed(() => {
-  const flat: { slug: string, name: string, depth: number, courses_count?: number }[] = []
+  const flat: {
+    slug: string
+    name: string
+    parentName: string | null
+    courses_count?: number
+  }[] = []
 
-  const walk = (nodes: Category[], depth: number) => {
+  const walk = (nodes: Category[], parentName: string | null) => {
     for (const node of nodes) {
-      flat.push({ slug: node.slug, name: node.name, depth, courses_count: node.courses_count })
-      walk(node.children ?? [], depth + 1)
+      flat.push({
+        slug: node.slug,
+        name: node.name,
+        parentName,
+        courses_count: node.courses_count,
+      })
+      walk(node.children ?? [], node.name)
     }
   }
 
-  walk(data.value?.categories ?? [], 0)
+  walk(data.value?.categories ?? [], null)
 
   return flat
 })
@@ -182,10 +192,10 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         :key="item.slug"
         type="button"
         class="chip"
-        :class="{ 'chip--active': category === item.slug, 'chip--nested': item.depth > 0 }"
+        :class="{ 'chip--active': category === item.slug }"
         @click="category = item.slug"
       >
-        <span v-if="item.depth > 0" class="chip__depth" aria-hidden="true">└</span>
+        <span v-if="item.parentName" class="chip__parent">{{ item.parentName }} /</span>
         {{ item.name }}
         <span class="chip__count">{{ item.courses_count ?? 0 }}</span>
       </button>
@@ -295,13 +305,11 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   font-weight: 500;
 }
 
-.chip--nested {
-  padding-left: 0.5rem;
-}
-
-.chip__depth {
-  color: var(--color-text-faint);
-  font-size: 0.8rem;
+/* A chip row is flat, so nesting is named rather than drawn: the parent reads
+   as a prefix, where an indent or a corner glyph would have nothing to line up
+   against. */
+.chip__parent {
+  opacity: 0.55;
 }
 
 .chip__count {
