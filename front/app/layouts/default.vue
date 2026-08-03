@@ -23,12 +23,7 @@ const initials = computed(() =>
     <header class="topbar">
       <div class="topbar__inner">
         <NuxtLink to="/" class="brand" aria-label="Bismar">
-          <span class="brand__mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-              <path d="M12 1.5 15.4 8.6 22.5 12 15.4 15.4 12 22.5 8.6 15.4 1.5 12 8.6 8.6z" />
-            </svg>
-          </span>
-          <span class="brand__name">Bismar</span>
+          <BrandMark :size="24" />
         </NuxtLink>
 
         <nav v-if="isAuthenticated" class="nav">
@@ -44,7 +39,7 @@ const initials = computed(() =>
       </div>
     </header>
 
-    <div class="body">
+    <div class="body" :class="{ 'body--railed': isAuthenticated }">
       <SideRail v-if="isAuthenticated" />
 
       <main class="main">
@@ -80,25 +75,12 @@ const initials = computed(() =>
   padding: 0 1.75rem;
 }
 
+/* The mark stands on its own, unboxed, and takes the page's text colour. */
 .brand {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  color: inherit;
-  font-weight: 500;
-  font-size: 1.05rem;
-  letter-spacing: -0.01em;
+  color: var(--color-text);
   text-decoration: none;
-}
-
-.brand__mark {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-accent-text);
 }
 
 /* Each destination is its own pill; the current one inverts to solid. */
@@ -151,8 +133,7 @@ const initials = computed(() =>
 }
 
 @media (max-width: 56rem) {
-  .account__name,
-  .brand__name {
+  .account__name {
     display: none;
   }
 
@@ -171,11 +152,15 @@ const initials = computed(() =>
   }
 }
 
-/* The rail takes a fixed column; the page keeps the rest. */
+/*
+ * One column by default. The rail's column only exists when the rail does —
+ * otherwise a guest's login card would be dropped into the narrow slot meant
+ * for it.
+ */
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 2.9rem minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   width: 100%;
   max-width: 82rem;
@@ -184,12 +169,17 @@ const initials = computed(() =>
   align-items: start;
 }
 
+.body--railed {
+  grid-template-columns: 2.9rem minmax(0, 1fr);
+}
+
 .main {
   min-width: 0;
 }
 
 @media (max-width: 60rem) {
-  .body {
+  .body,
+  .body--railed {
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     padding: 1rem 1rem 4rem;

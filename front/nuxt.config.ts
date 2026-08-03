@@ -5,6 +5,13 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  app: {
+    head: {
+      // The SVG mark carries its own light/dark rule, so one file covers both.
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+    },
+  },
+
   // 3000 is left free for other local projects.
   devServer: { port: 3100 },
 
