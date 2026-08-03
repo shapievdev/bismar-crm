@@ -149,4 +149,26 @@ async function submit(payload: CoursePayload) {
   white-space: nowrap;
   border: 0;
 }
+
+@media (max-width: 48rem) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .back,
+  .link {
+    white-space: nowrap;
+  }
+
+  .row {
+    flex-direction: column;
+  }
+
+  .field--narrow {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
 </style>

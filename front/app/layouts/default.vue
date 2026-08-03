@@ -97,6 +97,10 @@ const initials = computed(() =>
 }
 
 .nav__pill {
+  /* Never wrap: a two-line pill breaks the row's rhythm and, once one wraps,
+     the ones after it fall off the edge. The row scrolls instead. */
+  white-space: nowrap;
+  flex-shrink: 0;
   padding: 0.5rem 1.05rem;
   border-radius: var(--radius-pill);
   background: var(--color-surface-raised);
@@ -144,6 +148,11 @@ const initials = computed(() =>
   }
 
   .topbar__inner {
+    /* The brand and account stay put; only the destinations scroll. */
+    gap: 0.75rem;
+  }
+
+  .topbar__inner {
     gap: 0.6rem;
     padding: 0 1rem;
   }
@@ -151,6 +160,9 @@ const initials = computed(() =>
   .nav {
     overflow-x: auto;
     scrollbar-width: none;
+    /* Fades the right edge so a clipped pill reads as "there is more to
+       scroll" rather than as a layout that ran out of room. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
   }
 
   .nav::-webkit-scrollbar {

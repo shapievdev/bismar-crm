@@ -179,9 +179,40 @@ async function save() {
   align-items: start;
 }
 
-@media (max-width: 40rem) {
+@media (max-width: 48rem) {
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Roles become a scrolling strip rather than a column that pushes the editor
+     off the bottom of the screen. */
+  .roles {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.4rem;
+    scrollbar-width: none;
+  }
+
+  .roles::-webkit-scrollbar {
+    display: none;
+  }
+
+  .roles__item {
+    flex-shrink: 0;
+    border: 1px solid var(--color-border);
+  }
+
+  .editor {
+    padding: 1rem;
+  }
+
+  .editor__permission {
+    grid-template-columns: auto 1fr;
+    row-gap: 0.1rem;
+  }
+
+  .editor__permission code {
+    grid-column: 2;
   }
 }
 

@@ -687,4 +687,36 @@ function formatSize(bytes: number): string {
 .pager__link--next {
   text-align: right;
 }
+
+@media (max-width: 48rem) {
+  .head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  /* One link per row: two half-width cards leave no room for a lesson title. */
+  .pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pager__link--next {
+    text-align: left;
+  }
+
+  .quiz {
+    padding: 1rem;
+  }
+
+  .files li {
+    flex-wrap: wrap;
+  }
+
+  .sidebar {
+    /* Collapsed by default on a phone: the outline is a whole screen of links
+       standing between the reader and the lesson. */
+    max-height: 13rem;
+    overflow-y: auto;
+  }
+}
 </style>

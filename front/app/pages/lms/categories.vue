@@ -323,4 +323,37 @@ async function move(siblings: Category[], index: number, delta: number) {
 .muted {
   color: var(--color-text-muted);
 }
+
+@media (max-width: 48rem) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
+
+  .head__actions > * {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .editor__fields {
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* The row stacks so the action buttons keep their labels instead of being
+     squeezed into unreadable stubs. */
+  .row {
+    flex-wrap: wrap;
+    row-gap: 0.6rem;
+  }
+
+  .row__body {
+    flex-basis: 100%;
+  }
+
+  .row__actions {
+    flex-wrap: wrap;
+  }
+}
 </style>

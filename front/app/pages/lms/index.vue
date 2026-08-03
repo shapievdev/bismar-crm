@@ -378,4 +378,73 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .skeleton-line--short { width: 35%; }
 .skeleton-line--title { width: 75%; height: 1.1rem; }
 .skeleton-line--half { width: 60%; }
+
+/*
+ * Narrow screens: the header, its actions and the toolbar each get their own
+ * row. Side by side they either overflow the viewport or squeeze the title
+ * into two words per line.
+ */
+@media (max-width: 48rem) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
+
+  .head__actions a {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+  }
+
+  .stat {
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex-shrink: 0;
+  }
+
+  .search {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chip {
+    flex-shrink: 0;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 </style>

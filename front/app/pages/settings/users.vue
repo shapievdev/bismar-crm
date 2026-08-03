@@ -241,4 +241,22 @@ tbody tr:last-child td {
   opacity: 0.6;
   cursor: default;
 }
+
+@media (max-width: 48rem) {
+  .page-header {
+    margin-bottom: 1.1rem;
+  }
+
+  /* The table keeps its columns and scrolls sideways inside its own box, which
+     beats reflowing rows into a shape that hides which value belongs where. */
+  th,
+  td {
+    padding: 0.6rem 0.7rem;
+  }
+
+  .actions {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+}
 </style>

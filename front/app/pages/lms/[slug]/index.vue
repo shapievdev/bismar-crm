@@ -376,4 +376,43 @@ const totalMinutes = computed(() =>
   font-size: 0.9rem;
   white-space: pre-wrap;
 }
+
+@media (max-width: 48rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 1.25rem;
+  }
+
+  .hero__title {
+    font-size: 1.45rem;
+  }
+
+  /* The ring moves below the text and lies down beside its caption. */
+  .hero__progress {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .hero__actions a,
+  .hero__actions button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .module {
+    padding: 0.9rem 1rem;
+  }
+
+  .lesson {
+    padding: 0.55rem 0.4rem;
+  }
+
+  .lesson__time {
+    display: none;
+  }
+}
 </style>

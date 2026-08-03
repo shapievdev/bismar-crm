@@ -317,6 +317,33 @@ a {
   font-size: 0.85rem;
 }
 
+/*
+ * Type scales down on small screens: a 2.15rem heading eats a third of a phone
+ * viewport before a single line of content appears.
+ */
+@media (max-width: 48rem) {
+  .page-title {
+    font-size: 1.6rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .metric {
+    font-size: 1.9rem;
+  }
+
+  .auth-card {
+    margin: 1.5rem auto;
+    padding: 1.5rem;
+  }
+
+  .empty-state {
+    padding: 2.25rem 1.1rem;
+  }
+}
+
 /* ---------- Badges ---------- */
 
 .badge {
