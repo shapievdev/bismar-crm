@@ -23,7 +23,7 @@ const initials = computed(() =>
     <header class="topbar">
       <div class="topbar__inner">
         <NuxtLink to="/" class="brand" aria-label="Bismar">
-          <BrandMark :size="24" />
+          <BrandMark :size="34" />
         </NuxtLink>
 
         <nav v-if="isAuthenticated" class="nav">
@@ -75,11 +75,17 @@ const initials = computed(() =>
   padding: 0 1.75rem;
 }
 
-/* The mark stands on its own, unboxed, and takes the page's text colour. */
+/*
+ * Neutral on purpose. The tile takes the text colour and the glyph the page
+ * colour, so the mark reads as brand rather than as state — lime is reserved
+ * for the active pill, and a lime logo beside it would say the same thing
+ * twice.
+ */
 .brand {
   display: flex;
   align-items: center;
   color: var(--color-text);
+  --brand-glyph: var(--color-bg);
   text-decoration: none;
 }
 

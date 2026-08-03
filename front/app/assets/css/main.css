@@ -483,6 +483,7 @@ a {
   display: block;
   margin-bottom: 1.5rem;
   color: var(--color-text);
+  --brand-glyph: var(--color-surface-raised);
 }
 
 .auth-card__title {
