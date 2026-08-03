@@ -9,12 +9,12 @@ const { can } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
-type Tab = 'all' | 'mine' | 'drafts'
+type Tab = 'all' | 'drafts'
 
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
 const category = ref(typeof route.query.category === 'string' ? route.query.category : '')
 const tab = ref<Tab>(
-  ['all', 'mine', 'drafts'].includes(String(route.query.tab)) ? route.query.tab as Tab : 'all',
+  ['all', 'drafts'].includes(String(route.query.tab)) ? route.query.tab as Tab : 'all',
 )
 
 const { data, pending, error } = await useAsyncData(
@@ -67,11 +67,7 @@ watchEffect(() => {
   })
 })
 
-const visibleCourses = computed(() => {
-  const courses = data.value?.courses ?? []
-
-  return tab.value === 'mine' ? courses.filter(course => course.enrollment) : courses
-})
+const visibleCourses = computed(() => data.value?.courses ?? [])
 
 const inProgressCount = computed(
   () => (data.value?.courses ?? []).filter(c => c.enrollment && !c.enrollment.is_completed).length,
@@ -109,9 +105,12 @@ const flatCategories = computed(() => {
   return flat
 })
 
+/**
+ * A status filter, not navigation: "Мои материалы" is its own page in the
+ * module bar, so repeating it here would put the same view in two places.
+ */
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
-  { id: 'all', label: 'Всё', visible: true },
-  { id: 'mine', label: 'Открытое мной', visible: true },
+  { id: 'all', label: 'Опубликованные', visible: true },
   { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
 ]
 </script>
@@ -129,9 +128,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </div>
 
       <div class="head__actions">
-        <NuxtLink v-if="can('courses.update')" to="/lms/categories" class="button-secondary">
-          Категории
-        </NuxtLink>
         <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
           Новый материал
         </NuxtLink>
@@ -216,15 +212,12 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 
     <UiEmptyState
       v-else-if="!visibleCourses.length"
-      :title="tab === 'mine' ? 'Вы ещё ничего не открывали' : 'Материалов пока нет'"
-      :description="tab === 'mine'
-        ? 'Откройте любой материал — он появится здесь вместе с прогрессом.'
-        : (search || category ? 'Попробуйте изменить запрос или категорию.' : 'Как только появятся материалы, они будут здесь.')"
+      title="Материалов пока нет"
+      :description="search || category
+        ? 'Попробуйте изменить запрос или категорию.'
+        : 'Как только появятся материалы, они будут здесь.'"
     >
-      <button v-if="tab === 'mine'" type="button" class="button-secondary" @click="tab = 'all'">
-        Ко всем материалам
-      </button>
-      <NuxtLink v-else-if="can('courses.create')" to="/lms/new" class="button-primary">
+      <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
         Создать первый материал
       </NuxtLink>
     </UiEmptyState>

@@ -1,13 +1,5 @@
 <script setup lang="ts">
-const { user, isAuthenticated, can } = useAuth()
-
-/** Links the current user is allowed to reach; the API enforces the same rules. */
-const navigation = computed(() => [
-  { to: '/', label: 'Панель', visible: true },
-  { to: '/lms', label: 'База знаний', visible: can('courses.view') },
-  { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
-  { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
-].filter(link => link.visible))
+const { user, isAuthenticated } = useAuth()
 
 const initials = computed(() =>
   (user.value?.name ?? '')
@@ -26,11 +18,7 @@ const initials = computed(() =>
           <BrandMark :size="44" />
         </NuxtLink>
 
-        <nav v-if="isAuthenticated" class="nav">
-          <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to" class="nav__pill">
-            {{ link.label }}
-          </NuxtLink>
-        </nav>
+        <ModuleNav v-if="isAuthenticated" />
 
         <div v-if="isAuthenticated" class="account">
           <span class="account__name">{{ user?.name }}</span>
@@ -89,40 +77,11 @@ const initials = computed(() =>
   text-decoration: none;
 }
 
-/* Each destination is its own pill; the current one inverts to solid. */
-.nav {
-  display: flex;
-  gap: 0.4rem;
-  margin-right: auto;
-}
-
-.nav__pill {
-  /* Never wrap: a two-line pill breaks the row's rhythm and, once one wraps,
-     the ones after it fall off the edge. The row scrolls instead. */
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding: 0.5rem 1.05rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-  font-size: 0.92rem;
-  text-decoration: none;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.nav__pill:hover {
-  color: var(--color-text);
-}
-
-.nav__pill.router-link-active {
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-}
-
 .account {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  margin-left: auto;
 }
 
 .avatar {
@@ -157,17 +116,6 @@ const initials = computed(() =>
     padding: 0 1rem;
   }
 
-  .nav {
-    overflow-x: auto;
-    scrollbar-width: none;
-    /* Fades the right edge so a clipped pill reads as "there is more to
-       scroll" rather than as a layout that ran out of room. */
-    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
-  }
-
-  .nav::-webkit-scrollbar {
-    display: none;
-  }
 }
 
 /*

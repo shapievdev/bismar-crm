@@ -1,6 +1,6 @@
 <script setup lang="ts">
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
-useHead({ title: 'Мои курсы' })
+useHead({ title: 'Мои материалы' })
 
 const { myCourses } = useLmsApi()
 
@@ -16,16 +16,13 @@ const finished = computed(() => enrollments.value.filter(item => item.is_complet
     <header class="head">
       <div>
         <h1 class="page-title">
-          Мои курсы
+          Мои материалы
         </h1>
         <p class="page-subtitle">
           Всё, на что вы записаны, с текущим прогрессом.
         </p>
       </div>
 
-      <NuxtLink to="/lms" class="button-secondary">
-        Ко всем курсам
-      </NuxtLink>
     </header>
 
     <p v-if="error" class="alert alert--danger" role="alert">

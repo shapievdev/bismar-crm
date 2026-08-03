@@ -10,46 +10,40 @@ interface RailItem {
   label: string
   icon: string
   visible: boolean
-  /** Matches nested routes too, so a lesson keeps its section lit. */
-  match?: (path: string) => boolean
+  /** Which paths count as being inside this module. */
+  matches: (path: string) => boolean
 }
 
 /**
- * Quick actions rather than a second copy of the top navigation: the sections
- * already live up there, and repeating them would make the same destination
- * appear twice with different shapes.
+ * Navigation for the platform as a whole: one entry per CRM module.
+ *
+ * Moving between modules is a rarer, heavier move than moving inside one, so
+ * it lives here as icons and the top bar is left to the current module's own
+ * pages.
  */
 const items = computed<RailItem[]>(() => [
   {
+    to: '/',
+    label: 'Панель',
+    icon: 'dashboard',
+    visible: true,
+    matches: (path: string) => path === '/',
+  },
+  {
     to: '/lms',
-    label: 'Вся база знаний',
+    label: 'База знаний',
     icon: 'library',
     visible: can('courses.view'),
-    match: (path: string) => path === '/lms',
+    matches: (path: string) => path.startsWith('/lms'),
   },
   {
-    to: '/lms/my',
-    label: 'Мои материалы',
-    icon: 'bookmark',
-    visible: can('courses.view'),
-  },
-  {
-    to: '/lms/new',
-    label: 'Новый материал',
-    icon: 'plus',
-    visible: can('courses.create'),
-  },
-  {
-    to: '/lms/categories',
-    label: 'Категории',
-    icon: 'folders',
-    visible: can('courses.update'),
+    to: '/settings/users',
+    label: 'Настройки',
+    icon: 'settings',
+    visible: can('users.view') || can('roles.manage'),
+    matches: (path: string) => path.startsWith('/settings'),
   },
 ].filter(item => item.visible))
-
-function isActive(item: RailItem): boolean {
-  return item.match ? item.match(route.path) : route.path.startsWith(item.to)
-}
 
 async function handleLogout() {
   isLoggingOut.value = true
@@ -65,35 +59,34 @@ async function handleLogout() {
 </script>
 
 <template>
-  <aside class="rail" aria-label="Быстрые действия">
+  <aside class="rail" aria-label="Разделы платформы">
     <NuxtLink
       v-for="item in items"
       :key="item.to"
       :to="item.to"
       class="rail__button"
-      :class="{ 'rail__button--active': isActive(item) }"
+      :class="{ 'rail__button--active': item.matches(route.path) }"
       :title="item.label"
       :aria-label="item.label"
-      :aria-current="isActive(item) ? 'page' : undefined"
+      :aria-current="item.matches(route.path) ? 'page' : undefined"
     >
       <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <template v-if="item.icon === 'library'">
+        <template v-if="item.icon === 'dashboard'">
+          <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
+          <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
+          <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
+          <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
+        </template>
+
+        <template v-else-if="item.icon === 'library'">
           <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H8v16H5.5A1.5 1.5 0 0 1 4 18.5z" />
           <path d="M10 4h2.5A1.5 1.5 0 0 1 14 5.5v13a1.5 1.5 0 0 1-1.5 1.5H10z" />
           <path d="m16.5 5.6 2 .5a1.5 1.5 0 0 1 1.1 1.8l-3 12.2" />
         </template>
 
-        <template v-else-if="item.icon === 'bookmark'">
-          <path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-3.6L6 21z" />
-        </template>
-
-        <template v-else-if="item.icon === 'plus'">
-          <path d="M12 5v14M5 12h14" />
-        </template>
-
-        <template v-else-if="item.icon === 'folders'">
-          <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h3.2l1.6 2H14a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 14 17H4.5A1.5 1.5 0 0 1 3 15.5z" />
-          <path d="M18 9h1.5A1.5 1.5 0 0 1 21 10.5v7A1.5 1.5 0 0 1 19.5 19H8" />
+        <template v-else-if="item.icon === 'settings'">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
         </template>
       </svg>
     </NuxtLink>
@@ -154,7 +147,7 @@ async function handleLogout() {
   color: var(--color-accent-text);
 }
 
-/* Sits apart from the destinations above it: this one leaves the app. */
+/* Sits apart from the modules above it: this one leaves the application. */
 .rail__button--foot {
   margin-top: 1.4rem;
 }

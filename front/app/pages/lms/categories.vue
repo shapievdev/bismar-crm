@@ -136,9 +136,6 @@ async function move(siblings: Category[], index: number, delta: number) {
       </div>
 
       <div class="head__actions">
-        <NuxtLink to="/lms" class="button-secondary">
-          К базе знаний
-        </NuxtLink>
         <button type="button" class="button-primary" @click="startCreate">
           Новая категория
         </button>
