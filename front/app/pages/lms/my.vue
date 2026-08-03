@@ -7,113 +7,162 @@ const { myCourses } = useLmsApi()
 const { data, pending, error } = await useAsyncData('lms.my-courses', () => myCourses())
 
 const enrollments = computed(() => data.value?.data ?? [])
+const active = computed(() => enrollments.value.filter(item => !item.is_completed))
+const finished = computed(() => enrollments.value.filter(item => item.is_completed))
 </script>
 
 <template>
   <section>
-    <NuxtLink to="/lms" class="back">
-      ← Ко всем курсам
-    </NuxtLink>
+    <header class="head">
+      <div>
+        <h1 class="page-title">
+          Мои курсы
+        </h1>
+        <p class="page-subtitle">
+          Всё, на что вы записаны, с текущим прогрессом.
+        </p>
+      </div>
 
-    <h1>Мои курсы</h1>
+      <NuxtLink to="/lms" class="button-secondary">
+        Ко всем курсам
+      </NuxtLink>
+    </header>
 
-    <p v-if="error" class="auth-alert" role="alert">
+    <p v-if="error" class="alert alert--danger" role="alert">
       Не удалось загрузить список.
     </p>
 
-    <p v-else-if="pending" class="muted">
-      Загрузка…
-    </p>
+    <div v-else-if="pending" class="stack">
+      <div v-for="n in 2" :key="n" class="card row">
+        <div class="skeleton skeleton-line" />
+      </div>
+    </div>
 
-    <p v-else-if="!enrollments.length" class="empty">
-      Вы пока не записаны ни на один курс.
-    </p>
+    <UiEmptyState
+      v-else-if="!enrollments.length"
+      title="Вы пока не записаны ни на один курс"
+      description="Откройте каталог и выберите подходящий."
+    >
+      <NuxtLink to="/lms" class="button-primary">
+        Открыть каталог
+      </NuxtLink>
+    </UiEmptyState>
 
-    <ul v-else class="list">
-      <li v-for="item in enrollments" :key="item.id" class="item">
-        <NuxtLink v-if="item.course" :to="`/lms/${item.course.slug}`" class="item__title">
-          {{ item.course.title }}
-        </NuxtLink>
-
-        <div class="item__progress">
-          <div class="bar">
-            <div class="bar__fill" :style="{ width: `${item.progress ?? 0}%` }" />
-          </div>
-          <span class="muted">
-            {{ item.is_completed ? 'Пройден' : `${item.progress ?? 0}%` }}
-          </span>
+    <template v-else>
+      <template v-if="active.length">
+        <h2 class="group-title">
+          В процессе
+        </h2>
+        <div class="stack">
+          <NuxtLink
+            v-for="item in active"
+            :key="item.id"
+            :to="item.course ? `/lms/${item.course.slug}` : '/lms'"
+            class="card row"
+          >
+            <UiProgressRing :value="item.progress ?? 0" :size="48" />
+            <div class="row__body">
+              <span class="row__title">{{ item.course?.title }}</span>
+              <span class="faint">
+                Начат {{ item.enrolled_at ? new Date(item.enrolled_at).toLocaleDateString('ru-RU') : '' }}
+              </span>
+            </div>
+            <span class="button-secondary button-sm">Продолжить</span>
+          </NuxtLink>
         </div>
-      </li>
-    </ul>
+      </template>
+
+      <template v-if="finished.length">
+        <h2 class="group-title">
+          Завершённые
+        </h2>
+        <div class="stack">
+          <NuxtLink
+            v-for="item in finished"
+            :key="item.id"
+            :to="item.course ? `/lms/${item.course.slug}` : '/lms'"
+            class="card row"
+          >
+            <UiProgressRing :value="100" :size="48" />
+            <div class="row__body">
+              <span class="row__title">{{ item.course?.title }}</span>
+              <span class="faint">
+                Завершён {{ item.completed_at ? new Date(item.completed_at).toLocaleDateString('ru-RU') : '' }}
+              </span>
+            </div>
+            <span class="badge badge--success">Пройден</span>
+          </NuxtLink>
+        </div>
+      </template>
+    </template>
   </section>
 </template>
 
 <style scoped>
-.back {
-  display: inline-block;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.head a {
   text-decoration: none;
 }
 
-h1 {
-  margin: 0 0 1.25rem;
-  font-size: 1.5rem;
+.group-title {
+  margin: 1.75rem 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-faint);
 }
 
-.muted {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
+.group-title:first-of-type {
+  margin-top: 0;
 }
 
-.empty {
-  padding: 2rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.list {
+.stack {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 0.6rem;
 }
 
-.item {
-  padding: 1rem 1.25rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.item__title {
-  font-weight: 500;
-  color: inherit;
-  text-decoration: none;
-}
-
-.item__progress {
+.row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.6rem;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  color: inherit;
+  text-decoration: none;
+  transition: box-shadow 0.15s ease;
 }
 
-.bar {
+.row:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.row__body {
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  max-width: 20rem;
-  height: 0.4rem;
-  background: var(--color-border);
-  border-radius: 999px;
-  overflow: hidden;
+  min-width: 0;
+  gap: 0.1rem;
+  font-size: 0.9rem;
 }
 
-.bar__fill {
-  height: 100%;
-  background: var(--color-accent);
+.row__title {
+  font-weight: 550;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 1.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row { transition: none; }
 }
 </style>

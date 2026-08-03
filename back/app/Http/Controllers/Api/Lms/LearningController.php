@@ -84,6 +84,26 @@ final class LearningController extends Controller
             $enrollment?->completions()->where('lesson_id', $lesson->getKey())->exists() ?? false,
         );
 
+        // Neighbours let the player offer "previous" and "next" without the SPA
+        // having to fetch and flatten the whole course outline.
+        $lesson->setAttribute('neighbours', $this->neighboursOf($course, $lesson));
+        $lesson->setAttribute('course_title', $course->title);
+        $lesson->setAttribute('course_slug', $course->slug);
+
+        // A learner's own past attempts, so the player can show their history.
+        $lesson->setAttribute('own_attempts', $lesson->quiz === null ? [] : $lesson->quiz
+            ->attempts()
+            ->where('user_id', $request->user()?->getKey())
+            ->latest('completed_at')
+            ->limit(10)
+            ->get()
+            ->map(fn ($attempt): array => [
+                'id' => $attempt->id,
+                'score' => $attempt->score,
+                'passed' => $attempt->passed,
+                'completed_at' => $attempt->completed_at?->toIso8601String(),
+            ])->all());
+
         return LessonResource::make($lesson);
     }
 
@@ -127,6 +147,28 @@ final class LearningController extends Controller
         return QuizAttemptResource::make($attempt)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * The lessons either side of this one, in course reading order.
+     *
+     * @return array{previous: array{id: int, title: string}|null, next: array{id: int, title: string}|null}
+     */
+    private function neighboursOf(Course $course, Lesson $lesson): array
+    {
+        $lessons = $course->lessons()->get(['lessons.id', 'lessons.title']);
+        $index = $lessons->search(fn (Lesson $candidate): bool => $candidate->is($lesson));
+
+        $at = function (int|false $position) use ($lessons): ?array {
+            $found = $position === false ? null : $lessons->get($position);
+
+            return $found === null ? null : ['id' => $found->id, 'title' => $found->title];
+        };
+
+        return [
+            'previous' => $index === false || $index === 0 ? null : $at($index - 1),
+            'next' => $index === false ? null : $at($index + 1),
+        ];
     }
 
     private function attachProgress(Enrollment $enrollment): Enrollment

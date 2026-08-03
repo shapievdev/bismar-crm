@@ -52,6 +52,9 @@ Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function ():
     Route::delete('courses/{course}', [CourseController::class, 'destroy'])->middleware($delete)->name('courses.destroy');
 
     Route::middleware($update)->group(function (): void {
+        Route::post('courses/{course}/cover', [CourseController::class, 'storeCover'])->name('courses.cover.store');
+        Route::delete('courses/{course}/cover', [CourseController::class, 'destroyCover'])->name('courses.cover.destroy');
+
         Route::post('courses/{course}/modules', [CourseStructureController::class, 'storeModule'])->name('modules.store');
         Route::put('modules/{module}', [CourseStructureController::class, 'updateModule'])->name('modules.update');
         Route::post('modules/{module}/lessons', [CourseStructureController::class, 'storeLesson'])->name('lessons.store');

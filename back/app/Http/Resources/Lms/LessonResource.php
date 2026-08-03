@@ -32,6 +32,10 @@ final class LessonResource extends JsonResource
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
             // Attached by the controller from the learner's completions.
             'is_completed' => $this->is_completed_by_learner,
+            'neighbours' => $this->neighbours,
+            'course_title' => $this->course_title,
+            'course_slug' => $this->course_slug,
+            'own_attempts' => $this->own_attempts,
         ];
     }
 }

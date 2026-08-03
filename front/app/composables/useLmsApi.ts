@@ -103,5 +103,18 @@ export function useLmsApi() {
 
     deleteQuiz: (lessonId: number | string) =>
       $api(`/api/lms/lessons/${lessonId}/quiz`, { method: 'DELETE' }),
+
+    uploadCover: (slug: string, file: File): Promise<ResourceResponse<Course>> => {
+      const form = new FormData()
+      form.append('cover', file)
+
+      return $api<ResourceResponse<Course>>(`/api/lms/courses/${slug}/cover`, {
+        method: 'POST',
+        body: form,
+      })
+    },
+
+    deleteCover: (slug: string) =>
+      $api(`/api/lms/courses/${slug}/cover`, { method: 'DELETE' }),
   }
 }

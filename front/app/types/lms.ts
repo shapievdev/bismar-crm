@@ -14,6 +14,16 @@ export interface LessonSummary {
   attachments?: LessonAttachment[]
   quiz?: Quiz | null
   is_completed?: boolean
+  /** Present on the lesson endpoint: what to show as previous/next. */
+  neighbours?: { previous: LessonLink | null, next: LessonLink | null }
+  course_title?: string
+  course_slug?: string
+  own_attempts?: QuizAttempt[]
+}
+
+export interface LessonLink {
+  id: number
+  title: string
 }
 
 export interface LessonAttachment {
@@ -76,6 +86,7 @@ export interface Course {
   status: CourseStatus
   status_label: string
   published_at: string | null
+  cover_url: string | null
   lessons_count?: number
   enrollments_count?: number
   author: { id: number, name: string } | null

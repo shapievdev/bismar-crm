@@ -27,6 +27,7 @@ final class CourseResource extends JsonResource
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
             'published_at' => $this->published_at?->toIso8601String(),
+            'cover_url' => $this->coverUrl(),
             'lessons_count' => $this->whenCounted('lessons'),
             'enrollments_count' => $this->whenCounted('enrollments'),
             'author' => $this->whenLoaded('author', fn (): ?array => $this->author === null ? null : [

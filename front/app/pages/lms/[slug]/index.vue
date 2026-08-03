@@ -20,12 +20,31 @@ const course = computed(() => data.value?.data)
 useHead(() => ({ title: course.value?.title ?? 'Курс' }))
 
 const enrollment = computed(() => course.value?.enrollment ?? null)
+const modules = computed(() => course.value?.modules ?? [])
+
+const allLessons = computed(() => modules.value.flatMap(module => module.lessons ?? []))
+const completedIds = computed(() => new Set(enrollment.value?.completed_lesson_ids ?? []))
+
+function isDone(lessonId: number): boolean {
+  return completedIds.value.has(lessonId)
+}
+
+/** Where a returning learner should pick up: the first lesson not yet done. */
+const nextLesson = computed(() => allLessons.value.find(lesson => !isDone(lesson.id)) ?? null)
+
+const totalMinutes = computed(() =>
+  allLessons.value.reduce((total, lesson) => total + (lesson.duration_minutes ?? 0), 0),
+)
+
+const fallbackGradient = computed(() => {
+  const seed = [...(course.value?.title ?? '')].reduce((total, char) => total + char.charCodeAt(0), 0)
+  const hue = seed % 360
+
+  return `linear-gradient(135deg, hsl(${hue} 62% 52%), hsl(${(hue + 48) % 360} 58% 42%))`
+})
+
 const isEnrolling = ref(false)
 const enrollError = ref<string | null>(null)
-
-function isLessonDone(lessonId: number): boolean {
-  return enrollment.value?.completed_lesson_ids.includes(lessonId) ?? false
-}
 
 async function join() {
   isEnrolling.value = true
@@ -47,241 +66,359 @@ async function join() {
 
 <template>
   <section v-if="course">
-    <div class="topbar">
-      <NuxtLink to="/lms" class="back">
-        ← К курсам
+    <nav class="crumbs">
+      <NuxtLink to="/lms">
+        Обучение
       </NuxtLink>
+      <span aria-hidden="true">/</span>
+      <span class="faint">{{ course.title }}</span>
+    </nav>
 
-      <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-plain">
-        Редактировать курс
-      </NuxtLink>
-    </div>
-
-    <header class="header">
-      <h1>{{ course.title }}</h1>
-      <p v-if="course.summary" class="summary">
-        {{ course.summary }}
-      </p>
-
-      <div class="meta">
-        <span v-if="course.status !== 'published'" class="badge">{{ course.status_label }}</span>
-        <span>{{ course.lessons_count ?? 0 }} уроков</span>
-        <span v-if="course.author">Автор: {{ course.author.name }}</span>
+    <header
+      class="hero card"
+      :style="course.cover_url ? undefined : { '--hero-bg': fallbackGradient }"
+    >
+      <div class="hero__art" :style="course.cover_url ? undefined : { background: fallbackGradient }">
+        <img v-if="course.cover_url" :src="course.cover_url" alt="" loading="lazy">
       </div>
+
+      <div class="hero__body">
+        <div class="hero__badges">
+          <span v-if="course.status !== 'published'" class="badge badge--warning">
+            {{ course.status_label }}
+          </span>
+          <span v-if="enrollment?.is_completed" class="badge badge--success">Курс пройден</span>
+        </div>
+
+        <h1 class="hero__title">
+          {{ course.title }}
+        </h1>
+
+        <p v-if="course.summary" class="hero__summary">
+          {{ course.summary }}
+        </p>
+
+        <div class="hero__meta">
+          <span>{{ course.lessons_count ?? 0 }} {{ pluralise(course.lessons_count ?? 0, 'урок', 'урока', 'уроков') }}</span>
+          <span v-if="totalMinutes">≈ {{ totalMinutes }} мин</span>
+          <span v-if="course.author">Автор: {{ course.author.name }}</span>
+        </div>
+
+        <div class="hero__actions">
+          <template v-if="enrollment">
+            <NuxtLink
+              v-if="nextLesson"
+              :to="`/lms/${course.slug}/lessons/${nextLesson.id}`"
+              class="button-primary"
+            >
+              {{ enrollment.progress > 0 ? 'Продолжить' : 'Начать обучение' }}
+            </NuxtLink>
+            <span v-else class="badge badge--success">Все уроки пройдены</span>
+          </template>
+
+          <button v-else type="button" class="button-primary" :disabled="isEnrolling" @click="join">
+            {{ isEnrolling ? 'Записываем…' : 'Записаться на курс' }}
+          </button>
+
+          <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-secondary">
+            Редактировать
+          </NuxtLink>
+        </div>
+
+        <p v-if="enrollError" class="alert alert--danger" role="alert">
+          {{ enrollError }}
+        </p>
+      </div>
+
+      <aside v-if="enrollment" class="hero__progress">
+        <UiProgressRing :value="enrollment.progress" :size="76" />
+        <span class="faint">
+          {{ completedIds.size }} из {{ allLessons.length }}
+        </span>
+      </aside>
     </header>
 
-    <div v-if="enrollment" class="progress">
-      <div class="progress__bar" role="progressbar" :aria-valuenow="enrollment.progress" aria-valuemin="0" aria-valuemax="100">
-        <div class="progress__fill" :style="{ width: `${enrollment.progress}%` }" />
-      </div>
-      <span class="progress__label">
-        {{ enrollment.is_completed ? 'Курс пройден' : `Пройдено ${enrollment.progress}%` }}
-      </span>
-    </div>
+    <div class="layout">
+      <div class="outline">
+        <h2 class="section-title">
+          Программа
+        </h2>
 
-    <div v-else class="enroll">
-      <button type="button" class="button-primary" :disabled="isEnrolling" @click="join">
-        {{ isEnrolling ? 'Записываем…' : 'Записаться на курс' }}
-      </button>
-      <span v-if="enrollError" class="error">{{ enrollError }}</span>
-    </div>
-
-    <p v-if="course.description" class="description">
-      {{ course.description }}
-    </p>
-
-    <div v-for="module in course.modules ?? []" :key="module.id" class="module">
-      <h2>{{ module.title }}</h2>
-      <p v-if="module.description" class="muted">
-        {{ module.description }}
-      </p>
-
-      <ol class="lessons">
-        <li v-for="lesson in module.lessons ?? []" :key="lesson.id" class="lesson">
-          <NuxtLink :to="`/lms/${course.slug}/lessons/${lesson.id}`" class="lesson__link">
-            <span class="lesson__status" :class="{ 'lesson__status--done': isLessonDone(lesson.id) }">
-              {{ isLessonDone(lesson.id) ? '✓' : '' }}
-            </span>
-            <span class="lesson__title">{{ lesson.title }}</span>
-            <span v-if="lesson.has_quiz" class="badge">тест</span>
-            <span v-if="lesson.duration_minutes" class="muted">{{ lesson.duration_minutes }} мин</span>
+        <UiEmptyState
+          v-if="!modules.length"
+          title="Курс пока пуст"
+          :description="can('courses.update')
+            ? 'Добавьте модули и уроки в редакторе.'
+            : 'Материалы ещё готовятся.'"
+        >
+          <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-primary">
+            Открыть редактор
           </NuxtLink>
-        </li>
-      </ol>
+        </UiEmptyState>
 
-      <p v-if="!(module.lessons ?? []).length" class="muted">
-        В модуле пока нет уроков.
-      </p>
+        <section v-for="(module, index) in modules" :key="module.id" class="module card">
+          <header class="module__head">
+            <span class="module__index">{{ index + 1 }}</span>
+            <div>
+              <h3 class="module__title">
+                {{ module.title }}
+              </h3>
+              <p v-if="module.description" class="muted module__desc">
+                {{ module.description }}
+              </p>
+            </div>
+          </header>
+
+          <ol class="lessons">
+            <li v-for="lesson in module.lessons ?? []" :key="lesson.id">
+              <NuxtLink :to="`/lms/${course.slug}/lessons/${lesson.id}`" class="lesson">
+                <span class="lesson__check" :class="{ 'lesson__check--done': isDone(lesson.id) }">
+                  <template v-if="isDone(lesson.id)">✓</template>
+                </span>
+                <span class="lesson__title">{{ lesson.title }}</span>
+                <span v-if="lesson.has_quiz" class="badge badge--accent">тест</span>
+                <span v-if="lesson.duration_minutes" class="faint lesson__time">
+                  {{ lesson.duration_minutes }} мин
+                </span>
+              </NuxtLink>
+            </li>
+          </ol>
+
+          <p v-if="!(module.lessons ?? []).length" class="muted module__empty">
+            В модуле пока нет уроков.
+          </p>
+        </section>
+      </div>
+
+      <aside v-if="course.description" class="about card">
+        <h2 class="section-title section-title--tight">
+          О курсе
+        </h2>
+        <p class="about__text">
+          {{ course.description }}
+        </p>
+      </aside>
     </div>
-
-    <p v-if="!(course.modules ?? []).length" class="empty">
-      {{ can('courses.update') ? 'Курс пуст — добавьте модули и уроки в редакторе.' : 'Курс ещё готовится.' }}
-    </p>
   </section>
 </template>
 
 <style scoped>
-.topbar {
+.crumbs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.4rem;
   margin-bottom: 1rem;
+  font-size: 0.87rem;
 }
 
-.back {
-  font-size: 0.9rem;
+.crumbs a {
   text-decoration: none;
 }
 
-.button-plain {
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--color-border);
+.hero {
+  display: grid;
+  grid-template-columns: 13rem 1fr auto;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.hero__art {
+  aspect-ratio: 16 / 10;
   border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 0.9rem;
-  text-decoration: none;
+  overflow: hidden;
+  background: var(--color-surface-sunken);
 }
 
-.header h1 {
-  margin: 0 0 0.35rem;
-  font-size: 1.75rem;
+.hero__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
-.summary {
-  margin: 0 0 0.5rem;
+.hero__badges {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.hero__badges:empty {
+  display: none;
+}
+
+.hero__title {
+  margin: 0 0 0.4rem;
+  font-size: 1.7rem;
+  font-weight: 650;
+}
+
+.hero__summary {
+  margin: 0 0 0.6rem;
   color: var(--color-text-muted);
 }
 
-.meta {
+.hero__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  color: var(--color-text-muted);
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: var(--color-text-faint);
   font-size: 0.85rem;
 }
 
-.badge {
-  padding: 0.05rem 0.45rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 0.75rem;
-}
-
-.progress {
+.hero__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  margin: 1.5rem 0;
+  gap: 0.6rem;
 }
 
-.progress__bar {
-  flex: 1;
-  height: 0.5rem;
-  max-width: 24rem;
-  background: var(--color-border);
-  border-radius: 999px;
-  overflow: hidden;
+.hero__actions a {
+  text-decoration: none;
 }
 
-.progress__fill {
-  height: 100%;
-  background: var(--color-accent);
-  transition: width 0.2s ease;
-}
-
-.progress__label {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-}
-
-.enroll {
+.hero__progress {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  margin: 1.5rem 0;
+  gap: 0.4rem;
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--color-border);
+  font-size: 0.82rem;
 }
 
-.error {
-  color: var(--color-danger);
-  font-size: 0.9rem;
+@media (max-width: 52rem) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero__progress {
+    flex-direction: row;
+    padding: 1rem 0 0;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+  }
 }
 
-.description {
-  max-width: 44rem;
-  white-space: pre-wrap;
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 60rem) {
+  .layout {
+    grid-template-columns: 1fr 18rem;
+    align-items: start;
+  }
+}
+
+.section-title {
+  margin: 0 0 0.8rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.section-title--tight {
+  margin-bottom: 0.5rem;
 }
 
 .module {
-  margin-top: 2rem;
+  padding: 1rem 1.15rem;
+  margin-bottom: 0.75rem;
 }
 
-.module h2 {
-  margin: 0 0 0.25rem;
-  font-size: 1.1rem;
+.module__head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
 }
 
-.muted {
+.module__index {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.module__title {
   margin: 0;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.module__desc {
+  margin: 0.1rem 0 0;
+  font-size: 0.86rem;
+}
+
+.module__empty {
+  margin: 0.75rem 0 0;
+  font-size: 0.86rem;
 }
 
 .lessons {
-  margin: 0.75rem 0 0;
+  margin: 0.85rem 0 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  overflow: hidden;
 }
 
-.lesson + .lesson {
-  border-top: 1px solid var(--color-border);
-}
-
-.lesson__link {
+.lesson {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1rem;
-  background: var(--color-surface);
+  gap: 0.7rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: var(--radius);
   color: inherit;
   text-decoration: none;
 }
 
-.lesson__link:hover {
-  background: var(--color-bg);
+.lesson:hover {
+  background: var(--color-surface-sunken);
 }
 
-.lesson__status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 0.75rem;
+.lesson__check {
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
 }
 
-.lesson__status--done {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--color-accent-text);
+.lesson__check--done {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
 }
 
 .lesson__title {
   flex: 1;
+  font-size: 0.94rem;
 }
 
-.empty {
-  padding: 2rem;
-  margin-top: 1.5rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
+.lesson__time {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.about {
+  padding: 1.1rem 1.2rem;
+}
+
+.about__text {
+  margin: 0;
   color: var(--color-text-muted);
-  text-align: center;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
 }
 </style>

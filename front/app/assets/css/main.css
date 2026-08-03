@@ -1,17 +1,83 @@
+/*
+ * Design tokens.
+ *
+ * Colours are declared as light values first and overridden for dark mode, so
+ * every component inherits both themes without knowing about either.
+ */
 :root {
-  --color-bg: #f6f7f9;
+  color-scheme: light dark;
+
+  --color-bg: #f5f6f8;
   --color-surface: #ffffff;
-  --color-border: #e3e6ea;
-  --color-text: #1b1f24;
-  --color-text-muted: #61697a;
-  --color-accent: #2f6feb;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #eef0f4;
+  --color-border: #e2e5ea;
+  --color-border-strong: #cbd1da;
+
+  --color-text: #14181f;
+  --color-text-muted: #626b7a;
+  --color-text-faint: #8a92a0;
+
+  --color-accent: #3b6fe0;
+  --color-accent-hover: #2f5cc4;
+  --color-accent-soft: #e8effc;
   --color-accent-text: #ffffff;
-  --color-danger: #c8342b;
-  --color-danger-bg: #fdecea;
-  --radius: 8px;
+
+  --color-success: #1c8a5a;
+  --color-success-soft: #e3f5ec;
+  --color-warning: #a2650a;
+  --color-warning-soft: #fdf3e0;
+  --color-danger: #c33b32;
+  --color-danger-soft: #fdecea;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 4%);
+  --shadow-md: 0 4px 12px rgb(16 24 40 / 8%), 0 2px 4px rgb(16 24 40 / 4%);
+  --shadow-lg: 0 12px 32px rgb(16 24 40 / 12%);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+  --header-height: 3.5rem;
 }
 
-* {
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f1319;
+    --color-surface: #171c24;
+    --color-surface-raised: #1d232d;
+    --color-surface-sunken: #11151b;
+    --color-border: #262d38;
+    --color-border-strong: #37404e;
+
+    --color-text: #e8ebf0;
+    --color-text-muted: #98a1b0;
+    --color-text-faint: #6c7686;
+
+    --color-accent: #6b96f5;
+    --color-accent-hover: #85a9f7;
+    --color-accent-soft: #1b2740;
+    --color-accent-text: #0f1319;
+
+    --color-success: #4ec392;
+    --color-success-soft: #14291f;
+    --color-warning: #d9a441;
+    --color-warning-soft: #2a2113;
+    --color-danger: #e8695f;
+    --color-danger-soft: #2c1917;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -19,28 +85,287 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  letter-spacing: -0.011em;
 }
 
 a {
   color: var(--color-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
-/* Shared building blocks for the authentication screens. */
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Buttons ---------- */
+
+.button-primary,
+.button-secondary,
+.button-ghost,
+.button-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.05rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.button-primary {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button-secondary {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.button-secondary:hover:not(:disabled) {
+  border-color: var(--color-text-faint);
+}
+
+.button-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
+.button-danger {
+  background: transparent;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--color-danger-soft);
+}
+
+.button-primary:disabled,
+.button-secondary:disabled,
+.button-ghost:disabled,
+.button-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-sm {
+  padding: 0.32rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+/* ---------- Surfaces ---------- */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 650;
+}
+
+.page-subtitle {
+  margin: 0.3rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.94rem;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.faint {
+  color: var(--color-text-faint);
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge--accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.badge--success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.badge--warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* ---------- Forms ---------- */
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  transition: border-color 0.12s ease;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--color-text-faint);
+}
+
+.input:hover,
+.select:hover,
+.textarea:hover {
+  border-color: var(--color-text-faint);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.87rem;
+  font-weight: 500;
+}
+
+.field-error {
+  margin: 0.3rem 0 0;
+  color: var(--color-danger);
+  font-size: 0.83rem;
+}
+
+/* ---------- Feedback ---------- */
+
+.alert {
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+.alert--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.alert--success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+/* Kept for the auth screens, which predate the token set. */
+.auth-alert {
+  margin: 0 0 0.5rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+.empty-state {
+  padding: 3rem 1.5rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.empty-state__title {
+  margin: 0 0 0.35rem;
+  color: var(--color-text);
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+/* Placeholder blocks shown while data loads, instead of a bare "Загрузка…". */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-sunken) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-sunken) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* ---------- Auth screens ---------- */
 
 .auth-card {
   max-width: 24rem;
-  margin: 3rem auto;
-  padding: 1.75rem;
+  margin: 4rem auto;
+  padding: 2rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
 .auth-card__title {
-  margin: 0 0 1.25rem;
-  font-size: 1.375rem;
+  margin: 0 0 1.4rem;
+  font-size: 1.4rem;
 }
 
 .auth-form {
@@ -49,41 +374,16 @@ a {
   gap: 1rem;
 }
 
-.auth-alert {
-  margin: 0;
-  padding: 0.6rem 0.75rem;
-  border-radius: var(--radius);
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-  font-size: 0.875rem;
-}
-
 .auth-checkbox {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.875rem;
   color: var(--color-text-muted);
-}
-
-.button-primary {
-  padding: 0.6rem 1rem;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.button-primary:disabled {
-  opacity: 0.65;
-  cursor: default;
+  font-size: 0.88rem;
 }
 
 .auth-switch {
-  margin: 1.25rem 0 0;
-  font-size: 0.875rem;
+  margin: 1.4rem 0 0;
   color: var(--color-text-muted);
+  font-size: 0.88rem;
 }

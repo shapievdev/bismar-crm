@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\SaveCourse;
+use App\Actions\Lms\StoreCourseCover;
 use App\Enums\CourseStatus;
 use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\StoreCourseRequest;
+use App\Http\Requests\Lms\StoreCoverRequest;
 use App\Http\Requests\Lms\UpdateCourseRequest;
 use App\Http\Resources\Lms\CourseResource;
 use App\Models\Course;
@@ -92,6 +94,19 @@ final class CourseController extends Controller
         $course->delete();
 
         return response()->noContent();
+    }
+
+    public function storeCover(
+        StoreCoverRequest $request,
+        Course $course,
+        StoreCourseCover $storeCover,
+    ): CourseResource {
+        return CourseResource::make($storeCover->handle($course, $request->file('cover')));
+    }
+
+    public function destroyCover(Course $course, StoreCourseCover $storeCover): CourseResource
+    {
+        return CourseResource::make($storeCover->remove($course));
     }
 
     /**

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['author_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'published_at'])]
 class Course extends Model
@@ -35,6 +36,22 @@ class Course extends Model
             'status' => CourseStatus::class,
             'published_at' => 'datetime',
         ];
+    }
+
+    /**
+     * A short-lived signed URL for the cover, so the bucket stays private.
+     * Generated locally — no call to S3 — so it is cheap enough for listings.
+     */
+    public function coverUrl(): ?string
+    {
+        if ($this->cover_path === null) {
+            return null;
+        }
+
+        return Storage::disk('s3')->temporaryUrl(
+            $this->cover_path,
+            now()->addMinutes(config('lms.attachment_url_ttl_minutes')),
+        );
     }
 
     /**

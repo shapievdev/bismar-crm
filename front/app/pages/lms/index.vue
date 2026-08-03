@@ -1,192 +1,285 @@
 <script setup lang="ts">
+import type { Course } from '~/types/lms'
+
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 useHead({ title: 'Обучение' })
 
-const { fetchCourses } = useLmsApi()
+const { fetchCourses, myCourses } = useLmsApi()
 const { can } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
+type Tab = 'all' | 'mine' | 'drafts'
+
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
+const tab = ref<Tab>(
+  ['all', 'mine', 'drafts'].includes(String(route.query.tab)) ? route.query.tab as Tab : 'all',
+)
 
 const { data, pending, error } = await useAsyncData(
-  'lms.courses',
-  () => fetchCourses({ search: search.value || undefined }),
-  { watch: [search] },
+  'lms.catalogue',
+  async () => {
+    const [courses, enrolments] = await Promise.all([
+      fetchCourses({
+        search: search.value || undefined,
+        status: tab.value === 'drafts' ? 'draft' : undefined,
+      }),
+      myCourses(),
+    ])
+
+    // The catalogue endpoint does not know who is enrolled, so progress is
+    // stitched in from the learner's own enrolments.
+    const progressBySlug = new Map(
+      enrolments.data
+        .filter(item => item.course)
+        .map(item => [item.course!.slug, item]),
+    )
+
+    const withProgress: Course[] = courses.data.map(course => ({
+      ...course,
+      enrollment: progressBySlug.has(course.slug)
+        ? {
+            id: progressBySlug.get(course.slug)!.id,
+            enrolled_at: progressBySlug.get(course.slug)!.enrolled_at,
+            completed_at: progressBySlug.get(course.slug)!.completed_at,
+            is_completed: progressBySlug.get(course.slug)!.is_completed,
+            progress: progressBySlug.get(course.slug)!.progress ?? 0,
+            completed_lesson_ids: progressBySlug.get(course.slug)!.completed_lesson_ids ?? [],
+          }
+        : null,
+    }))
+
+    return { courses: withProgress, total: courses.meta.total }
+  },
+  { watch: [search, tab] },
 )
 
 watchEffect(() => {
-  router.replace({ query: search.value ? { search: search.value } : {} })
+  router.replace({
+    query: {
+      ...(search.value ? { search: search.value } : {}),
+      ...(tab.value === 'all' ? {} : { tab: tab.value }),
+    },
+  })
 })
 
-const courses = computed(() => data.value?.data ?? [])
+const visibleCourses = computed(() => {
+  const courses = data.value?.courses ?? []
+
+  return tab.value === 'mine' ? courses.filter(course => course.enrollment) : courses
+})
+
+const inProgressCount = computed(
+  () => (data.value?.courses ?? []).filter(c => c.enrollment && !c.enrollment.is_completed).length,
+)
+const completedCount = computed(
+  () => (data.value?.courses ?? []).filter(c => c.enrollment?.is_completed).length,
+)
+
+const tabs: { id: Tab, label: string, visible: boolean }[] = [
+  { id: 'all', label: 'Все курсы', visible: true },
+  { id: 'mine', label: 'Мои', visible: true },
+  { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
+]
 </script>
 
 <template>
   <section>
-    <header class="page-header">
+    <header class="head">
       <div>
-        <h1>Обучение</h1>
-        <p class="muted">
-          Курсы для команды. Проходите последовательно — прогресс сохраняется.
+        <h1 class="page-title">
+          Обучение
+        </h1>
+        <p class="page-subtitle">
+          Курсы для команды — проходите последовательно, прогресс сохраняется автоматически.
         </p>
       </div>
 
-      <div class="page-header__actions">
-        <NuxtLink to="/lms/my" class="button-plain">
-          Мои курсы
-        </NuxtLink>
-        <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
-          Новый курс
-        </NuxtLink>
-      </div>
+      <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
+        Новый курс
+      </NuxtLink>
     </header>
 
-    <input
-      v-model.trim="search"
-      type="search"
-      class="search"
-      placeholder="Поиск по курсам…"
-      aria-label="Поиск по курсам"
-    >
+    <div v-if="inProgressCount || completedCount" class="stats">
+      <div class="stat">
+        <span class="stat__value">{{ inProgressCount }}</span>
+        <span class="stat__label">в процессе</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value">{{ completedCount }}</span>
+        <span class="stat__label">пройдено</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value">{{ data?.total ?? 0 }}</span>
+        <span class="stat__label">всего доступно</span>
+      </div>
+    </div>
 
-    <p v-if="error" class="auth-alert" role="alert">
+    <div class="toolbar">
+      <div class="tabs" role="tablist">
+        <button
+          v-for="item in tabs.filter(t => t.visible)"
+          :key="item.id"
+          type="button"
+          role="tab"
+          class="tab"
+          :class="{ 'tab--active': tab === item.id }"
+          :aria-selected="tab === item.id"
+          @click="tab = item.id"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+
+      <input
+        v-model.trim="search"
+        type="search"
+        class="input search"
+        placeholder="Поиск по курсам…"
+        aria-label="Поиск по курсам"
+      >
+    </div>
+
+    <p v-if="error" class="alert alert--danger" role="alert">
       Не удалось загрузить курсы.
     </p>
 
-    <p v-else-if="pending" class="muted">
-      Загрузка…
-    </p>
-
-    <p v-else-if="!courses.length" class="empty">
-      {{ search ? 'Ничего не найдено.' : 'Курсов пока нет.' }}
-    </p>
-
-    <ul v-else class="courses">
-      <li v-for="course in courses" :key="course.slug" class="course">
-        <NuxtLink :to="`/lms/${course.slug}`" class="course__title">
-          {{ course.title }}
-        </NuxtLink>
-
-        <p v-if="course.summary" class="course__summary">
-          {{ course.summary }}
-        </p>
-
-        <div class="course__meta">
-          <span v-if="course.status !== 'published'" class="badge">{{ course.status_label }}</span>
-          <span>{{ course.lessons_count ?? 0 }} уроков</span>
-          <span>{{ course.enrollments_count ?? 0 }} записалось</span>
-          <span v-if="course.author">{{ course.author.name }}</span>
+    <div v-else-if="pending" class="grid">
+      <div v-for="n in 3" :key="n" class="card skeleton-card">
+        <div class="skeleton skeleton-card__cover" />
+        <div class="skeleton-card__body">
+          <div class="skeleton skeleton-line skeleton-line--short" />
+          <div class="skeleton skeleton-line" />
+          <div class="skeleton skeleton-line skeleton-line--half" />
         </div>
-      </li>
-    </ul>
+      </div>
+    </div>
+
+    <UiEmptyState
+      v-else-if="!visibleCourses.length"
+      :title="tab === 'mine' ? 'Вы пока не записаны ни на один курс' : 'Курсов пока нет'"
+      :description="tab === 'mine'
+        ? 'Откройте вкладку «Все курсы» и запишитесь на подходящий.'
+        : (search ? 'Попробуйте изменить запрос.' : 'Как только появятся курсы, они будут здесь.')"
+    >
+      <button v-if="tab === 'mine'" type="button" class="button-secondary" @click="tab = 'all'">
+        Ко всем курсам
+      </button>
+      <NuxtLink v-else-if="can('courses.create')" to="/lms/new" class="button-primary">
+        Создать первый курс
+      </NuxtLink>
+    </UiEmptyState>
+
+    <div v-else class="grid">
+      <CourseCard v-for="course in visibleCourses" :key="course.slug" :course="course" />
+    </div>
   </section>
 </template>
 
 <style scoped>
-.page-header {
+.head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stats {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat {
+  flex: 1;
+  max-width: 11rem;
+  padding: 0.8rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.stat__value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat__label {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
 
-.page-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.5rem;
-}
-
-.page-header__actions {
+.tabs {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius);
 }
 
-.page-header__actions a {
-  text-decoration: none;
-}
-
-.muted {
-  margin: 0;
+.tab {
+  padding: 0.4rem 0.85rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--color-text-muted);
+  font: inherit;
   font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab--active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
 }
 
 .search {
-  width: 100%;
-  max-width: 24rem;
-  padding: 0.5rem 0.7rem;
-  margin-bottom: 1.25rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
+  width: auto;
+  min-width: 15rem;
+  flex: 0 1 20rem;
 }
 
-.empty {
-  padding: 2rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.courses {
+.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1rem;
 }
 
-.course {
-  padding: 1rem 1.25rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+.skeleton-card {
+  overflow: hidden;
 }
 
-.course__title {
-  font-size: 1.05rem;
-  font-weight: 500;
-  color: inherit;
-  text-decoration: none;
+.skeleton-card__cover {
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
 }
 
-.course__title:hover {
-  color: var(--color-accent);
-}
-
-.course__summary {
-  margin: 0.35rem 0 0;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-}
-
-.course__meta {
+.skeleton-card__body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.6rem;
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
 }
 
-.badge {
-  padding: 0.05rem 0.45rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+.skeleton-line {
+  height: 0.7rem;
 }
 
-.button-plain {
-  padding: 0.6rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-}
+.skeleton-line--short { width: 35%; }
+.skeleton-line--half { width: 60%; }
 </style>

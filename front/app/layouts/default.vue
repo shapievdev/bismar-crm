@@ -12,6 +12,14 @@ const navigation = computed(() => [
   { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
 ].filter(link => link.visible))
 
+const initials = computed(() =>
+  (user.value?.name ?? '')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(word => word[0]?.toUpperCase() ?? '')
+    .join(''),
+)
+
 async function handleLogout() {
   isLoggingOut.value = true
 
@@ -27,26 +35,35 @@ async function handleLogout() {
 
 <template>
   <div class="shell">
-    <header class="shell__header">
-      <NuxtLink to="/" class="shell__brand">
-        Bismar CRM
-      </NuxtLink>
-
-      <nav v-if="isAuthenticated" class="shell__nav">
-        <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to">
-          {{ link.label }}
+    <header class="topbar">
+      <div class="topbar__inner">
+        <NuxtLink to="/" class="brand">
+          <span class="brand__mark" aria-hidden="true">B</span>
+          <span class="brand__name">Bismar</span>
         </NuxtLink>
-      </nav>
 
-      <div v-if="isAuthenticated" class="shell__account">
-        <span class="shell__user">{{ user?.name }}</span>
-        <button type="button" :disabled="isLoggingOut" @click="handleLogout">
-          {{ isLoggingOut ? 'Выход…' : 'Выйти' }}
-        </button>
+        <nav v-if="isAuthenticated" class="nav">
+          <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to" class="nav__link">
+            {{ link.label }}
+          </NuxtLink>
+        </nav>
+
+        <div v-if="isAuthenticated" class="account">
+          <span class="avatar" :title="user?.email" aria-hidden="true">{{ initials }}</span>
+          <span class="account__name">{{ user?.name }}</span>
+          <button
+            type="button"
+            class="button-ghost button-sm"
+            :disabled="isLoggingOut"
+            @click="handleLogout"
+          >
+            {{ isLoggingOut ? 'Выход…' : 'Выйти' }}
+          </button>
+        </div>
       </div>
     </header>
 
-    <main class="shell__main">
+    <main class="main">
       <slot />
     </main>
   </div>
@@ -59,71 +76,111 @@ async function handleLogout() {
   flex-direction: column;
 }
 
-.shell__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.875rem 1.5rem;
-  background: var(--color-surface);
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: var(--header-height);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--color-border);
 }
 
-.shell__brand {
-  font-weight: 600;
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  height: 100%;
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: inherit;
+  font-weight: 650;
   text-decoration: none;
 }
 
-.shell__nav {
-  display: flex;
-  gap: 1rem;
-  margin-right: auto;
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
   font-size: 0.9rem;
 }
 
-.shell__nav a {
+.nav {
+  display: flex;
+  gap: 0.25rem;
+  margin-right: auto;
+}
+
+.nav__link {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
+  font-size: 0.9rem;
   text-decoration: none;
 }
 
-.shell__nav a.router-link-exact-active {
+.nav__link:hover {
+  background: var(--color-surface-sunken);
   color: var(--color-text);
+}
+
+.nav__link.router-link-active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
   font-weight: 500;
 }
 
-.shell__account {
+.account {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.6rem;
 }
 
-.shell__user {
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
-.shell__account button {
-  padding: 0.4rem 0.85rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
+.account__name {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
 }
 
-.shell__account button:disabled {
-  opacity: 0.6;
-  cursor: default;
+@media (max-width: 44rem) {
+  .account__name,
+  .brand__name {
+    display: none;
+  }
+
+  .topbar__inner {
+    gap: 0.75rem;
+    padding: 0 1rem;
+  }
 }
 
-.shell__main {
+.main {
   flex: 1;
   width: 100%;
-  max-width: 60rem;
+  max-width: 76rem;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: 2rem 1.5rem 4rem;
 }
 </style>
