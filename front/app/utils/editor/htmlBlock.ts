@@ -30,10 +30,12 @@ export const HtmlBlock = Node.create({
         parseHTML: element => element.getAttribute('data-html') ?? '',
         renderHTML: attributes => ({ 'data-html': attributes.html }),
       },
+      // null means "follow the content"; a number pins the frame to that many
+      // pixels, which an author can set when auto-sizing is not what they want.
       height: {
-        default: 320,
-        parseHTML: element => Number(element.getAttribute('data-height')) || 320,
-        renderHTML: attributes => ({ 'data-height': attributes.height }),
+        default: null,
+        parseHTML: element => Number(element.getAttribute('data-height')) || null,
+        renderHTML: attributes => (attributes.height ? { 'data-height': attributes.height } : {}),
       },
     }
   },

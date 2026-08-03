@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
+import { HTML_BLOCK_HEIGHT_MESSAGE, HTML_BLOCK_SCROLL_MESSAGE, htmlBlockRuntime } from '~/utils/editor/htmlBlockRuntime'
 
 const props = defineProps(nodeViewProps)
 
@@ -7,17 +8,122 @@ const isEditing = ref(false)
 const draft = ref<string>(props.node.attrs.html ?? '')
 
 const html = computed<string>(() => props.node.attrs.html ?? '')
-const height = computed<number>(() => Number(props.node.attrs.height) || 320)
+
+/** A stored height pins the frame; null lets it follow its content. */
+const pinnedHeight = computed<number | null>(() => {
+  const value = props.node.attrs.height
+
+  return typeof value === 'number' && value > 0 ? value : null
+})
 
 /**
  * The block renders in a sandboxed iframe with no `allow-same-origin`, so the
  * markup gets a unique opaque origin: its scripts cannot read this page, our
  * cookies, or anything in the storage bucket. That isolation is what makes it
- * safe to render author-supplied HTML at all — the alternative is to serve it
- * from the storage domain, where a script would sit alongside every uploaded
- * file. `allow-scripts` is granted so the block can actually do something.
+ * safe to render author-supplied HTML at all. `allow-scripts` is granted so the
+ * block can actually do something.
  */
-const SANDBOX = 'allow-scripts allow-popups allow-forms allow-modals'
+const SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals'
+
+/** Identifies this frame among the height messages arriving on the window. */
+const token = useId()
+
+/**
+ * Height the frame is measured at.
+ *
+ * Auto-sizing is circular whenever the embedded document uses viewport units:
+ * a rule like `min-height: 100vh` grows with the frame, which grows the
+ * measurement, which grows the frame again. So the frame is held at this
+ * reference height while it measures, the result is applied once, and later
+ * reports are ignored. Viewport units inside a block therefore resolve against
+ * this height rather than chasing the frame.
+ */
+const REFERENCE_HEIGHT = 800
+const MAX_HEIGHT = 20000
+const SETTLE_MS = 700
+
+const measuredHeight = ref(REFERENCE_HEIGHT)
+const isSettled = ref(false)
+let tallestReport = 0
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+
+const frame = useTemplateRef<HTMLIFrameElement>('frame')
+
+const effectiveHeight = computed(() => pinnedHeight.value ?? measuredHeight.value)
+
+/** The document handed to the frame: the author's markup plus our runtime. */
+const srcdoc = computed(() => (html.value ? html.value + htmlBlockRuntime(token) : ''))
+
+function onMessage(event: MessageEvent) {
+  // Origin is "null" for a sandboxed frame, so identity is established by the
+  // window that sent the message rather than by where it claims to come from.
+  if (!frame.value || event.source !== frame.value.contentWindow) {
+    return
+  }
+
+  const data = event.data as {
+    type?: string
+    token?: string
+    height?: number
+    offset?: number
+  } | null
+
+  if (data?.token !== token) {
+    return
+  }
+
+  if (data.type === HTML_BLOCK_SCROLL_MESSAGE) {
+    scrollOuterPageTo(Number(data.offset))
+    return
+  }
+
+  if (data.type !== HTML_BLOCK_HEIGHT_MESSAGE) {
+    return
+  }
+
+  const height = Number(data.height)
+
+  if (!Number.isFinite(height) || height <= 0 || isSettled.value) {
+    return
+  }
+
+  // Reports keep arriving as fonts and images land. The tallest wins, and the
+  // frame is resized only once they stop — measuring against a frame we have
+  // already resized is what causes the runaway.
+  tallestReport = Math.max(tallestReport, Math.ceil(height))
+
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => {
+    measuredHeight.value = Math.min(MAX_HEIGHT, Math.max(120, tallestReport))
+    isSettled.value = true
+  }, SETTLE_MS)
+}
+
+/** Brings a section inside the block into view by moving the outer page. */
+function scrollOuterPageTo(offset: number) {
+  if (!frame.value || !Number.isFinite(offset)) {
+    return
+  }
+
+  const frameTop = frame.value.getBoundingClientRect().top + window.scrollY
+  const headerAllowance = 80
+
+  window.scrollTo({ top: Math.max(0, frameTop + offset - headerAllowance), behavior: 'smooth' })
+}
+
+// A new document has to be measured from scratch.
+watch(html, () => {
+  clearTimeout(settleTimer)
+  tallestReport = 0
+  isSettled.value = false
+  measuredHeight.value = REFERENCE_HEIGHT
+})
+
+onMounted(() => window.addEventListener('message', onMessage))
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onMessage)
+  clearTimeout(settleTimer)
+})
 
 function save() {
   props.updateAttributes({ html: draft.value })
@@ -29,8 +135,14 @@ function cancel() {
   isEditing.value = false
 }
 
-function resize(delta: number) {
-  props.updateAttributes({ height: Math.min(1200, Math.max(120, height.value + delta)) })
+function pin(delta: number) {
+  const next = Math.min(MAX_HEIGHT, Math.max(120, effectiveHeight.value + delta))
+
+  props.updateAttributes({ height: next })
+}
+
+function unpin() {
+  props.updateAttributes({ height: null })
 }
 </script>
 
@@ -38,14 +150,26 @@ function resize(delta: number) {
   <NodeViewWrapper class="html-block" :class="{ 'html-block--selected': selected }">
     <header v-if="editor.isEditable" class="html-block__bar" contenteditable="false">
       <span class="badge badge--accent">HTML</span>
-      <span class="faint html-block__note">Выполняется изолированно, без доступа к странице</span>
+      <span class="faint html-block__note">
+        Выполняется изолированно, без доступа к странице ·
+        {{ pinnedHeight ? `${pinnedHeight} px` : 'высота по содержимому' }}
+      </span>
 
       <div class="html-block__actions">
-        <button type="button" class="button-ghost button-sm" @click="resize(-80)">
+        <button type="button" class="button-ghost button-sm" title="Уменьшить" @click="pin(-120)">
           −
         </button>
-        <button type="button" class="button-ghost button-sm" @click="resize(80)">
+        <button type="button" class="button-ghost button-sm" title="Увеличить" @click="pin(120)">
           +
+        </button>
+        <button
+          v-if="pinnedHeight"
+          type="button"
+          class="button-ghost button-sm"
+          title="Подстраивать под содержимое"
+          @click="unpin"
+        >
+          Авто
         </button>
         <button type="button" class="button-secondary button-sm" @click="isEditing = !isEditing">
           {{ isEditing ? 'Просмотр' : 'Код' }}
@@ -79,10 +203,11 @@ function resize(delta: number) {
     -->
     <iframe
       v-else-if="html"
+      ref="frame"
       class="html-block__frame"
-      :style="{ height: `${height}px` }"
+      :style="{ height: `${effectiveHeight}px` }"
       :sandbox="SANDBOX"
-      :srcdoc="html"
+      :srcdoc="srcdoc"
       title="Встроенный HTML"
     />
 
@@ -129,9 +254,10 @@ function resize(delta: number) {
 
 .html-block__code {
   width: 100%;
-  min-height: 12rem;
+  min-height: 18rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .html-block__editor-actions {
