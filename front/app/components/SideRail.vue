@@ -37,10 +37,12 @@ const items = computed<RailItem[]>(() => [
     matches: (path: string) => path.startsWith('/lms'),
   },
   {
-    to: '/settings/users',
+    // Everyone has a profile, so this module is never hidden; which pages it
+    // offers is decided by ModuleNav from the reader's permissions.
+    to: '/settings/profile',
     label: 'Настройки',
     icon: 'settings',
-    visible: can('users.view') || can('roles.manage'),
+    visible: true,
     matches: (path: string) => path.startsWith('/settings'),
   },
 ].filter(item => item.visible))

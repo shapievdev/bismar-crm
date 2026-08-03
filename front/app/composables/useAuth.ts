@@ -86,6 +86,42 @@ export function useAuth() {
     return data
   }
 
+  /** Saves the signed-in user's own name and address. */
+  async function updateProfile(payload: { name: string, email: string }): Promise<User> {
+    const { data } = await $api<ResourceResponse<User>>('/api/profile', {
+      method: 'PUT',
+      body: payload,
+    }).catch(toValidationError)
+
+    user.value = data
+
+    return data
+  }
+
+  async function uploadAvatar(file: File): Promise<User> {
+    const form = new FormData()
+    form.append('avatar', file)
+
+    const { data } = await $api<ResourceResponse<User>>('/api/profile/avatar', {
+      method: 'POST',
+      body: form,
+    }).catch(toValidationError)
+
+    user.value = data
+
+    return data
+  }
+
+  async function removeAvatar(): Promise<User> {
+    const { data } = await $api<ResourceResponse<User>>('/api/profile/avatar', {
+      method: 'DELETE',
+    })
+
+    user.value = data
+
+    return data
+  }
+
   /**
    * Clears local state even if the request fails, so a user who clicks "log out"
    * is never left looking at an authenticated UI.
@@ -108,5 +144,8 @@ export function useAuth() {
     login,
     register,
     logout,
+    updateProfile,
+    uploadAvatar,
+    removeAvatar,
   }
 }

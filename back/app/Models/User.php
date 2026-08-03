@@ -10,9 +10,10 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['name', 'email', 'password', 'avatar_path'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -27,6 +28,22 @@ class User extends Authenticatable
      * @var string
      */
     protected $guard_name = Authorization::GUARD;
+
+    /**
+     * A short-lived signed URL for the avatar, or null when none is set.
+     * Generated locally, so it is cheap enough for a list of users.
+     */
+    public function avatarUrl(): ?string
+    {
+        if ($this->avatar_path === null) {
+            return null;
+        }
+
+        return Storage::disk('s3')->temporaryUrl(
+            $this->avatar_path,
+            now()->addMinutes(config('lms.attachment_url_ttl_minutes')),
+        );
+    }
 
     /**
      * Get the attributes that should be cast.

@@ -85,8 +85,20 @@
   --header-height: 4.25rem;
 }
 
+/*
+ * Dark values live in one place and are applied by two selectors: the system
+ * preference when the reader has not chosen, and an explicit choice when they
+ * have. CSS cannot share a declaration block between selectors, so the list is
+ * written twice — the alternative is a runtime layer that would flash the
+ * wrong theme before it loaded.
+ *
+ * `:not([data-theme='light'])` lets an explicit light choice win over a dark
+ * system setting.
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
     --color-bg: #0e100f;
     --color-surface: #171a19;
     --color-surface-raised: #1e2221;
@@ -114,6 +126,37 @@
     --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
     --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+    --color-bg: #0e100f;
+    --color-surface: #171a19;
+    --color-surface-raised: #1e2221;
+    --color-surface-sunken: #101312;
+    --color-border: #262a29;
+    --color-border-strong: #383d3c;
+
+    --color-text: #eef0ef;
+    --color-text-muted: #9aa19f;
+    --color-text-faint: #6d7472;
+
+    --color-accent: #d3f84b;
+    --color-accent-hover: #ddfa6e;
+    --color-accent-soft: #23291a;
+    --color-accent-text: #10130f;
+
+    --color-success: #58c894;
+    --color-success-soft: #142a20;
+    --color-warning: #d7a54a;
+    --color-warning-soft: #2a2113;
+    --color-danger: #e8736a;
+    --color-danger-soft: #2c1917;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
+    --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
 }
 
 *,

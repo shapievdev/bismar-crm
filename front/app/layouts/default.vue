@@ -1,13 +1,6 @@
 <script setup lang="ts">
 const { user, isAuthenticated } = useAuth()
 
-const initials = computed(() =>
-  (user.value?.name ?? '')
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(word => word[0]?.toUpperCase() ?? '')
-    .join(''),
-)
 </script>
 
 <template>
@@ -20,10 +13,10 @@ const initials = computed(() =>
 
         <ModuleNav v-if="isAuthenticated" />
 
-        <div v-if="isAuthenticated" class="account">
+        <NuxtLink v-if="isAuthenticated" to="/settings/profile" class="account" title="Профиль">
           <span class="account__name">{{ user?.name }}</span>
-          <span class="avatar" :title="user?.email" aria-hidden="true">{{ initials }}</span>
-        </div>
+          <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="36" />
+        </NuxtLink>
       </div>
     </header>
 
@@ -82,18 +75,8 @@ const initials = computed(() =>
   align-items: center;
   gap: 0.6rem;
   margin-left: auto;
-}
-
-.avatar {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
+  color: inherit;
+  text-decoration: none;
 }
 
 .account__name {

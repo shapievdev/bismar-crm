@@ -29,6 +29,7 @@ const links = computed<NavLink[]>(() => {
 
   if (path.startsWith('/settings')) {
     return [
+      { to: '/settings/profile', label: 'Профиль', visible: true },
       { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
       { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
     ].filter(link => link.visible)

@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Lms\LearningController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\QuizController;
 use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -80,6 +81,13 @@ Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function ():
         Route::delete('modules/{module}', [CourseStructureController::class, 'destroyModule'])->name('modules.destroy');
         Route::delete('lessons/{lesson}', [CourseStructureController::class, 'destroyLesson'])->name('lessons.destroy');
     });
+});
+
+Route::middleware('auth:sanctum')->prefix('profile')->as('profile.')->group(function (): void {
+    // Your own account: guarded by being signed in, nothing more.
+    Route::put('/', [ProfileController::class, 'update'])->name('update');
+    Route::post('avatar', [ProfileController::class, 'storeAvatar'])->name('avatar.store');
+    Route::delete('avatar', [ProfileController::class, 'destroyAvatar'])->name('avatar.destroy');
 });
 
 Route::middleware('auth:sanctum')->group(function (): void {
