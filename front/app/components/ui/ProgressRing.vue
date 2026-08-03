@@ -56,12 +56,12 @@ circle {
 }
 
 .ring__value {
-  stroke: var(--color-accent);
+  stroke: var(--color-text);
   transition: stroke-dashoffset 0.35s ease;
 }
 
 .ring__value--complete {
-  stroke: var(--color-success);
+  stroke: var(--color-highlight);
 }
 
 .ring__label {

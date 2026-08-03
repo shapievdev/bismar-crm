@@ -37,23 +37,27 @@ async function handleLogout() {
   <div class="shell">
     <header class="topbar">
       <div class="topbar__inner">
-        <NuxtLink to="/" class="brand">
-          <span class="brand__mark" aria-hidden="true">B</span>
+        <NuxtLink to="/" class="brand" aria-label="Bismar">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+              <path d="M12 1.5 15.4 8.6 22.5 12 15.4 15.4 12 22.5 8.6 15.4 1.5 12 8.6 8.6z" />
+            </svg>
+          </span>
           <span class="brand__name">Bismar</span>
         </NuxtLink>
 
         <nav v-if="isAuthenticated" class="nav">
-          <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to" class="nav__link">
+          <NuxtLink v-for="link in navigation" :key="link.to" :to="link.to" class="nav__pill">
             {{ link.label }}
           </NuxtLink>
         </nav>
 
         <div v-if="isAuthenticated" class="account">
-          <span class="avatar" :title="user?.email" aria-hidden="true">{{ initials }}</span>
           <span class="account__name">{{ user?.name }}</span>
+          <span class="avatar" :title="user?.email" aria-hidden="true">{{ initials }}</span>
           <button
             type="button"
-            class="button-ghost button-sm"
+            class="button-secondary button-sm"
             :disabled="isLoggingOut"
             @click="handleLogout"
           >
@@ -81,64 +85,65 @@ async function handleLogout() {
   top: 0;
   z-index: 10;
   height: var(--header-height);
-  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .topbar__inner {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.25rem;
   height: 100%;
-  max-width: 76rem;
+  max-width: 82rem;
   margin: 0 auto;
-  padding: 0 1.5rem;
+  padding: 0 1.75rem;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   color: inherit;
-  font-weight: 650;
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
   text-decoration: none;
 }
 
 .brand__mark {
   display: grid;
   place-items: center;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: var(--radius-sm);
   background: var(--color-accent);
   color: var(--color-accent-text);
-  font-size: 0.9rem;
 }
 
+/* Each destination is its own pill; the current one inverts to solid. */
 .nav {
   display: flex;
-  gap: 0.25rem;
+  gap: 0.4rem;
   margin-right: auto;
 }
 
-.nav__link {
-  padding: 0.35rem 0.7rem;
-  border-radius: var(--radius-sm);
+.nav__pill {
+  padding: 0.5rem 1.05rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.nav__link:hover {
-  background: var(--color-surface-sunken);
+.nav__pill:hover {
   color: var(--color-text);
 }
 
-.nav__link.router-link-active {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 500;
+.nav__pill.router-link-active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .account {
@@ -150,13 +155,13 @@ async function handleLogout() {
 .avatar {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: var(--radius-pill);
-  background: var(--color-surface-sunken);
+  background: var(--color-surface-raised);
   color: var(--color-text-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .account__name {
@@ -164,23 +169,32 @@ async function handleLogout() {
   font-size: 0.88rem;
 }
 
-@media (max-width: 44rem) {
+@media (max-width: 56rem) {
   .account__name,
   .brand__name {
     display: none;
   }
 
   .topbar__inner {
-    gap: 0.75rem;
+    gap: 0.6rem;
     padding: 0 1rem;
+  }
+
+  .nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
   }
 }
 
 .main {
   flex: 1;
   width: 100%;
-  max-width: 76rem;
+  max-width: 82rem;
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  padding: 1.5rem 1.75rem 5rem;
 }
 </style>

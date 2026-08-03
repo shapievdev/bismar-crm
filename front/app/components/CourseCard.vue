@@ -27,7 +27,7 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
 </script>
 
 <template>
-  <article class="card course">
+  <article class="card card--raised course">
     <NuxtLink :to="`/lms/${course.slug}`" class="course__cover-link" :aria-label="course.title">
       <div class="course__cover" :style="course.cover_url ? undefined : { background: fallbackGradient }">
         <img v-if="course.cover_url" :src="course.cover_url" :alt="''" loading="lazy">
@@ -40,8 +40,8 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
         <span v-if="course.status !== 'published'" class="badge badge--warning">
           {{ course.status_label }}
         </span>
-        <span v-if="course.enrollment?.is_completed" class="badge badge--success">Пройден</span>
-        <span v-else-if="course.enrollment" class="badge badge--accent">В процессе</span>
+        <span v-if="course.enrollment?.is_completed" class="badge badge--highlight">Пройден</span>
+        <span v-else-if="course.enrollment" class="badge">В процессе</span>
       </div>
 
       <h3 class="course__title">
@@ -76,23 +76,27 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .course:hover {
   box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
 }
 
 .course__cover-link {
   display: block;
+  text-decoration: none;
 }
 
 .course__cover {
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 10;
+  margin: 0.4rem 0.4rem 0;
+  border-radius: var(--radius);
+  overflow: hidden;
   background: var(--color-surface-sunken);
 }
 
@@ -115,7 +119,7 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.95rem 1.05rem 1.1rem;
+  padding: 1rem 1.15rem 1.25rem;
 }
 
 .course__badges {
@@ -127,8 +131,9 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
 
 .course__title {
   margin: 0;
-  font-size: 1.02rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .course__title a {

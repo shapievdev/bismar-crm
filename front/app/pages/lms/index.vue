@@ -128,18 +128,18 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </div>
     </header>
 
-    <div v-if="inProgressCount || completedCount" class="stats">
-      <div class="stat">
-        <span class="stat__value">{{ inProgressCount }}</span>
-        <span class="stat__label">в процессе</span>
+    <div class="stats">
+      <div class="card card--raised stat">
+        <span class="metric">{{ inProgressCount }}</span>
+        <span class="metric-label">в процессе</span>
       </div>
-      <div class="stat">
-        <span class="stat__value">{{ completedCount }}</span>
-        <span class="stat__label">пройдено</span>
+      <div class="card card--raised stat">
+        <span class="metric">{{ completedCount }}</span>
+        <span class="metric-label">пройдено</span>
       </div>
-      <div class="stat">
-        <span class="stat__value">{{ data?.total ?? 0 }}</span>
-        <span class="stat__label">материалов</span>
+      <div class="card stat stat--muted">
+        <span class="metric">{{ data?.total ?? 0 }}</span>
+        <span class="metric-label">материалов всего</span>
       </div>
     </div>
 
@@ -237,31 +237,22 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 }
 
 .stats {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: 0.75rem;
-  margin-bottom: 1.5rem;
+  max-width: 34rem;
+  margin-bottom: 1.75rem;
 }
 
 .stat {
-  flex: 1;
-  max-width: 11rem;
-  padding: 0.8rem 1rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 1.15rem 1.35rem 1.25rem;
 }
 
-.stat__value {
-  display: block;
-  font-size: 1.5rem;
-  font-weight: 650;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat__label {
+.stat--muted .metric {
   color: var(--color-text-muted);
-  font-size: 0.82rem;
 }
 
 .head__actions {
@@ -283,26 +274,26 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--color-border);
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-text-muted);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .chip:hover {
-  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
   color: var(--color-text);
 }
 
 .chip--active {
-  background: var(--color-accent-soft);
-  border-color: transparent;
-  color: var(--color-accent);
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
   font-weight: 500;
 }
 
@@ -331,39 +322,39 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 
 .tabs {
   display: flex;
-  gap: 0.2rem;
-  padding: 0.2rem;
-  background: var(--color-surface-sunken);
-  border-radius: var(--radius);
+  gap: 0.4rem;
 }
 
 .tab {
-  padding: 0.4rem 0.85rem;
+  padding: 0.5rem 1.05rem;
   border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
   color: var(--color-text-muted);
   font: inherit;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.92rem;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--color-text);
 }
 
 .tab--active {
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: var(--shadow-sm);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .search {
   width: auto;
   min-width: 15rem;
-  flex: 0 1 20rem;
+  flex: 0 1 22rem;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
   gap: 1rem;
 }
 
@@ -372,8 +363,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 }
 
 .skeleton-card__cover {
-  aspect-ratio: 16 / 9;
-  border-radius: 0;
+  aspect-ratio: 16 / 10;
+  margin: 0.4rem 0.4rem 0;
 }
 
 .skeleton-card__body {

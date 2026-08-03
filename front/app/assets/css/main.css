@@ -28,78 +28,91 @@
 /*
  * Design tokens.
  *
- * Colours are declared as light values first and overridden for dark mode, so
- * every component inherits both themes without knowing about either.
+ * The palette is deliberately low-contrast: a light grey page with slightly
+ * lighter cards, so surfaces separate by tone rather than by borders. Near
+ * black carries every primary action, and one lime accent marks the single
+ * thing on a screen that deserves the eye.
+ *
+ * Light values come first and dark mode overrides them, so components inherit
+ * both themes without knowing about either.
  */
 :root {
   color-scheme: light dark;
 
-  --color-bg: #f5f6f8;
-  --color-surface: #ffffff;
+  --color-bg: #e8eaea;
+  --color-surface: #f4f5f5;
   --color-surface-raised: #ffffff;
-  --color-surface-sunken: #eef0f4;
-  --color-border: #e2e5ea;
-  --color-border-strong: #cbd1da;
+  --color-surface-sunken: #dfe1e1;
+  --color-border: #dcdede;
+  --color-border-strong: #c6c9c9;
 
-  --color-text: #14181f;
-  --color-text-muted: #626b7a;
-  --color-text-faint: #8a92a0;
+  --color-text: #0f1211;
+  --color-text-muted: #6a706e;
+  --color-text-faint: #9aa09e;
 
-  --color-accent: #3b6fe0;
-  --color-accent-hover: #2f5cc4;
-  --color-accent-soft: #e8effc;
+  /* Primary action. Black in light mode, lime in dark — always the loudest
+     thing on the surface it sits on. */
+  --color-accent: #111413;
+  --color-accent-hover: #292d2c;
+  --color-accent-soft: #dfe1e1;
   --color-accent-text: #ffffff;
 
-  --color-success: #1c8a5a;
-  --color-success-soft: #e3f5ec;
-  --color-warning: #a2650a;
-  --color-warning-soft: #fdf3e0;
-  --color-danger: #c33b32;
-  --color-danger-soft: #fdecea;
+  /* Highlight. Used sparingly: a selected value, a completed course, one bar
+     in a chart. It stops meaning "look here" the moment it is everywhere. */
+  --color-highlight: #d3f84b;
+  --color-highlight-strong: #c2ea34;
+  --color-highlight-text: #10130f;
 
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 16px;
+  --color-success: #1f7a52;
+  --color-success-soft: #dcf3e7;
+  --color-warning: #8a5b0c;
+  --color-warning-soft: #f8eeda;
+  --color-danger: #b83a31;
+  --color-danger-soft: #f9e5e3;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 24px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 4%);
-  --shadow-md: 0 4px 12px rgb(16 24 40 / 8%), 0 2px 4px rgb(16 24 40 / 4%);
-  --shadow-lg: 0 12px 32px rgb(16 24 40 / 12%);
+  --shadow-sm: 0 1px 2px rgb(15 18 17 / 4%);
+  --shadow-md: 0 6px 20px rgb(15 18 17 / 7%);
+  --shadow-lg: 0 18px 44px rgb(15 18 17 / 10%);
 
   /* Системные шрифты остаются запасными: до загрузки и если файл не дошёл. */
   --font-sans: 'Involve', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 
-  --header-height: 3.5rem;
+  --header-height: 4.25rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #0f1319;
-    --color-surface: #171c24;
-    --color-surface-raised: #1d232d;
-    --color-surface-sunken: #11151b;
-    --color-border: #262d38;
-    --color-border-strong: #37404e;
+    --color-bg: #0e100f;
+    --color-surface: #171a19;
+    --color-surface-raised: #1e2221;
+    --color-surface-sunken: #101312;
+    --color-border: #262a29;
+    --color-border-strong: #383d3c;
 
-    --color-text: #e8ebf0;
-    --color-text-muted: #98a1b0;
-    --color-text-faint: #6c7686;
+    --color-text: #eef0ef;
+    --color-text-muted: #9aa19f;
+    --color-text-faint: #6d7472;
 
-    --color-accent: #6b96f5;
-    --color-accent-hover: #85a9f7;
-    --color-accent-soft: #1b2740;
-    --color-accent-text: #0f1319;
+    --color-accent: #d3f84b;
+    --color-accent-hover: #ddfa6e;
+    --color-accent-soft: #23291a;
+    --color-accent-text: #10130f;
 
-    --color-success: #4ec392;
-    --color-success-soft: #14291f;
-    --color-warning: #d9a441;
+    --color-success: #58c894;
+    --color-success-soft: #142a20;
+    --color-warning: #d7a54a;
     --color-warning-soft: #2a2113;
-    --color-danger: #e8695f;
+    --color-danger: #e8736a;
     --color-danger-soft: #2c1917;
 
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
-    --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
-    --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
+    --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
   }
 }
 
@@ -122,40 +135,48 @@ body {
 h1,
 h2,
 h3 {
-  line-height: 1.25;
-  letter-spacing: -0.011em;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 500;
 }
 
 a {
-  color: var(--color-accent);
+  color: inherit;
   text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }
 
 :where(button, a, input, select, textarea):focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-text);
   outline-offset: 2px;
 }
 
 /* ---------- Buttons ---------- */
 
+/*
+ * Everything clickable is a pill. Primary is a solid near-black lozenge;
+ * secondary is the same shape in surface tone, which keeps a row of controls
+ * reading as one family.
+ */
 .button-primary,
 .button-secondary,
 .button-ghost,
-.button-danger {
+.button-danger,
+.button-highlight {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  padding: 0.55rem 1.05rem;
-  border-radius: var(--radius);
+  gap: 0.45rem;
+  padding: 0.6rem 1.15rem;
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
   font: inherit;
   font-weight: 500;
   line-height: 1.2;
+  white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .button-primary {
@@ -167,14 +188,22 @@ a {
   background: var(--color-accent-hover);
 }
 
+.button-highlight {
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
+}
+
+.button-highlight:hover:not(:disabled) {
+  background: var(--color-highlight-strong);
+}
+
 .button-secondary {
-  background: var(--color-surface);
-  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
   color: var(--color-text);
 }
 
 .button-secondary:hover:not(:disabled) {
-  border-color: var(--color-text-faint);
+  background: var(--color-surface-sunken);
 }
 
 .button-ghost {
@@ -200,35 +229,70 @@ a {
 .button-primary:disabled,
 .button-secondary:disabled,
 .button-ghost:disabled,
-.button-danger:disabled {
-  opacity: 0.5;
+.button-danger:disabled,
+.button-highlight:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .button-sm {
-  padding: 0.32rem 0.7rem;
+  padding: 0.35rem 0.8rem;
   font-size: 0.85rem;
+}
+
+/* A round icon button, as used for the small actions in a card corner. */
+.button-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.button-icon:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
+.button-icon--dark {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 /* ---------- Surfaces ---------- */
 
+/*
+ * Cards carry no border: they sit a shade lighter than the page and rely on
+ * tone and radius for separation, which is what keeps the layout calm.
+ */
 .card {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 0;
   border-radius: var(--radius-lg);
+}
+
+.card--raised {
+  background: var(--color-surface-raised);
   box-shadow: var(--shadow-sm);
 }
 
 .page-title {
   margin: 0;
-  font-size: 1.6rem;
-  font-weight: 650;
+  font-size: 2.15rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
 }
 
 .page-subtitle {
-  margin: 0.3rem 0 0;
+  margin: 0.4rem 0 0;
   color: var(--color-text-muted);
-  font-size: 0.94rem;
+  font-size: 0.95rem;
 }
 
 .muted {
@@ -239,24 +303,43 @@ a {
   color: var(--color-text-faint);
 }
 
+/* A large figure with its label underneath, as used in the stat row. */
+.metric {
+  font-size: 2.4rem;
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 /* ---------- Badges ---------- */
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.12rem 0.55rem;
+  padding: 0.2rem 0.65rem;
   border-radius: var(--radius-pill);
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 500;
   white-space: nowrap;
 }
 
 .badge--accent {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.badge--highlight {
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
 }
 
 .badge--success {
@@ -275,13 +358,23 @@ a {
 .select,
 .textarea {
   width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius);
-  background: var(--color-surface);
+  padding: 0.65rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
   color: var(--color-text);
   font: inherit;
-  transition: border-color 0.12s ease;
+  transition: border-color 0.15s ease;
+}
+
+/* Multi-line inputs keep corners rather than becoming a lozenge. */
+.textarea {
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.select {
+  padding-right: 2rem;
 }
 
 .input::placeholder,
@@ -292,22 +385,18 @@ a {
 .input:hover,
 .select:hover,
 .textarea:hover {
-  border-color: var(--color-text-faint);
-}
-
-.textarea {
-  resize: vertical;
+  border-color: var(--color-border-strong);
 }
 
 .field-label {
   display: block;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.4rem;
   font-size: 0.87rem;
   font-weight: 500;
 }
 
 .field-error {
-  margin: 0.3rem 0 0;
+  margin: 0.35rem 0 0;
   color: var(--color-danger);
   font-size: 0.83rem;
 }
@@ -315,7 +404,7 @@ a {
 /* ---------- Feedback ---------- */
 
 .alert {
-  padding: 0.7rem 0.9rem;
+  padding: 0.8rem 1.1rem;
   border-radius: var(--radius);
   font-size: 0.9rem;
 }
@@ -333,7 +422,7 @@ a {
 /* Kept for the auth screens, which predate the token set. */
 .auth-alert {
   margin: 0 0 0.5rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.8rem 1.1rem;
   border-radius: var(--radius);
   background: var(--color-danger-soft);
   color: var(--color-danger);
@@ -341,18 +430,18 @@ a {
 }
 
 .empty-state {
-  padding: 3rem 1.5rem;
-  border: 1px dashed var(--color-border-strong);
+  padding: 3.5rem 1.5rem;
   border-radius: var(--radius-lg);
+  background: var(--color-surface);
   color: var(--color-text-muted);
   text-align: center;
 }
 
 .empty-state__title {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.4rem;
   color: var(--color-text);
-  font-size: 1.02rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 500;
 }
 
 /* Placeholder blocks shown while data loads, instead of a bare "Загрузка…". */
@@ -382,18 +471,19 @@ a {
 /* ---------- Auth screens ---------- */
 
 .auth-card {
-  max-width: 24rem;
+  max-width: 25rem;
   margin: 4rem auto;
-  padding: 2rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  padding: 2.25rem;
+  background: var(--color-surface-raised);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
 
 .auth-card__title {
-  margin: 0 0 1.4rem;
-  font-size: 1.4rem;
+  margin: 0 0 1.5rem;
+  font-size: 1.75rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
 }
 
 .auth-form {
@@ -411,7 +501,7 @@ a {
 }
 
 .auth-switch {
-  margin: 1.4rem 0 0;
+  margin: 1.5rem 0 0;
   color: var(--color-text-muted);
   font-size: 0.88rem;
 }

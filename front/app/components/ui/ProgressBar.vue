@@ -44,13 +44,13 @@ const clamped = computed(() => Math.min(100, Math.max(0, Math.round(props.value)
 
 .fill {
   height: 100%;
-  background: var(--color-accent);
+  background: var(--color-text);
   border-radius: inherit;
   transition: width 0.25s ease;
 }
 
 .fill--complete {
-  background: var(--color-success);
+  background: var(--color-highlight);
 }
 
 .label {
