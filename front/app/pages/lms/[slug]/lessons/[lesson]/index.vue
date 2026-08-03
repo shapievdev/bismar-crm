@@ -199,10 +199,16 @@ function formatSize(bytes: number): string {
         <a :href="lesson.video_url" target="_blank" rel="noopener noreferrer">Открыть видео →</a>
       </p>
 
-      <div v-if="paragraphs.length" class="prose">
-        <p v-for="(paragraph, index) in paragraphs" :key="index">
-          {{ paragraph }}
-        </p>
+      <div class="prose">
+        <ClientOnly>
+          <RichTextRenderer :content="lesson.content_json ?? null" :fallback-text="lesson.content" />
+
+          <template #fallback>
+            <p v-for="(paragraph, index) in paragraphs" :key="index">
+              {{ paragraph }}
+            </p>
+          </template>
+        </ClientOnly>
       </div>
 
       <section v-if="lesson.attachments?.length" class="block">
@@ -210,9 +216,20 @@ function formatSize(bytes: number): string {
           Материалы
         </h2>
         <ul class="files">
-          <li v-for="file in lesson.attachments" :key="file.id">
-            <a :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.name }}</a>
-            <span class="faint">{{ formatSize(file.size) }}</span>
+          <li v-for="file in lesson.attachments" :key="file.id" class="file">
+            <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
+
+            <div class="file__body">
+              <a
+                :href="file.url"
+                class="file__name"
+                :target="file.opens_inline ? '_blank' : undefined"
+                rel="noopener noreferrer"
+              >{{ file.name }}</a>
+              <span v-if="file.description" class="file__description">{{ file.description }}</span>
+            </div>
+
+            <span class="faint file__size">{{ formatSize(file.size) }}</span>
           </li>
         </ul>
       </section>
@@ -501,16 +518,44 @@ function formatSize(bytes: number): string {
   max-width: 34rem;
 }
 
-.files li {
+.file {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 0.75rem;
+  gap: 0.8rem;
+  padding: 0.6rem 0.8rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   margin-bottom: 0.4rem;
-  font-size: 0.9rem;
+}
+
+.file__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.file__name {
+  color: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.file__name:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.file__description {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.file__size {
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .quiz {

@@ -17,7 +17,7 @@ final readonly class StoreLessonAttachment
      */
     private const DISK = 's3';
 
-    public function handle(Lesson $lesson, UploadedFile $file): LessonAttachment
+    public function handle(Lesson $lesson, UploadedFile $file, ?string $description = null): LessonAttachment
     {
         // Laravel generates the stored filename, so a hostile client cannot
         // choose the object key; the original name is kept only for display.
@@ -28,6 +28,7 @@ final readonly class StoreLessonAttachment
             'disk' => self::DISK,
             'path' => $path,
             'name' => $file->getClientOriginalName(),
+            'description' => $description,
             'mime_type' => $file->getClientMimeType(),
             'size' => $file->getSize(),
         ]));

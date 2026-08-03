@@ -387,3 +387,161 @@ a {
   color: var(--color-text-muted);
   font-size: 0.88rem;
 }
+/* ---------- Article content ---------- */
+
+/*
+ * Shared by the editor surface and the reader, so an author sees exactly what
+ * a reader will get.
+ */
+.prose-editor__surface,
+.prose-rendered {
+  padding: 1.1rem 1.25rem;
+  outline: none;
+  min-height: 18rem;
+}
+
+.prose-rendered {
+  padding: 0;
+  min-height: 0;
+}
+
+.prose-editor__surface > * + *,
+.prose-rendered > * + * {
+  margin-top: 0.9rem;
+}
+
+.prose-editor__surface h2,
+.prose-rendered h2 {
+  margin: 1.8rem 0 0.6rem;
+  font-size: 1.4rem;
+  font-weight: 650;
+}
+
+.prose-editor__surface h3,
+.prose-rendered h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.18rem;
+  font-weight: 620;
+}
+
+.prose-editor__surface h4,
+.prose-rendered h4 {
+  margin: 1.25rem 0 0.4rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.prose-editor__surface p,
+.prose-rendered p {
+  margin: 0 0 0.9rem;
+}
+
+.prose-editor__surface blockquote,
+.prose-rendered blockquote {
+  margin: 1.25rem 0;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.prose-editor__surface ul,
+.prose-editor__surface ol,
+.prose-rendered ul,
+.prose-rendered ol {
+  margin: 0 0 0.9rem;
+  padding-left: 1.4rem;
+}
+
+.prose-editor__surface li,
+.prose-rendered li {
+  margin: 0.2rem 0;
+}
+
+.prose-editor__surface code,
+.prose-rendered code {
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+}
+
+.prose-editor__surface pre,
+.prose-rendered pre {
+  margin: 1.1rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  background: var(--color-surface-sunken);
+  overflow-x: auto;
+}
+
+.prose-editor__surface pre code,
+.prose-rendered pre code {
+  padding: 0;
+  background: none;
+}
+
+.prose-editor__surface img,
+.prose-rendered img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  display: block;
+}
+
+.prose-editor__surface hr,
+.prose-rendered hr {
+  margin: 1.75rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Wide tables scroll inside their own box rather than stretching the page. */
+.prose-editor__surface table,
+.prose-rendered table {
+  width: 100%;
+  margin: 1.25rem 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.prose-editor__surface th,
+.prose-editor__surface td,
+.prose-rendered th,
+.prose-rendered td {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.prose-editor__surface th,
+.prose-rendered th {
+  background: var(--color-surface-sunken);
+  font-weight: 600;
+  text-align: left;
+}
+
+.prose-editor__surface .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent-soft);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.prose-editor__surface .tableWrapper,
+.prose-rendered .tableWrapper {
+  overflow-x: auto;
+}
+
+/* Placeholder text for the first empty line. */
+.prose-editor__surface p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Course } from '~/types/lms'
+import type { Category, Course } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 useHead({ title: 'База знаний' })
@@ -80,6 +80,25 @@ const completedCount = computed(
   () => (data.value?.courses ?? []).filter(c => c.enrollment?.is_completed).length,
 )
 
+/**
+ * Categories arrive as a tree; the chip row is flat, so nesting is shown by
+ * depth rather than by structure.
+ */
+const flatCategories = computed(() => {
+  const flat: { slug: string, name: string, depth: number, courses_count?: number }[] = []
+
+  const walk = (nodes: Category[], depth: number) => {
+    for (const node of nodes) {
+      flat.push({ slug: node.slug, name: node.name, depth, courses_count: node.courses_count })
+      walk(node.children ?? [], depth + 1)
+    }
+  }
+
+  walk(data.value?.categories ?? [], 0)
+
+  return flat
+})
+
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
   { id: 'all', label: 'Всё', visible: true },
   { id: 'mine', label: 'Открытое мной', visible: true },
@@ -159,13 +178,14 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         Все категории
       </button>
       <button
-        v-for="item in data?.categories ?? []"
+        v-for="item in flatCategories"
         :key="item.slug"
         type="button"
         class="chip"
-        :class="{ 'chip--active': category === item.slug }"
+        :class="{ 'chip--active': category === item.slug, 'chip--nested': item.depth > 0 }"
         @click="category = item.slug"
       >
+        <span v-if="item.depth > 0" class="chip__depth" aria-hidden="true">└</span>
         {{ item.name }}
         <span class="chip__count">{{ item.courses_count ?? 0 }}</span>
       </button>
@@ -284,6 +304,15 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   border-color: transparent;
   color: var(--color-accent);
   font-weight: 500;
+}
+
+.chip--nested {
+  padding-left: 0.5rem;
+}
+
+.chip__depth {
+  color: var(--color-text-faint);
+  font-size: 0.8rem;
 }
 
 .chip__count {

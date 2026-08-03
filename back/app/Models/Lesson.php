@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['module_id', 'title', 'slug', 'content', 'video_url', 'video_path', 'video_disk', 'video_name', 'video_size', 'duration_minutes', 'position'])]
+#[Fillable(['module_id', 'title', 'slug', 'content', 'content_json', 'video_url', 'video_path', 'video_disk', 'video_name', 'video_size', 'duration_minutes', 'position'])]
 class Lesson extends Model
 {
     /** @use HasFactory<LessonFactory> */

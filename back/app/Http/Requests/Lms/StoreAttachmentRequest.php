@@ -23,11 +23,14 @@ final class StoreAttachmentRequest extends FormRequest
                 // SVG is deliberately absent — it can carry script, and a
                 // viewer opening it would run that script in the storage
                 // origin alongside every other file in the bucket.
-                'mimes:pdf,doc,docx,rtf,odt,xls,xlsx,ods,csv,ppt,pptx,odp,txt,md,'
+                // HTML is here because it is useful, and safe only because the
+                // signed URL forces a download — see AttachmentDelivery.
+                'mimes:pdf,doc,docx,rtf,odt,xls,xlsx,ods,csv,ppt,pptx,odp,txt,md,html,htm,'
                 .'png,jpg,jpeg,gif,webp,heic,'
                 .'mp4,webm,mov,mp3,wav,m4a,'
                 .'zip,7z,rar',
             ],
+            'description' => ['nullable', 'string', 'max:500'],
         ];
     }
 

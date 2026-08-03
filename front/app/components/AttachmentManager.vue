@@ -8,17 +8,35 @@ defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
-const { uploadAttachment, deleteAttachment } = useLmsApi()
+const { uploadAttachment, updateAttachment, deleteAttachment } = useLmsApi()
 
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 const isUploading = ref(false)
 const error = ref<string | null>(null)
 
-async function onFileChosen(event: Event, lessonId: number | string) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+/** Chosen but not yet sent: the caption is written before the upload starts. */
+const pendingFile = ref<File | null>(null)
+const pendingDescription = ref('')
 
-  if (!file) {
+const editingId = ref<number | null>(null)
+const editingDescription = ref('')
+
+function chooseFile(event: Event) {
+  const input = event.target as HTMLInputElement
+
+  pendingFile.value = input.files?.[0] ?? null
+  pendingDescription.value = ''
+  error.value = null
+  input.value = ''
+}
+
+function cancelPending() {
+  pendingFile.value = null
+  pendingDescription.value = ''
+}
+
+async function upload(lessonId: number | string) {
+  if (!pendingFile.value) {
     return
   }
 
@@ -26,17 +44,37 @@ async function onFileChosen(event: Event, lessonId: number | string) {
   error.value = null
 
   try {
-    await uploadAttachment(lessonId, file)
+    await uploadAttachment(lessonId, pendingFile.value, pendingDescription.value || null)
+    cancelPending()
     emit('changed')
   }
   catch (caught) {
     const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
-    error.value = failure.data?.errors?.file?.[0] ?? failure.data?.message ?? 'Не удалось загрузить файл.'
+    error.value = failure.data?.errors?.file?.[0]
+      ?? failure.data?.errors?.description?.[0]
+      ?? failure.data?.message
+      ?? 'Не удалось загрузить файл.'
   }
   finally {
     isUploading.value = false
-    // Clear the input so the same file can be retried after a failure.
-    input.value = ''
+  }
+}
+
+function startEditing(attachment: LessonAttachment) {
+  editingId.value = attachment.id
+  editingDescription.value = attachment.description ?? ''
+}
+
+async function saveDescription(attachment: LessonAttachment) {
+  error.value = null
+
+  try {
+    await updateAttachment(attachment.id, editingDescription.value || null)
+    editingId.value = null
+    emit('changed')
+  }
+  catch {
+    error.value = 'Не удалось сохранить подпись.'
   }
 }
 
@@ -61,45 +99,109 @@ function formatSize(bytes: number): string {
 
 <template>
   <section class="attachments">
-    <header class="attachments__header">
-      <h2>Материалы</h2>
+    <header class="attachments__head">
+      <h2 class="attachments__title">
+        Файлы
+      </h2>
 
       <button
         type="button"
-        class="button-plain"
+        class="button-secondary button-sm"
         :disabled="isUploading"
         @click="fileInput?.click()"
       >
-        {{ isUploading ? 'Загружаем…' : 'Загрузить файл' }}
+        Выбрать файл
       </button>
 
-      <input
-        ref="fileInput"
-        type="file"
-        class="visually-hidden"
-        @change="onFileChosen($event, lessonId)"
-      >
+      <input ref="fileInput" type="file" class="visually-hidden" @change="chooseFile">
     </header>
 
-    <p class="muted">
-      Файлы хранятся в S3, ссылки подписанные и действуют ограниченное время.
+    <p class="faint hint">
+      Документы, таблицы, презентации, изображения, архивы и HTML. Хранятся в S3,
+      ссылки подписанные и живут ограниченное время.
     </p>
 
-    <p v-if="error" class="auth-alert" role="alert">
+    <p v-if="error" class="alert alert--danger" role="alert">
       {{ error }}
     </p>
 
-    <ul v-if="attachments.length" class="list">
-      <li v-for="file in attachments" :key="file.id">
-        <a :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.name }}</a>
-        <span class="muted">{{ formatSize(file.size) }}</span>
-        <button type="button" class="danger" @click="remove(file)">
-          Удалить
+    <form v-if="pendingFile" class="card pending" @submit.prevent="upload(lessonId)">
+      <UiFileIcon :name="pendingFile.name" :mime-type="pendingFile.type" />
+
+      <div class="pending__body">
+        <span class="pending__name">{{ pendingFile.name }}</span>
+        <input
+          v-model.trim="pendingDescription"
+          class="input"
+          maxlength="500"
+          placeholder="Что в этом файле? Например: скан подписанного договора"
+        >
+      </div>
+
+      <div class="pending__actions">
+        <button type="submit" class="button-primary button-sm" :disabled="isUploading">
+          {{ isUploading ? 'Загружаем…' : 'Загрузить' }}
         </button>
+        <button type="button" class="button-ghost button-sm" :disabled="isUploading" @click="cancelPending">
+          Отмена
+        </button>
+      </div>
+    </form>
+
+    <ul v-if="attachments.length" class="list">
+      <li v-for="file in attachments" :key="file.id" class="card item">
+        <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
+
+        <div class="item__body">
+          <a
+            :href="file.url"
+            class="item__name"
+            :target="file.opens_inline ? '_blank' : undefined"
+            rel="noopener noreferrer"
+          >
+            {{ file.name }}
+          </a>
+
+          <form
+            v-if="editingId === file.id"
+            class="item__edit"
+            @submit.prevent="saveDescription(file)"
+          >
+            <input v-model.trim="editingDescription" class="input" maxlength="500" placeholder="Подпись">
+            <button type="submit" class="button-primary button-sm">
+              Ок
+            </button>
+            <button type="button" class="button-ghost button-sm" @click="editingId = null">
+              Отмена
+            </button>
+          </form>
+
+          <p v-else-if="file.description" class="item__description">
+            {{ file.description }}
+          </p>
+
+          <p v-else class="faint item__description item__description--missing">
+            Без подписи — непонятно, что внутри
+          </p>
+
+          <span class="faint item__meta">
+            {{ formatSize(file.size) }}
+            <template v-if="!file.opens_inline"> · скачается файлом</template>
+          </span>
+        </div>
+
+        <div class="item__actions">
+          <button type="button" class="button-ghost button-sm" @click="startEditing(file)">
+            Подписать
+          </button>
+          <button type="button" class="button-danger button-sm" @click="remove(file)">
+            Удалить
+          </button>
+        </div>
       </li>
     </ul>
 
-    <p v-else class="muted">
+    <p v-else-if="!pendingFile" class="faint">
       Файлов пока нет.
     </p>
   </section>
@@ -113,16 +215,22 @@ function formatSize(bytes: number): string {
   border-top: 1px solid var(--color-border);
 }
 
-.attachments__header {
+.attachments__head {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
 
-.attachments__header h2 {
+.attachments__title {
   flex: 1;
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0.4rem 0 0.9rem;
+  font-size: 0.85rem;
 }
 
 .visually-hidden {
@@ -137,49 +245,71 @@ function formatSize(bytes: number): string {
   border: 0;
 }
 
-.muted {
-  margin: 0.4rem 0;
+.pending,
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.pending__body,
+.item__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.pending__name,
+.item__name {
+  font-weight: 550;
+  font-size: 0.94rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item__name {
+  color: inherit;
+  text-decoration: none;
+}
+
+.item__name:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.pending__actions,
+.item__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.item__edit {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.item__description {
+  margin: 0;
+  font-size: 0.87rem;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+}
+
+.item__description--missing {
+  font-style: italic;
+}
+
+.item__meta {
+  font-size: 0.8rem;
 }
 
 .list {
-  margin: 0.75rem 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.list li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.45rem 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.list li a {
-  flex: 1;
-}
-
-.button-plain,
-.danger {
-  padding: 0.4rem 0.85rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.danger {
-  color: var(--color-danger);
-  border-color: var(--color-danger);
-}
-
-.button-plain:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 </style>

@@ -21,8 +21,10 @@ final class LessonAttachmentResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'description' => $this->description,
             'mime_type' => $this->mime_type,
             'size' => $this->size,
+            'opens_inline' => $this->opensInline(),
             // Signed and short-lived, so the bucket itself stays private.
             'url' => $this->temporaryUrl(),
         ];

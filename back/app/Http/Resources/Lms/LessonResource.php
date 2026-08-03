@@ -31,6 +31,7 @@ final class LessonResource extends JsonResource
             'has_quiz' => $this->whenLoaded('quiz', fn (): bool => $this->quiz !== null),
             // Only the lesson endpoint loads the body; outlines stay light.
             'content' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?string => $this->content),
+            'content_json' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?array => $this->content_json),
             'attachments' => LessonAttachmentResource::collection($this->whenLoaded('attachments')),
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
             // Attached by the controller from the learner's completions.

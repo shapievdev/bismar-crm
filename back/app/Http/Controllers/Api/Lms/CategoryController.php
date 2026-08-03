@@ -18,7 +18,11 @@ final class CategoryController extends Controller
 {
     public function index(): AnonymousResourceCollection
     {
+        // Returned as a tree: the UI renders nesting, and a flat list would
+        // force it to rebuild the hierarchy client-side.
         $categories = Category::query()
+            ->roots()
+            ->with('descendants')
             ->withCount('courses')
             ->ordered()
             ->get();
@@ -32,6 +36,7 @@ final class CategoryController extends Controller
             'name' => $request->validated('name'),
             'slug' => $slugs->generate((string) $request->validated('name'), Category::class),
             'description' => $request->validated('description'),
+            'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', Category::query()->count()),
         ]);
 
@@ -46,6 +51,7 @@ final class CategoryController extends Controller
         $category->update([
             'name' => $request->validated('name'),
             'description' => $request->validated('description'),
+            'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', $category->position),
         ]);
 

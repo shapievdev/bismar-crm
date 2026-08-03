@@ -88,15 +88,25 @@ export function useLmsApi() {
     deleteLesson: (lessonId: number | string) =>
       $api(`/api/lms/lessons/${lessonId}`, { method: 'DELETE' }),
 
-    uploadAttachment: (lessonId: number | string, file: File) => {
+    uploadAttachment: (lessonId: number | string, file: File, description: string | null = null) => {
       const form = new FormData()
       form.append('file', file)
+
+      if (description) {
+        form.append('description', description)
+      }
 
       return $api<ResourceResponse<LessonAttachment>>(`/api/lms/lessons/${lessonId}/attachments`, {
         method: 'POST',
         body: form,
       })
     },
+
+    updateAttachment: (attachmentId: number, description: string | null) =>
+      $api<ResourceResponse<LessonAttachment>>(`/api/lms/attachments/${attachmentId}`, {
+        method: 'PUT',
+        body: { description },
+      }),
 
     deleteAttachment: (attachmentId: number) =>
       $api(`/api/lms/attachments/${attachmentId}`, { method: 'DELETE' }),

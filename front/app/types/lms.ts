@@ -14,6 +14,7 @@ export interface LessonSummary {
   has_quiz?: boolean
   /** Only the lesson endpoint returns the body. */
   content?: string | null
+  content_json?: Record<string, unknown> | null
   attachments?: LessonAttachment[]
   quiz?: Quiz | null
   is_completed?: boolean
@@ -30,12 +31,15 @@ export interface Category {
   slug: string
   description: string | null
   position: number
+  parent_id: number | null
+  children?: Category[]
   courses_count?: number
 }
 
 export interface CategoryPayload {
   name: string
   description: string | null
+  parent_id?: number | null
   position?: number
 }
 
@@ -47,8 +51,11 @@ export interface LessonLink {
 export interface LessonAttachment {
   id: number
   name: string
+  description: string | null
   mime_type: string | null
   size: number
+  /** False when the signed URL forces a download instead of rendering. */
+  opens_inline: boolean
   url: string
 }
 
@@ -147,6 +154,7 @@ export interface ModulePayload {
 export interface LessonPayload {
   title: string
   content: string | null
+  content_json?: Record<string, unknown> | null
   video_url: string | null
   video_upload_url?: string | null
   video_name?: string | null

@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->prefix('lms')->as('lms.')->group(function ():
         Route::post('lessons/{lesson}/attachments', [LessonAttachmentController::class, 'store'])->name('attachments.store');
         Route::post('lessons/{lesson}/video', [LessonAttachmentController::class, 'storeVideo'])->name('video.store');
         Route::delete('lessons/{lesson}/video', [LessonAttachmentController::class, 'destroyVideo'])->name('video.destroy');
+        Route::put('attachments/{attachment}', [LessonAttachmentController::class, 'update'])->name('attachments.update');
         Route::delete('attachments/{attachment}', [LessonAttachmentController::class, 'destroy'])->name('attachments.destroy');
 
         Route::put('lessons/{lesson}/quiz', [QuizController::class, 'save'])->name('quiz.save');

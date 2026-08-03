@@ -231,6 +231,54 @@ final class LessonAttachmentTest extends TestCase
             ->assertJsonValidationErrors('file');
     }
 
+    public function test_an_html_file_is_accepted_but_forced_to_download(): void
+    {
+        $lesson = $this->lesson();
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.attachments.store', $lesson), [
+                'file' => UploadedFile::fake()->createWithContent(
+                    'страница.html',
+                    '<script>alert(1)</script>',
+                ),
+                'description' => 'Экспорт отчёта',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.description', 'Экспорт отчёта')
+            // HTML must never render in place: the storage bucket is one origin
+            // shared by every uploaded file.
+            ->assertJsonPath('data.opens_inline', false);
+    }
+
+    public function test_a_pdf_still_opens_in_place(): void
+    {
+        $this->actingAs($this->author())
+            ->postJson(route('lms.attachments.store', $this->lesson()), [
+                'file' => UploadedFile::fake()->create('guide.pdf', 12, 'application/pdf'),
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.opens_inline', true);
+    }
+
+    public function test_a_files_caption_can_be_edited_afterwards(): void
+    {
+        $lesson = $this->lesson();
+        $author = $this->author();
+
+        $this->actingAs($author)->postJson(route('lms.attachments.store', $lesson), [
+            'file' => UploadedFile::fake()->create('scan.pdf', 8, 'application/pdf'),
+        ])->assertCreated();
+
+        $attachment = LessonAttachment::query()->sole();
+
+        $this->actingAs($author)
+            ->putJson(route('lms.attachments.update', $attachment), [
+                'description' => 'Скан подписанного договора',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.description', 'Скан подписанного договора');
+    }
+
     private function lesson(): Lesson
     {
         return Course::factory()->withLessons(1)->create()->lessons()->firstOrFail();

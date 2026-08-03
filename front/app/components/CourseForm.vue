@@ -41,14 +41,7 @@ const { can } = useAuth()
 
     <div class="field">
       <label for="category">Категория</label>
-      <select id="category" v-model="model.category_id">
-        <option :value="null">
-          Без категории
-        </option>
-        <option v-for="item in categories" :key="item.id" :value="item.id">
-          {{ item.name }}
-        </option>
-      </select>
+      <CategoryTreeSelect id="category" v-model="model.category_id" :categories="categories" />
       <p v-if="errors.category_id?.length" class="field__error">
         {{ errors.category_id[0] }}
       </p>

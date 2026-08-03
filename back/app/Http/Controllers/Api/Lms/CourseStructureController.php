@@ -13,6 +13,7 @@ use App\Http\Resources\Lms\LessonResource;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Lesson;
+use App\Support\Lms\RichTextExtractor;
 use App\Support\SlugGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
@@ -24,7 +25,10 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class CourseStructureController extends Controller
 {
-    public function __construct(private readonly CompleteLesson $completeLesson) {}
+    public function __construct(
+        private readonly CompleteLesson $completeLesson,
+        private readonly RichTextExtractor $richText,
+    ) {}
 
     public function storeModule(StoreModuleRequest $request, Course $course): JsonResponse
     {
@@ -65,7 +69,7 @@ final class CourseStructureController extends Controller
         $lesson = $module->lessons()->create([
             'title' => $request->validated('title'),
             'slug' => $this->uniqueSlugWithinModule($module, (string) $request->validated('title')),
-            'content' => $request->validated('content'),
+            ...$this->contentAttributes($request),
             'video_url' => $request->validated('video_url'),
             'duration_minutes' => $request->validated('duration_minutes'),
             'position' => $request->validated('position', $module->lessons()->count()),
@@ -82,7 +86,7 @@ final class CourseStructureController extends Controller
     {
         $lesson->update([
             'title' => $request->validated('title'),
-            'content' => $request->validated('content'),
+            ...$this->contentAttributes($request),
             'video_url' => $request->validated('video_url'),
             'duration_minutes' => $request->validated('duration_minutes'),
             'position' => $request->validated('position', $lesson->position),
@@ -100,6 +104,32 @@ final class CourseStructureController extends Controller
         $this->refreshProgressFor($course);
 
         return response()->noContent();
+    }
+
+    /**
+     * Keeps the rich document and its plain-text projection in step.
+     *
+     * `content` is what search runs against, so it is always derived from the
+     * document rather than trusted from the client — the two cannot drift.
+     *
+     * @return array{content: ?string, content_json: ?array<mixed>}
+     */
+    private function contentAttributes(StoreLessonRequest $request): array
+    {
+        /** @var array<mixed>|null $document */
+        $document = $request->validated('content_json');
+
+        if ($document === null) {
+            return [
+                'content' => $request->validated('content'),
+                'content_json' => null,
+            ];
+        }
+
+        return [
+            'content' => $this->richText->toPlainText($document),
+            'content_json' => $document,
+        ];
     }
 
     /**

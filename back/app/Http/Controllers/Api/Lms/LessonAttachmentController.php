@@ -9,6 +9,7 @@ use App\Actions\Lms\StoreLessonVideo;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\StoreAttachmentRequest;
 use App\Http\Requests\Lms\StoreVideoRequest;
+use App\Http\Requests\Lms\UpdateAttachmentRequest;
 use App\Http\Resources\Lms\LessonAttachmentResource;
 use App\Http\Resources\Lms\LessonResource;
 use App\Models\Lesson;
@@ -24,11 +25,24 @@ final class LessonAttachmentController extends Controller
         Lesson $lesson,
         StoreLessonAttachment $storeAttachment,
     ): JsonResponse {
-        $attachment = $storeAttachment->handle($lesson, $request->file('file'));
+        $attachment = $storeAttachment->handle(
+            $lesson,
+            $request->file('file'),
+            $request->validated('description'),
+        );
 
         return LessonAttachmentResource::make($attachment)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    public function update(
+        UpdateAttachmentRequest $request,
+        LessonAttachment $attachment,
+    ): LessonAttachmentResource {
+        $attachment->update(['description' => $request->validated('description')]);
+
+        return LessonAttachmentResource::make($attachment);
     }
 
     public function destroy(LessonAttachment $attachment, StoreLessonAttachment $storeAttachment): Response

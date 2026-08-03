@@ -13,6 +13,7 @@ use App\Http\Requests\Lms\StoreCourseRequest;
 use App\Http\Requests\Lms\StoreCoverRequest;
 use App\Http\Requests\Lms\UpdateCourseRequest;
 use App\Http\Resources\Lms\CourseResource;
+use App\Models\Category;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\User;
@@ -39,7 +40,9 @@ final class CourseController extends Controller
             ->matching($request->query('search'))
             ->when(
                 $request->filled('category'),
-                fn ($query) => $query->whereRelation('category', 'slug', $request->query('category')),
+                // Choosing a category includes everything nested beneath it,
+                // otherwise a parent category would look empty.
+                fn ($query) => $query->whereIn('category_id', $this->branchIdsFor((string) $request->query('category'))),
             )
             ->when(
                 // Unpublished courses stay hidden from learners.
@@ -127,6 +130,18 @@ final class CourseController extends Controller
         );
 
         return response()->json(['data' => $statuses]);
+    }
+
+    /**
+     * Ids of the named category and everything nested under it.
+     *
+     * @return list<int>
+     */
+    private function branchIdsFor(string $slug): array
+    {
+        $category = Category::query()->with('descendants')->firstWhere('slug', $slug);
+
+        return $category?->branchIds() ?? [];
     }
 
     /**

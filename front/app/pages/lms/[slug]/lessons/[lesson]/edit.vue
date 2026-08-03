@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import type { JSONContent } from '@tiptap/core'
 import type { LessonPayload, QuizPayload } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
-const { fetchLesson, updateLesson, saveQuiz, deleteQuiz } = useLmsApi()
+const { fetchLesson, updateLesson, saveQuiz, deleteQuiz, uploadAttachment, uploadVideo } = useLmsApi()
 
 const lessonId = computed(() => String(route.params.lesson))
 const courseSlug = computed(() => String(route.params.slug))
@@ -29,6 +30,25 @@ const form = ref<LessonPayload>({
   duration_minutes: lesson.value?.duration_minutes ?? null,
 })
 
+const document = ref<JSONContent | null>(lesson.value?.content_json ?? null)
+
+/**
+ * Media dropped into the article is stored as a normal lesson attachment, so
+ * it is listed, replaceable and deleted along with the lesson. The editor only
+ * needs the URL back.
+ */
+async function uploadInlineImage(file: File): Promise<string> {
+  const { data } = await uploadAttachment(lessonId.value, file, 'Изображение в статье')
+
+  return data.url
+}
+
+async function uploadInlineVideo(file: File): Promise<string> {
+  const { data } = await uploadVideo(lessonId.value, file)
+
+  return data.video_upload_url ?? ''
+}
+
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
@@ -47,7 +67,10 @@ async function save() {
   try {
     await updateLesson(lessonId.value, {
       ...form.value,
-      content: form.value.content || null,
+      // The server derives the searchable plain text from the document, so
+      // only the document itself is sent.
+      content: null,
+      content_json: document.value,
       video_url: form.value.video_url || null,
     })
 
@@ -145,10 +168,15 @@ async function removeQuiz() {
       </div>
 
       <div class="field">
-        <label for="content">Текст урока</label>
-        <textarea id="content" v-model="form.content" rows="16" />
-        <p v-if="errors.content?.length" class="field__error">
-          {{ errors.content[0] }}
+        <label class="field-label">Содержание урока</label>
+        <RichTextEditor
+          v-model="document"
+          :upload-image="uploadInlineImage"
+          :upload-video="uploadInlineVideo"
+          placeholder="Заголовки, текст, цитаты, таблицы, изображения, видео и блоки HTML…"
+        />
+        <p v-if="errors.content_json?.length" class="field__error">
+          {{ errors.content_json[0] }}
         </p>
       </div>
 
