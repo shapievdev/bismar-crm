@@ -3,79 +3,53 @@ import type { Course } from '~/types/lms'
 
 const props = defineProps<{ course: Course }>()
 
-/**
- * Courses without a cover get a deterministic gradient derived from the title,
- * so the catalogue still reads as a grid of distinct cards rather than a list
- * of grey boxes — and the same course always looks the same.
- */
-const fallbackGradient = computed(() => {
-  const seed = [...props.course.title].reduce((total, char) => total + char.charCodeAt(0), 0)
-  const hue = seed % 360
-
-  return `linear-gradient(135deg, hsl(${hue} 62% 52%), hsl(${(hue + 48) % 360} 58% 42%))`
-})
-
-const initials = computed(() =>
-  props.course.title
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(word => word[0]?.toUpperCase() ?? '')
-    .join(''),
-)
-
 const progress = computed(() => props.course.enrollment?.progress ?? null)
 </script>
 
 <template>
   <article class="card card--raised course">
-    <NuxtLink :to="`/lms/${course.slug}`" class="course__cover-link" :aria-label="course.title">
-      <div class="course__cover" :style="course.cover_url ? undefined : { background: fallbackGradient }">
-        <img v-if="course.cover_url" :src="course.cover_url" :alt="''" loading="lazy">
-        <span v-else class="course__initials" aria-hidden="true">{{ initials }}</span>
-      </div>
-    </NuxtLink>
-
-    <div class="course__body">
-      <div class="course__badges">
-        <span v-if="course.status !== 'published'" class="badge badge--warning">
-          {{ course.status_label }}
-        </span>
-        <span v-if="course.enrollment?.is_completed" class="badge badge--highlight">Пройден</span>
-        <span v-else-if="course.enrollment" class="badge">В процессе</span>
-      </div>
-
-      <h3 class="course__title">
-        <NuxtLink :to="`/lms/${course.slug}`">
-          {{ course.title }}
-        </NuxtLink>
-      </h3>
-
-      <p v-if="course.summary" class="course__summary">
-        {{ course.summary }}
-      </p>
-
-      <div class="course__meta">
-        <span>{{ course.lessons_count ?? 0 }} {{ pluralise(course.lessons_count ?? 0, 'урок', 'урока', 'уроков') }}</span>
-        <span>·</span>
-        <span>{{ course.enrollments_count ?? 0 }} {{ pluralise(course.enrollments_count ?? 0, 'участник', 'участника', 'участников') }}</span>
-      </div>
-
-      <UiProgressBar
-        v-if="progress !== null"
-        :value="progress"
-        size="sm"
-        :label="`${progress}%`"
-        class="course__progress"
-      />
+    <div class="course__badges">
+      <span v-if="course.status !== 'published'" class="badge badge--warning">
+        {{ course.status_label }}
+      </span>
+      <span v-if="course.enrollment?.is_completed" class="badge badge--highlight">Пройден</span>
+      <span v-else-if="course.enrollment" class="badge">В процессе</span>
+      <span v-if="course.category" class="badge">{{ course.category.name }}</span>
     </div>
+
+    <h3 class="course__title">
+      <NuxtLink :to="`/lms/${course.slug}`">
+        {{ course.title }}
+      </NuxtLink>
+    </h3>
+
+    <p v-if="course.summary" class="course__summary">
+      {{ course.summary }}
+    </p>
+
+    <div class="course__meta">
+      <span>{{ course.lessons_count ?? 0 }} {{ pluralise(course.lessons_count ?? 0, 'урок', 'урока', 'уроков') }}</span>
+      <span>·</span>
+      <span>{{ course.enrollments_count ?? 0 }} {{ pluralise(course.enrollments_count ?? 0, 'участник', 'участника', 'участников') }}</span>
+    </div>
+
+    <UiProgressBar
+      v-if="progress !== null"
+      :value="progress"
+      size="sm"
+      :label="`${progress}%`"
+      class="course__progress"
+    />
   </article>
 </template>
 
 <style scoped>
 .course {
+  position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 0.55rem;
+  padding: 1.25rem 1.35rem 1.4rem;
   transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
@@ -84,56 +58,18 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   transform: translateY(-3px);
 }
 
-.course__cover-link {
-  display: block;
-  text-decoration: none;
-}
-
-.course__cover {
-  position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 16 / 10;
-  margin: 0.4rem 0.4rem 0;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--color-surface-sunken);
-}
-
-.course__cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.course__initials {
-  color: #fff;
-  font-size: 2rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 25%);
-}
-
-.course__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem 1.15rem 1.25rem;
-}
-
 .course__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  min-height: 1.2rem;
+  min-height: 1.4rem;
 }
 
 .course__title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .course__title a {
@@ -141,17 +77,21 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   text-decoration: none;
 }
 
-.course__title a:hover {
-  color: var(--color-accent);
+.course__title a::after {
+  /* Makes the whole card clickable while keeping one real link for assistive
+     technology and for opening in a new tab. */
+  content: '';
+  position: absolute;
+  inset: 0;
 }
 
 .course__summary {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -160,12 +100,13 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   display: flex;
   gap: 0.35rem;
   margin-top: auto;
+  padding-top: 0.35rem;
   color: var(--color-text-faint);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
 }
 
 .course__progress {
-  margin-top: 0.2rem;
+  margin-top: 0.15rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

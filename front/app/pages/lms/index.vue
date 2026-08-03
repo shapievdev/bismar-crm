@@ -196,13 +196,11 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     </p>
 
     <div v-else-if="pending" class="grid">
-      <div v-for="n in 3" :key="n" class="card skeleton-card">
-        <div class="skeleton skeleton-card__cover" />
-        <div class="skeleton-card__body">
-          <div class="skeleton skeleton-line skeleton-line--short" />
-          <div class="skeleton skeleton-line" />
-          <div class="skeleton skeleton-line skeleton-line--half" />
-        </div>
+      <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
+        <div class="skeleton skeleton-line skeleton-line--short" />
+        <div class="skeleton skeleton-line skeleton-line--title" />
+        <div class="skeleton skeleton-line" />
+        <div class="skeleton skeleton-line skeleton-line--half" />
       </div>
     </div>
 
@@ -359,19 +357,10 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 }
 
 .skeleton-card {
-  overflow: hidden;
-}
-
-.skeleton-card__cover {
-  aspect-ratio: 16 / 10;
-  margin: 0.4rem 0.4rem 0;
-}
-
-.skeleton-card__body {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem;
+  gap: 0.7rem;
+  padding: 1.25rem 1.35rem 1.4rem;
 }
 
 .skeleton-line {
@@ -379,5 +368,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 }
 
 .skeleton-line--short { width: 35%; }
+.skeleton-line--title { width: 75%; height: 1.1rem; }
 .skeleton-line--half { width: 60%; }
 </style>

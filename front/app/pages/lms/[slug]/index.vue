@@ -36,13 +36,6 @@ const totalMinutes = computed(() =>
   allLessons.value.reduce((total, lesson) => total + (lesson.duration_minutes ?? 0), 0),
 )
 
-const fallbackGradient = computed(() => {
-  const seed = [...(course.value?.title ?? '')].reduce((total, char) => total + char.charCodeAt(0), 0)
-  const hue = seed % 360
-
-  return `linear-gradient(135deg, hsl(${hue} 62% 52%), hsl(${(hue + 48) % 360} 58% 42%))`
-})
-
 </script>
 
 <template>
@@ -55,14 +48,7 @@ const fallbackGradient = computed(() => {
       <span class="faint">{{ course.title }}</span>
     </nav>
 
-    <header
-      class="hero card"
-      :style="course.cover_url ? undefined : { '--hero-bg': fallbackGradient }"
-    >
-      <div class="hero__art" :style="course.cover_url ? undefined : { background: fallbackGradient }">
-        <img v-if="course.cover_url" :src="course.cover_url" alt="" loading="lazy">
-      </div>
-
+    <header class="hero card">
       <div class="hero__body">
         <div class="hero__badges">
           <span v-if="course.status !== 'published'" class="badge badge--warning">
@@ -199,25 +185,11 @@ const fallbackGradient = computed(() => {
 
 .hero {
   display: grid;
-  grid-template-columns: 13rem 1fr auto;
+  grid-template-columns: 1fr auto;
   gap: 1.5rem;
   align-items: center;
-  padding: 1.25rem;
+  padding: 1.75rem 1.9rem;
   margin-bottom: 2rem;
-}
-
-.hero__art {
-  aspect-ratio: 16 / 10;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--color-surface-sunken);
-}
-
-.hero__art img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .hero__badges {

@@ -6,7 +6,7 @@ definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
 const router = useRouter()
-const { fetchCourse, updateCourse, fetchStatuses, fetchCategories, uploadCover, deleteCover } = useLmsApi()
+const { fetchCourse, updateCourse, fetchStatuses, fetchCategories } = useLmsApi()
 
 const slug = computed(() => String(route.params.slug))
 
@@ -41,50 +41,6 @@ const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSubmitting = ref(false)
 const savedAt = ref<string | null>(null)
-
-const coverInput = useTemplateRef<HTMLInputElement>('coverInput')
-const coverError = ref<string | null>(null)
-const isUploadingCover = ref(false)
-
-async function onCoverChosen(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-
-  if (!file) {
-    return
-  }
-
-  isUploadingCover.value = true
-  coverError.value = null
-
-  try {
-    await uploadCover(slug.value, file)
-    await refresh()
-  }
-  catch (caught) {
-    const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
-    coverError.value = failure.data?.errors?.cover?.[0]
-      ?? failure.data?.message
-      ?? 'Не удалось загрузить обложку.'
-  }
-  finally {
-    isUploadingCover.value = false
-    // Clear the input so the same file can be retried after a failure.
-    input.value = ''
-  }
-}
-
-async function removeCover() {
-  coverError.value = null
-
-  try {
-    await deleteCover(slug.value)
-    await refresh()
-  }
-  catch {
-    coverError.value = 'Не удалось удалить обложку.'
-  }
-}
 
 async function submit(payload: CoursePayload) {
   isSubmitting.value = true
@@ -136,49 +92,6 @@ async function submit(payload: CoursePayload) {
       {{ generalError }}
     </p>
 
-    <section class="cover">
-      <div class="cover__preview" :class="{ 'cover__preview--empty': !data.course.cover_url }">
-        <img v-if="data.course.cover_url" :src="data.course.cover_url" alt="Обложка курса">
-        <span v-else class="faint">Нет обложки</span>
-      </div>
-
-      <div class="cover__actions">
-        <button
-          type="button"
-          class="button-secondary button-sm"
-          :disabled="isUploadingCover"
-          @click="coverInput?.click()"
-        >
-          {{ isUploadingCover ? 'Загружаем…' : (data.course.cover_url ? 'Заменить' : 'Загрузить обложку') }}
-        </button>
-
-        <button
-          v-if="data.course.cover_url"
-          type="button"
-          class="button-ghost button-sm"
-          @click="removeCover"
-        >
-          Удалить
-        </button>
-
-        <input
-          ref="coverInput"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          class="visually-hidden"
-          @change="onCoverChosen"
-        >
-
-        <p class="faint cover__hint">
-          PNG, JPG или WebP, до 5 МБ. Хранится в S3.
-        </p>
-      </div>
-    </section>
-
-    <p v-if="coverError" class="alert alert--danger" role="alert">
-      {{ coverError }}
-    </p>
-
     <CourseForm
       v-model="form"
       :statuses="data.statuses"
@@ -223,49 +136,6 @@ async function submit(payload: CoursePayload) {
 .muted {
   color: var(--color-text-muted);
   font-size: 0.85rem;
-}
-
-.cover {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  margin-bottom: 1.75rem;
-}
-
-.cover__preview {
-  width: 14rem;
-  flex-shrink: 0;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--color-surface-sunken);
-}
-
-.cover__preview--empty {
-  display: grid;
-  place-items: center;
-  border: 1px dashed var(--color-border-strong);
-  font-size: 0.85rem;
-}
-
-.cover__preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.cover__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.cover__hint {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 0.82rem;
 }
 
 .visually-hidden {
