@@ -8,4 +8,8 @@
 .DS_Store
 Thumbs.db
 
+# Source font package (OTF/TTF originals plus the vendor archive). The
+# web-ready WOFF2 pair and its OFL licence live in front/app/assets/fonts.
+/fonts
+
 # back/ and front/ keep their own .gitignore for framework-specific artefacts.
