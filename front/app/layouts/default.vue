@@ -1,8 +1,5 @@
 <script setup lang="ts">
-const { user, isAuthenticated, can, logout } = useAuth()
-const router = useRouter()
-
-const isLoggingOut = ref(false)
+const { user, isAuthenticated, can } = useAuth()
 
 /** Links the current user is allowed to reach; the API enforces the same rules. */
 const navigation = computed(() => [
@@ -19,18 +16,6 @@ const initials = computed(() =>
     .map(word => word[0]?.toUpperCase() ?? '')
     .join(''),
 )
-
-async function handleLogout() {
-  isLoggingOut.value = true
-
-  try {
-    await logout()
-    await router.push('/login')
-  }
-  finally {
-    isLoggingOut.value = false
-  }
-}
 </script>
 
 <template>
@@ -55,21 +40,17 @@ async function handleLogout() {
         <div v-if="isAuthenticated" class="account">
           <span class="account__name">{{ user?.name }}</span>
           <span class="avatar" :title="user?.email" aria-hidden="true">{{ initials }}</span>
-          <button
-            type="button"
-            class="button-secondary button-sm"
-            :disabled="isLoggingOut"
-            @click="handleLogout"
-          >
-            {{ isLoggingOut ? 'Выход…' : 'Выйти' }}
-          </button>
         </div>
       </div>
     </header>
 
-    <main class="main">
-      <slot />
-    </main>
+    <div class="body">
+      <SideRail v-if="isAuthenticated" />
+
+      <main class="main">
+        <slot />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -190,11 +171,28 @@ async function handleLogout() {
   }
 }
 
-.main {
+/* The rail takes a fixed column; the page keeps the rest. */
+.body {
   flex: 1;
+  display: grid;
+  grid-template-columns: 2.9rem minmax(0, 1fr);
+  gap: 1.5rem;
   width: 100%;
   max-width: 82rem;
   margin: 0 auto;
   padding: 1.5rem 1.75rem 5rem;
+  align-items: start;
+}
+
+.main {
+  min-width: 0;
+}
+
+@media (max-width: 60rem) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1rem 1rem 4rem;
+  }
 }
 </style>
