@@ -1,6 +1,0 @@
-{
-    "require": {
-        "league/flysystem-aws-s3-v3": "^3.35",
-        "glushkovds/phpclickhouse-laravel": "^2.7"
-    }
-}
