@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { SelectOption } from '~/components/ui/Select.vue'
 import type { ValidationErrors } from '~/composables/useAuth'
 import type { QuestionType, Quiz, QuizPayload } from '~/types/lms'
 
@@ -12,6 +13,11 @@ const emit = defineEmits<{
   save: [payload: QuizPayload]
   remove: []
 }>()
+
+const questionTypes: SelectOption<QuestionType>[] = [
+  { value: 'single', label: 'Один ответ' },
+  { value: 'multiple', label: 'Несколько ответов' },
+]
 
 interface DraftOption { text: string, is_correct: boolean }
 interface DraftQuestion { text: string, type: QuestionType, points: number, options: DraftOption[] }
@@ -182,14 +188,12 @@ function errorFor(path: string): string | null {
         <span class="question__number">Вопрос {{ questionIndex + 1 }}</span>
 
         <div class="question__controls">
-          <select v-model="question.type" @change="onTypeChange(questionIndex)">
-            <option value="single">
-              Один вариант
-            </option>
-            <option value="multiple">
-              Несколько вариантов
-            </option>
-          </select>
+          <UiSelect
+            v-model="question.type"
+            :options="questionTypes"
+            auto
+            @update:model-value="onTypeChange(questionIndex)"
+          />
 
           <input v-model.number="question.points" type="number" min="1" max="100" title="Баллы">
 

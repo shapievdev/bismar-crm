@@ -23,7 +23,7 @@ final class CategoryController extends Controller
         $categories = Category::query()
             ->roots()
             ->with('descendants')
-            ->withCount('courses')
+            ->withVisibleCourseCounts()
             ->ordered()
             ->get();
 

@@ -12,4 +12,8 @@ Thumbs.db
 # web-ready WOFF2 pair and its OFL licence live in front/app/assets/fonts.
 /fonts
 
+# Composer at the repository root installs here, and the tree it writes belongs
+# to no application: back/ has its own manifest and its own vendor directory.
+/vendor
+
 # back/ and front/ keep their own .gitignore for framework-specific artefacts.

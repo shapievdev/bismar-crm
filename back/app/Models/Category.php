@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\CourseVisibility;
+use App\Support\Lms\CourseAccess;
 use Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -45,11 +47,39 @@ class Category extends Model
     /**
      * Every category beneath this one, however deep.
      *
+     * Counted as it goes: the root query counts its own courses, and without
+     * the same count here every nested category would report zero material
+     * whether or not it holds any.
+     *
      * @return HasMany<Category, $this>
      */
     public function descendants(): HasMany
     {
-        return $this->children()->with('descendants');
+        return $this->children()->withVisibleCourseCounts()->with('descendants');
+    }
+
+    /**
+     * Сколько в категории материала — по тому, что видно спрашивающему.
+     *
+     * Считать всё подряд нельзя дважды: раздел показывал бы «3 курса» тому,
+     * кто откроет его и найдёт один, — и само это число рассказывало бы о
+     * существовании закрытых курсов.
+     *
+     * Читателя берём из запроса, а не из аргумента: счётчик навешивается и
+     * внутри отношения descendants(), которое рекурсивно грузит само себя и
+     * передать туда ничего не может.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeWithVisibleCourseCounts(Builder $query): void
+    {
+        $reader = auth()->user();
+
+        $query->withCount(['courses' => function (Builder $courses) use ($reader): void {
+            $reader instanceof User
+                ? CourseAccess::of($reader)->applyTo($courses)
+                : $courses->where('courses.visibility', CourseVisibility::Public->value);
+        }]);
     }
 
     /**

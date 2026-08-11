@@ -9,109 +9,205 @@ const { can } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
-type Tab = 'all' | 'drafts'
+/**
+ * A status filter. Each tab shows exactly one status, so its label is always
+ * true — an editor's default view used to be labelled "Опубликованные" while
+ * quietly including drafts and archived material.
+ */
+type Tab = 'published' | 'drafts' | 'archived'
+
+const STATUS_BY_TAB: Record<Tab, string> = {
+  published: 'published',
+  drafts: 'draft',
+  archived: 'archived',
+}
 
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
 const category = ref(typeof route.query.category === 'string' ? route.query.category : '')
 const tab = ref<Tab>(
-  ['all', 'drafts'].includes(String(route.query.tab)) ? route.query.tab as Tab : 'all',
+  ['published', 'drafts', 'archived'].includes(String(route.query.tab))
+    ? route.query.tab as Tab
+    : 'published',
 )
+
+const page = ref(pageFromQuery(route.query.page))
+
+/**
+ * Reference data, fetched once.
+ *
+ * Neither the category tree nor the learner's own enrolments depend on which
+ * filter or page the catalogue is showing, so refetching them alongside every
+ * page turn would be three requests where one will do.
+ *
+ * Половины независимы, и падать вместе им незачем. Через Promise.all отказ
+ * одного запроса обнулял оба: сломанные записи на курсы уносили с собой дерево
+ * категорий, которое к ним отношения не имеет.
+ */
+const { data: reference } = await useAsyncData('lms.catalogue.reference', async () => {
+  const [enrolments, categories] = await Promise.allSettled([myCourses(), fetchCategories()])
+
+  return {
+    enrolments: enrolments.status === 'fulfilled' ? enrolments.value.data : [],
+    categories: categories.status === 'fulfilled' ? categories.value.data : [],
+  }
+})
 
 const { data, pending, error } = await useAsyncData(
-  'lms.catalogue',
-  async () => {
-    const [courses, enrolments, categories] = await Promise.all([
-      fetchCourses({
-        search: search.value || undefined,
-        category: category.value || undefined,
-        status: tab.value === 'drafts' ? 'draft' : undefined,
-      }),
-      myCourses(),
-      fetchCategories(),
-    ])
-
-    // The catalogue endpoint does not know who is enrolled, so progress is
-    // stitched in from the learner's own enrolments.
-    const progressBySlug = new Map(
-      enrolments.data
-        .filter(item => item.course)
-        .map(item => [item.course!.slug, item]),
-    )
-
-    const withProgress: Course[] = courses.data.map(course => ({
-      ...course,
-      enrollment: progressBySlug.has(course.slug)
-        ? {
-            id: progressBySlug.get(course.slug)!.id,
-            enrolled_at: progressBySlug.get(course.slug)!.enrolled_at,
-            completed_at: progressBySlug.get(course.slug)!.completed_at,
-            is_completed: progressBySlug.get(course.slug)!.is_completed,
-            progress: progressBySlug.get(course.slug)!.progress ?? 0,
-            completed_lesson_ids: progressBySlug.get(course.slug)!.completed_lesson_ids ?? [],
-          }
-        : null,
-    }))
-
-    return { courses: withProgress, total: courses.meta.total, categories: categories.data }
-  },
-  { watch: [search, tab, category] },
+  'lms.catalogue.courses',
+  () => fetchCourses({
+    search: search.value || undefined,
+    category: category.value || undefined,
+    status: STATUS_BY_TAB[tab.value],
+    page: page.value > 1 ? page.value : undefined,
+  }),
+  { watch: [search, tab, category, page] },
 )
+
+// Narrowing the results moves the ground under the current page: page 4 of the
+// whole catalogue is rarely page 4 of one category, and is often past its end.
+watch([search, tab, category], () => {
+  page.value = 1
+})
 
 watchEffect(() => {
   router.replace({
     query: {
       ...(search.value ? { search: search.value } : {}),
       ...(category.value ? { category: category.value } : {}),
-      ...(tab.value === 'all' ? {} : { tab: tab.value }),
+      ...(tab.value === 'published' ? {} : { tab: tab.value }),
+      ...(page.value > 1 ? { page: String(page.value) } : {}),
     },
   })
 })
 
-const visibleCourses = computed(() => data.value?.courses ?? [])
-
-const inProgressCount = computed(
-  () => (data.value?.courses ?? []).filter(c => c.enrollment && !c.enrollment.is_completed).length,
-)
-const completedCount = computed(
-  () => (data.value?.courses ?? []).filter(c => c.enrollment?.is_completed).length,
-)
+/** The learner's enrolment for a course, by slug. */
+const enrolmentBySlug = computed(() => new Map(
+  (reference.value?.enrolments ?? [])
+    .filter(item => item.course)
+    .map(item => [item.course!.slug, item]),
+))
 
 /**
- * Categories arrive as a tree; the chip row is flat, so nesting is shown by
- * depth rather than by structure.
+ * The catalogue endpoint does not know who is enrolled, so progress is
+ * stitched in from the learner's own enrolments.
  */
-const flatCategories = computed(() => {
-  const flat: {
-    slug: string
-    name: string
-    parentName: string | null
-    courses_count?: number
-  }[] = []
+const visibleCourses = computed<Course[]>(() => (data.value?.data ?? []).map((course) => {
+  const enrolment = enrolmentBySlug.value.get(course.slug)
 
-  const walk = (nodes: Category[], parentName: string | null) => {
+  return {
+    ...course,
+    enrollment: enrolment
+      ? {
+          id: enrolment.id,
+          enrolled_at: enrolment.enrolled_at,
+          completed_at: enrolment.completed_at,
+          is_completed: enrolment.is_completed,
+          progress: enrolment.progress ?? 0,
+          completed_lesson_ids: enrolment.completed_lesson_ids ?? [],
+        }
+      : null,
+  }
+}))
+
+// Counted from every enrolment rather than from the courses on screen: these
+// describe the reader, not the page, and must not change as pages turn.
+const inProgressCount = computed(
+  () => (reference.value?.enrolments ?? []).filter(item => !item.is_completed).length,
+)
+const completedCount = computed(
+  () => (reference.value?.enrolments ?? []).filter(item => item.is_completed).length,
+)
+
+const total = computed(() => data.value?.meta.total ?? 0)
+const currentPage = computed(() => data.value?.meta.current_page ?? 1)
+const lastPage = computed(() => data.value?.meta.last_page ?? 1)
+
+const grid = useTemplateRef<HTMLElement>('grid')
+
+function goToPage(next: number) {
+  const target = Math.min(Math.max(1, next), lastPage.value)
+
+  if (target === page.value) {
+    return
+  }
+
+  page.value = target
+
+  // Otherwise the next page opens halfway down, wherever the last one was left.
+  grid.value?.scrollIntoView({ block: 'start' })
+}
+
+function pageFromQuery(value: unknown): number {
+  const parsed = Number(value)
+
+  return Number.isInteger(parsed) && parsed > 1 ? parsed : 1
+}
+
+const categoryTree = computed<Category[]>(() => reference.value?.categories ?? [])
+
+/**
+ * The chain of categories from the root down to each one, by slug.
+ *
+ * Categories arrive as a tree but the address is a single slug, so the way
+ * back up has to be recovered — it is what the breadcrumb walks.
+ */
+const pathBySlug = computed(() => {
+  const paths = new Map<string, Category[]>()
+
+  const walk = (nodes: Category[], ancestors: Category[]) => {
     for (const node of nodes) {
-      flat.push({
-        slug: node.slug,
-        name: node.name,
-        parentName,
-        courses_count: node.courses_count,
-      })
-      walk(node.children ?? [], node.name)
+      const path = [...ancestors, node]
+      paths.set(node.slug, path)
+      walk(node.children ?? [], path)
     }
   }
 
-  walk(data.value?.categories ?? [], null)
+  walk(categoryTree.value, [])
 
-  return flat
+  return paths
 })
 
+const currentPath = computed(() =>
+  category.value ? pathBySlug.value.get(category.value) ?? [] : [],
+)
+
+const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
+
+/** What is on offer here: the top level, or the sections of the current one. */
+const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
+
 /**
- * A status filter, not navigation: "Мои материалы" is its own page in the
- * module bar, so repeating it here would put the same view in two places.
+ * Everything under a category, itself included.
+ *
+ * Choosing a category lists its nested material too, so the tile has to
+ * promise the same number the click delivers.
+ */
+function branchCount(node: Category): number {
+  return (node.courses_count ?? 0)
+    + (node.children ?? []).reduce((total, child) => total + branchCount(child), 0)
+}
+
+function materialsLabel(count: number): string {
+  return `${count} ${pluralise(count, 'материал', 'материала', 'материалов')}`
+}
+
+function sectionsLabel(count: number): string {
+  return `${count} ${pluralise(count, 'раздел', 'раздела', 'разделов')}`
+}
+
+/**
+ * Status, not navigation: "Мои материалы" is its own page in the module bar,
+ * so repeating it here would put the same view in two places.
+ *
+ * A learner only ever sees published material — the API refuses the rest — so
+ * for them the row is a single tab and the filter is not really a choice.
  */
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
-  { id: 'all', label: 'Опубликованные', visible: true },
+  { id: 'published', label: 'Опубликованные', visible: true },
   { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
+  // Kept reachable: archived material is out of circulation, not deleted, and
+  // filtering it out of every tab would leave no way back to it.
+  { id: 'archived', label: 'В архиве', visible: can('courses.update') },
 ]
 </script>
 
@@ -144,7 +240,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         <span class="metric-label">пройдено</span>
       </div>
       <div class="card stat stat--muted">
-        <span class="metric">{{ data?.total ?? 0 }}</span>
+        <span class="metric">{{ total }}</span>
         <span class="metric-label">материалов всего</span>
       </div>
     </div>
@@ -174,26 +270,41 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       >
     </div>
 
-    <div v-if="(data?.categories.length ?? 0) > 0" class="chips">
-      <button
-        type="button"
-        class="chip"
-        :class="{ 'chip--active': category === '' }"
-        @click="category = ''"
-      >
+    <nav v-if="categoryTree.length" class="crumbs" aria-label="Категории">
+      <span v-if="!category" class="crumbs__current">Все категории</span>
+      <button v-else type="button" class="crumbs__link" @click="category = ''">
         Все категории
       </button>
+
+      <template v-for="(node, index) in currentPath" :key="node.slug">
+        <span class="crumbs__separator" aria-hidden="true">/</span>
+        <span v-if="index === currentPath.length - 1" class="crumbs__current" aria-current="page">
+          {{ node.name }}
+        </span>
+        <button v-else type="button" class="crumbs__link" @click="category = node.slug">
+          {{ node.name }}
+        </button>
+      </template>
+    </nav>
+
+    <div v-if="sections.length" class="tiles">
       <button
-        v-for="item in flatCategories"
-        :key="item.slug"
+        v-for="node in sections"
+        :key="node.slug"
         type="button"
-        class="chip"
-        :class="{ 'chip--active': category === item.slug }"
-        @click="category = item.slug"
+        class="card card--raised tile"
+        @click="category = node.slug"
       >
-        <span v-if="item.parentName" class="chip__parent">{{ item.parentName }} /</span>
-        {{ item.name }}
-        <span class="chip__count">{{ item.courses_count ?? 0 }}</span>
+        <span class="tile__name">{{ node.name }}</span>
+
+        <span v-if="node.description" class="tile__description">{{ node.description }}</span>
+
+        <span class="tile__meta">
+          {{ materialsLabel(branchCount(node)) }}
+          <template v-if="node.children?.length">
+            · {{ sectionsLabel(node.children.length) }}
+          </template>
+        </span>
       </button>
     </div>
 
@@ -222,9 +333,33 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </NuxtLink>
     </UiEmptyState>
 
-    <div v-else class="grid">
+    <div v-else ref="grid" class="grid">
       <CourseCard v-for="course in visibleCourses" :key="course.slug" :course="course" />
     </div>
+
+    <nav v-if="lastPage > 1" class="pager" aria-label="Страницы каталога">
+      <button
+        type="button"
+        class="button-secondary button-sm"
+        :disabled="currentPage <= 1 || pending"
+        @click="goToPage(currentPage - 1)"
+      >
+        ← Назад
+      </button>
+
+      <span class="pager__position" aria-live="polite">
+        Страница {{ currentPage }} из {{ lastPage }}
+      </span>
+
+      <button
+        type="button"
+        class="button-secondary button-sm"
+        :disabled="currentPage >= lastPage || pending"
+        @click="goToPage(currentPage + 1)"
+      >
+        Вперёд →
+      </button>
+    </nav>
   </section>
 </template>
 
@@ -265,49 +400,109 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   text-decoration: none;
 }
 
-.chips {
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.pager__position {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  /* Fixed enough not to shuffle the buttons as the numbers grow. */
+  min-width: 9rem;
+  text-align: center;
+}
+
+/* Where you are in the tree, and the way back up. */
+.crumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 1.25rem;
-}
-
-.chip {
-  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.35rem 0.85rem;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  margin-bottom: 0.9rem;
+  font-size: 0.92rem;
 }
 
-.chip:hover {
-  background: var(--color-surface-raised);
+.crumbs__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.crumbs__link:hover {
   color: var(--color-text);
 }
 
-.chip--active {
-  background: var(--color-highlight);
-  color: var(--color-highlight-text);
-  font-weight: 500;
+.crumbs__current {
+  font-weight: 550;
 }
 
-/* A chip row is flat, so nesting is named rather than drawn: the parent reads
-   as a prefix, where an indent or a corner glyph would have nothing to line up
-   against. */
-.chip__parent {
-  opacity: 0.55;
+.crumbs__separator {
+  color: var(--color-text-faint);
 }
 
-.chip__count {
-  font-size: 0.78rem;
-  opacity: 0.7;
+/*
+ * Categories are the way into the material, so they get room to be read and
+ * aimed at rather than a row of pills competing with the filters above them.
+ */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 1rem 1.15rem;
+  border: 0;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Only the shadow moves: repainting the surface on hover is what makes a
+     label collide with its own background. */
+  transition: box-shadow 0.15s ease;
+}
+
+.tile:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.tile__name {
+  font-size: 1rem;
+  font-weight: 550;
+}
+
+.tile__description {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  /* Two lines, so a long description cannot make one tile tower over its
+     neighbours. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.tile__meta {
+  margin-top: auto;
+  padding-top: 0.35rem;
+  color: var(--color-text-faint);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .toolbar {
@@ -336,13 +531,19 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.tab:hover {
+/* Same reason as the chips: the accent-filled tab needs its own hover, or the
+   base rule repaints its label in the page's text colour and it vanishes. */
+.tab:hover:not(.tab--active) {
   color: var(--color-text);
 }
 
 .tab--active {
   background: var(--color-accent);
   color: var(--color-accent-text);
+}
+
+.tab--active:hover {
+  background: var(--color-accent-hover);
 }
 
 .search {
@@ -422,18 +623,15 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     min-width: 0;
   }
 
-  .chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+  /* Two per row on a phone: one full-width tile per line would push the
+     material itself off the screen. */
+  .tiles {
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.5rem;
   }
 
-  .chips::-webkit-scrollbar {
-    display: none;
-  }
-
-  .chip {
-    flex-shrink: 0;
+  .tile {
+    padding: 0.8rem 0.9rem;
   }
 
   .grid {

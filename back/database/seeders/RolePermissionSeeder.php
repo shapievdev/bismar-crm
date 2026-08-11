@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Enums\AccessLevel;
 use App\Enums\Permission as PermissionEnum;
-use App\Enums\Role as RoleEnum;
 use App\Models\Role;
 use App\Support\Authorization;
 use Illuminate\Database\Seeder;
@@ -14,11 +14,12 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * Projects the Permission and Role enums into the database.
+ * Projects the Permission enum into the database, and keeps the two standings
+ * that exist as rows.
  *
- * Safe to run on every deploy: existing rows are reused and each role's grants
- * are synced, so adding a case to an enum is all it takes to roll a new
- * capability out. Roles created by administrators at runtime are left alone.
+ * Safe to run on every deploy: existing rows are reused, so adding a case to
+ * the enum is all it takes to roll a new capability out. There are no job-title
+ * roles to sync — permissions are granted to people one by one.
  */
 final class RolePermissionSeeder extends Seeder
 {
@@ -28,35 +29,32 @@ final class RolePermissionSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         DB::transaction(function (): void {
-            $this->seedPermissions();
+            foreach (PermissionEnum::cases() as $permission) {
+                Permission::findOrCreate($permission->value, Authorization::GUARD);
+            }
 
-            // syncPermissions() resolves names against the registrar's cached
-            // permission list, which was loaded before the rows above existed.
-            app(PermissionRegistrar::class)->forgetCachedPermissions();
+            // Superadmin and administrator hold nothing explicitly: they pass
+            // every check through Gate::before, and listing grants against them
+            // would be rows nothing reads.
+            foreach (AccessLevel::stored() as $level) {
+                Role::findOrCreate($level->value, Authorization::GUARD);
+            }
 
-            $this->seedRoles();
+            $this->removeRetiredPermissions();
         });
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
-    private function seedPermissions(): void
+    /**
+     * Drops permission rows the enum no longer defines, along with whatever
+     * they were granted to — a name nothing checks is worse than no row at all.
+     */
+    private function removeRetiredPermissions(): void
     {
-        foreach (PermissionEnum::cases() as $permission) {
-            Permission::findOrCreate($permission->value, $this->guardName());
-        }
-    }
-
-    private function seedRoles(): void
-    {
-        foreach (RoleEnum::cases() as $role) {
-            Role::findOrCreate($role->value, $this->guardName())
-                ->syncPermissions($role->permissionValues());
-        }
-    }
-
-    private function guardName(): string
-    {
-        return Authorization::GUARD;
+        Permission::query()
+            ->whereNotIn('name', PermissionEnum::values())
+            ->get()
+            ->each(fn (Permission $permission) => $permission->delete());
     }
 }

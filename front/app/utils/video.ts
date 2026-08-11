@@ -4,8 +4,25 @@
  * Only these two hosts are recognised and the embed URL is rebuilt from the
  * extracted id rather than passed through, so an arbitrary URL can never end up
  * as an iframe source. Anything else returns null and is shown as a plain link.
+ *
+ * `startSeconds` перематывает запись к месту, на которое сослалась строка
+ * таблицы урока. Два провайдера обозначают его по-разному, и это единственное
+ * место, где разницу приходится знать.
  */
-export function toEmbedUrl(url: string | null | undefined): string | null {
+export function toEmbedUrl(url: string | null | undefined, startSeconds?: number | null): string | null {
+  const embed = toBareEmbedUrl(url)
+
+  if (embed === null || !startSeconds || startSeconds < 0) {
+    return embed
+  }
+
+  // YouTube ждёт ?start=, Vimeo — #t=Ns. Обе величины в секундах.
+  return embed.includes('youtube-nocookie.com')
+    ? `${embed}?start=${Math.floor(startSeconds)}`
+    : `${embed}#t=${Math.floor(startSeconds)}s`
+}
+
+function toBareEmbedUrl(url: string | null | undefined): string | null {
   if (!url) {
     return null
   }

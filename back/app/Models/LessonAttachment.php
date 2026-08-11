@@ -4,15 +4,22 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Contracts\PartOfCourse;
 use App\Support\Lms\AttachmentDelivery;
+use App\Support\Lms\StoredFiles;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['lesson_id', 'disk', 'path', 'name', 'description', 'mime_type', 'size'])]
-class LessonAttachment extends Model
+class LessonAttachment extends Model implements PartOfCourse
 {
+    public function owningCourse(): ?Course
+    {
+        return $this->loadMissing('lesson.module.course')->lesson?->module?->course;
+    }
+
     /**
      * @return BelongsTo<Lesson, $this>
      */
@@ -50,6 +57,8 @@ class LessonAttachment extends Model
      */
     public function deleteFromStorage(): void
     {
-        Storage::disk($this->disk)->delete($this->path);
+        // Запись уже удалена; недоступное хранилище не должно превращать это в
+        // ошибку у того, кто удалял, — см. StoredFiles.
+        StoredFiles::discard($this->disk, $this->path);
     }
 }

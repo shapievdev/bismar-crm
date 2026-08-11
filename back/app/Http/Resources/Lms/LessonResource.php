@@ -33,6 +33,7 @@ final class LessonResource extends JsonResource
             'content' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?string => $this->content),
             'content_json' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?array => $this->content_json),
             'attachments' => LessonAttachmentResource::collection($this->whenLoaded('attachments')),
+            'answers' => LessonAnswerResource::collection($this->whenLoaded('answers')),
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
             // Attached by the controller from the learner's completions.
             'is_completed' => $this->is_completed_by_learner,

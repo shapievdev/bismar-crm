@@ -44,9 +44,12 @@ export function useAuth() {
     return user.value?.permissions.includes(permission) ?? false
   }
 
-  function hasRole(role: string): boolean {
-    return user.value?.roles.includes(role) ?? false
-  }
+  /**
+   * Standing rather than permission: a superadmin is the only one who may
+   * appoint administrators, so some controls are shown only to them.
+   */
+  const level = computed(() => user.value?.level ?? 'user')
+  const isSuperAdmin = computed(() => level.value === 'super-admin')
 
   /**
    * Restores the session after a page load. A 401 simply means "not logged in",
@@ -87,7 +90,12 @@ export function useAuth() {
   }
 
   /** Saves the signed-in user's own name and address. */
-  async function updateProfile(payload: { name: string, email: string }): Promise<User> {
+  async function updateProfile(payload: {
+    last_name: string
+    first_name: string
+    middle_name: string | null
+    email: string
+  }): Promise<User> {
     const { data } = await $api<ResourceResponse<User>>('/api/profile', {
       method: 'PUT',
       body: payload,
@@ -139,7 +147,8 @@ export function useAuth() {
     user: readonly(user),
     isAuthenticated,
     can,
-    hasRole,
+    level,
+    isSuperAdmin,
     fetchUser,
     login,
     register,

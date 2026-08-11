@@ -26,6 +26,16 @@ final class CourseResource extends JsonResource
             'description' => $this->description,
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
+
+            // Открыт курс или закрыт — и вправе ли этот человек это менять.
+            // Экраны по нему решают, показывать ли метку и панель доступа;
+            // проверку это не заменяет, её API делает на каждый запрос.
+            'visibility' => $this->visibility->value,
+            'visibility_label' => $this->visibility->label(),
+            'is_private' => $this->isPrivate(),
+            'can_manage_access' => $request->user()?->can('manageAccess', $this->resource) ?? false,
+            'members_count' => $this->whenCounted('members'),
+
             'published_at' => $this->published_at?->toIso8601String(),
             'cover_url' => $this->coverUrl(),
             'category' => CategoryResource::make($this->whenLoaded('category')),
@@ -35,6 +45,9 @@ final class CourseResource extends JsonResource
                 'id' => $this->author->id,
                 'name' => $this->author->name,
             ]),
+            // Кому писать, если написанного не хватило.
+            'experts' => CoursePersonResource::collection($this->whenLoaded('experts')),
+
             'modules' => CourseModuleResource::collection($this->whenLoaded('modules')),
             // The signed-in learner's own progress, attached by the controller.
             'enrollment' => $this->learner_enrollment,

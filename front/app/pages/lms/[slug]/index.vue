@@ -54,6 +54,9 @@ const totalMinutes = computed(() =>
           <span v-if="course.status !== 'published'" class="badge badge--warning">
             {{ course.status_label }}
           </span>
+          <!-- Читателю тоже важно: приватный курс не стоит пересказывать
+               коллеге, которого в него не добавили. -->
+          <span v-if="course.is_private" class="badge">Приватный</span>
           <span v-if="enrollment?.is_completed" class="badge badge--success">Курс пройден</span>
         </div>
 
@@ -159,14 +162,40 @@ const totalMinutes = computed(() =>
         </section>
       </div>
 
-      <aside v-if="course.description" class="about card">
-        <h2 class="section-title section-title--tight">
-          О курсе
-        </h2>
-        <p class="about__text">
-          {{ course.description }}
-        </p>
-      </aside>
+      <div class="side">
+        <aside v-if="course.description" class="about card">
+          <h2 class="section-title section-title--tight">
+            О курсе
+          </h2>
+          <p class="about__text">
+            {{ course.description }}
+          </p>
+        </aside>
+
+        <!-- К кому идти, если в материале ответа не нашлось. Здесь же, а не
+             только в чате: человек, открывший курс, спрашивает по нему. -->
+        <aside v-if="course.experts?.length" class="about card">
+          <h2 class="section-title section-title--tight">
+            Ответственные
+          </h2>
+          <p class="about__text">
+            Напишите им, если в материалах курса не нашлось ответа.
+          </p>
+          <ul class="experts">
+            <li v-for="person in course.experts" :key="person.id" class="experts__item">
+              <UserAvatar :name="person.name" :src="person.avatar_url" :size="32" />
+              <span class="experts__body">
+                <span class="experts__name">{{ person.name }}</span>
+                <!-- В мессенджер, а не на почту: разговор остаётся в системе,
+                     рядом с материалом, о котором он идёт. -->
+                <NuxtLink :to="`/messenger?write=${person.id}`" class="experts__write">
+                  Написать
+                </NuxtLink>
+              </span>
+            </li>
+          </ul>
+        </aside>
+      </div>
     </div>
   </section>
 </template>
@@ -366,8 +395,49 @@ const totalMinutes = computed(() =>
   font-variant-numeric: tabular-nums;
 }
 
+/* Правая колонка держит несколько врезок подряд — «о курсе» и ответственных. */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
 .about {
   padding: 1.1rem 1.2rem;
+}
+
+.experts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.experts__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.experts__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.88rem;
+}
+
+.experts__name {
+  font-weight: 550;
+}
+
+/* Ссылка «Написать» — с воздухом вокруг: на телефоне это цель для пальца, а
+   не подпись под именем. */
+.experts__write {
+  align-self: flex-start;
+  padding: 0.15rem 0;
+  font-size: 0.82rem;
 }
 
 .about__text {

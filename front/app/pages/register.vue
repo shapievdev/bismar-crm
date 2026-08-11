@@ -8,7 +8,9 @@ const { register } = useAuth()
 const router = useRouter()
 
 const form = reactive({
-  name: '',
+  last_name: '',
+  first_name: '',
+  middle_name: '',
   email: '',
   password: '',
   password_confirmation: '',
@@ -55,11 +57,27 @@ async function handleSubmit() {
       </p>
 
       <FormField
-        id="name"
-        v-model="form.name"
+        id="last_name"
+        v-model="form.last_name"
+        label="Фамилия"
+        autocomplete="family-name"
+        :errors="errors.last_name"
+      />
+
+      <FormField
+        id="first_name"
+        v-model="form.first_name"
         label="Имя"
-        autocomplete="name"
-        :errors="errors.name"
+        autocomplete="given-name"
+        :errors="errors.first_name"
+      />
+
+      <FormField
+        id="middle_name"
+        v-model="form.middle_name"
+        label="Отчество — если есть"
+        autocomplete="additional-name"
+        :errors="errors.middle_name"
       />
 
       <FormField

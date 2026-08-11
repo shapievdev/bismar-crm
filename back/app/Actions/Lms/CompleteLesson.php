@@ -32,6 +32,12 @@ final readonly class CompleteLesson
                 ['completed_at' => now()],
             );
 
+            // Пройденный урок — это «взялся за курс», даже если кнопку начала
+            // никто не нажимал. С этого мгновения курс числится в своих.
+            if ($enrollment->started_at === null) {
+                $enrollment->forceFill(['started_at' => now()])->save();
+            }
+
             return $this->refreshCourseCompletion($enrollment);
         });
     }

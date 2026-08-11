@@ -5,6 +5,8 @@ import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { attachmentIdAttribute } from '~/utils/editor/attachments'
+import { BlockId } from '~/utils/editor/blockId'
 import { HtmlBlock } from '~/utils/editor/htmlBlock'
 import { VideoEmbed } from '~/utils/editor/videoEmbed'
 
@@ -36,7 +38,16 @@ export function useRichTextExtensions(options: { placeholder?: string } = {}) {
       HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
     }),
 
-    Image.configure({
+    // Carries which attachment the picture is, so its address can be resolved
+    // fresh on every read instead of being frozen into the stored document.
+    Image.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          attachmentId: attachmentIdAttribute(),
+        }
+      },
+    }).configure({
       inline: false,
       HTMLAttributes: { loading: 'lazy' },
     }),
@@ -50,6 +61,10 @@ export function useRichTextExtensions(options: { placeholder?: string } = {}) {
 
     HtmlBlock,
     VideoEmbed,
+
+    // Имена блоков, на которые ссылается таблица урока. Без этого редактор
+    // выбросил бы их при первой правке, и ссылки на абзацы оборвались бы.
+    BlockId,
 
     Placeholder.configure({
       placeholder: options.placeholder ?? 'Начните писать…',

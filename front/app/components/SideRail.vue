@@ -1,5 +1,15 @@
 <script setup lang="ts">
 const { can, logout } = useAuth()
+
+/*
+ * Счётчик непрочитанного живёт здесь, потому что здесь на него смотрят: узнать
+ * о сообщении человек должен на любой странице, а не только открыв мессенджер.
+ * Подключение к сокетам заводится один раз отсюда же — рельса есть везде, где
+ * человек вошёл.
+ */
+const messenger = useMessenger()
+
+onMounted(() => messenger.connect())
 const router = useRouter()
 const route = useRoute()
 
@@ -37,6 +47,20 @@ const items = computed<RailItem[]>(() => [
     matches: (path: string) => path.startsWith('/lms'),
   },
   {
+    to: '/messenger',
+    label: 'Сообщения',
+    icon: 'messages',
+    visible: true,
+    matches: (path: string) => path.startsWith('/messenger'),
+  },
+  {
+    to: '/analytics',
+    label: 'Аналитика',
+    icon: 'analytics',
+    visible: can('analytics.view'),
+    matches: (path: string) => path.startsWith('/analytics'),
+  },
+  {
     // Everyone has a profile, so this module is never hidden; which pages it
     // offers is decided by ModuleNav from the reader's permissions.
     to: '/settings/profile',
@@ -72,6 +96,11 @@ async function handleLogout() {
       :aria-label="item.label"
       :aria-current="item.matches(route.path) ? 'page' : undefined"
     >
+      <!-- Непрочитанное: цифра рядом со значком, как в любом мессенджере. -->
+      <span v-if="item.icon === 'messages' && messenger.unreadTotal.value" class="rail__badge">
+        {{ messenger.unreadTotal.value > 99 ? '99+' : messenger.unreadTotal.value }}
+      </span>
+
       <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <template v-if="item.icon === 'dashboard'">
           <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
@@ -84,6 +113,20 @@ async function handleLogout() {
           <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H8v16H5.5A1.5 1.5 0 0 1 4 18.5z" />
           <path d="M10 4h2.5A1.5 1.5 0 0 1 14 5.5v13a1.5 1.5 0 0 1-1.5 1.5H10z" />
           <path d="m16.5 5.6 2 .5a1.5 1.5 0 0 1 1.1 1.8l-3 12.2" />
+        </template>
+
+        <!-- Растущий ряд столбцов: аналитика — про сравнение величин. -->
+        <!-- Облачко реплики: разговор, а не почта. -->
+        <template v-else-if="item.icon === 'messages'">
+          <path d="M20 12a7.5 7.5 0 0 1-11 6.6L4 20l1.4-4.2A7.5 7.5 0 1 1 20 12z" />
+        </template>
+
+        <template v-else-if="item.icon === 'analytics'">
+          <path d="M4 20V4" />
+          <path d="M4 20h16" />
+          <path d="M8.5 20v-5.5" />
+          <path d="M13 20V9.5" />
+          <path d="M17.5 20V6" />
         </template>
 
         <template v-else-if="item.icon === 'settings'">
@@ -110,6 +153,21 @@ async function handleLogout() {
 </template>
 
 <style scoped>
+.rail__badge {
+  position: absolute;
+  top: -0.15rem;
+  right: -0.15rem;
+  min-width: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
 .rail {
   position: sticky;
   top: calc(var(--header-height) + 1rem);
@@ -120,6 +178,7 @@ async function handleLogout() {
 }
 
 .rail__button {
+  position: relative;
   display: grid;
   place-items: center;
   width: 2.9rem;

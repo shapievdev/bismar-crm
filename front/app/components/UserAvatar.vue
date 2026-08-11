@@ -14,6 +14,18 @@ const initials = computed(() =>
     .map(word => word[0]?.toUpperCase() ?? '')
     .join(''),
 )
+
+/**
+ * Картинка может не загрузиться: ссылка на файл подписана на срок, хранилище
+ * стороннее и бывает недоступно. Тогда показываются инициалы — то же, что и у
+ * человека без аватарки, — а не значок битого изображения, по которому нельзя
+ * даже понять, чьё это место.
+ */
+const failed = ref(false)
+
+watch(() => props.src, () => {
+  failed.value = false
+})
 </script>
 
 <template>
@@ -22,7 +34,13 @@ const initials = computed(() =>
     :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.34)}px` }"
     :title="name ?? undefined"
   >
-    <img v-if="src" :src="src" :alt="name ?? ''" loading="lazy">
+    <img
+      v-if="src && !failed"
+      :src="src"
+      :alt="name ?? ''"
+      loading="lazy"
+      @error="failed = true"
+    >
     <span v-else aria-hidden="true">{{ initials }}</span>
   </span>
 </template>

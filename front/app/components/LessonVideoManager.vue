@@ -11,8 +11,9 @@ const emit = defineEmits<{ changed: [] }>()
 const { uploadVideo, deleteVideo } = useLmsApi()
 
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
-const isUploading = ref(false)
 const error = ref<string | null>(null)
+
+const upload = useUploadProgress()
 
 async function onFileChosen(event: Event, lessonId: number | string) {
   const input = event.target as HTMLInputElement
@@ -22,21 +23,24 @@ async function onFileChosen(event: Event, lessonId: number | string) {
     return
   }
 
-  isUploading.value = true
   error.value = null
 
   try {
-    await uploadVideo(lessonId, file)
+    await upload.track(file, options => uploadVideo(lessonId, file, options))
     emit('changed')
   }
   catch (caught) {
+    // Cancelling is a decision, not a failure: nothing to report.
+    if (caught instanceof UploadAbortedError) {
+      return
+    }
+
     const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
     error.value = failure.data?.errors?.video?.[0]
       ?? failure.data?.message
       ?? 'Не удалось загрузить видео.'
   }
   finally {
-    isUploading.value = false
     // Clear the input so the same file can be retried after a failure.
     input.value = ''
   }
@@ -54,15 +58,6 @@ async function remove(lessonId: number | string) {
   }
 }
 
-function formatSize(bytes: number | null | undefined): string {
-  if (!bytes) {
-    return ''
-  }
-
-  const mb = bytes / 1024 / 1024
-
-  return mb >= 1 ? `${mb.toFixed(1)} МБ` : `${Math.max(1, Math.round(bytes / 1024))} КБ`
-}
 </script>
 
 <template>
@@ -75,14 +70,14 @@ function formatSize(bytes: number | null | undefined): string {
       <button
         type="button"
         class="button-secondary button-sm"
-        :disabled="isUploading"
+        :disabled="upload.isUploading.value"
         @click="fileInput?.click()"
       >
-        {{ isUploading ? 'Загружаем…' : (lesson.video_upload_url ? 'Заменить' : 'Загрузить видео') }}
+        {{ lesson.video_upload_url ? 'Заменить' : 'Загрузить видео' }}
       </button>
 
       <button
-        v-if="lesson.video_upload_url"
+        v-if="lesson.video_upload_url && !upload.isUploading.value"
         type="button"
         class="button-ghost button-sm"
         @click="remove(lessonId)"
@@ -108,10 +103,34 @@ function formatSize(bytes: number | null | undefined): string {
       {{ error }}
     </p>
 
-    <div v-if="lesson.video_upload_url" class="preview">
+    <div v-if="upload.isUploading.value" class="card upload">
+      <div class="upload__head">
+        <span class="upload__name">{{ upload.fileName.value }}</span>
+        <button
+          type="button"
+          class="button-ghost button-sm"
+          :disabled="upload.isStoring.value"
+          @click="upload.cancel"
+        >
+          Отменить
+        </button>
+      </div>
+
+      <UiProgressBar
+        :value="upload.percent.value"
+        :indeterminate="upload.isStoring.value"
+        :label="upload.label.value"
+      />
+
+      <p v-if="upload.transferred.value" class="faint upload__transferred">
+        {{ upload.transferred.value }}
+      </p>
+    </div>
+
+    <div v-else-if="lesson.video_upload_url" class="preview">
       <video :src="lesson.video_upload_url" controls preload="metadata" />
       <p class="faint">
-        {{ lesson.video_name }} · {{ formatSize(lesson.video_size) }}
+        {{ lesson.video_name }} · {{ formatBytes(lesson.video_size) }}
       </p>
     </div>
 
@@ -157,6 +176,34 @@ function formatSize(bytes: number | null | undefined): string {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.upload {
+  padding: 0.9rem 1rem;
+  max-width: 32rem;
+}
+
+.upload__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.upload__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+  font-weight: 550;
+}
+
+.upload__transferred {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .preview video {

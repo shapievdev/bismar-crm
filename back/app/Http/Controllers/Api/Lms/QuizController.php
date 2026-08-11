@@ -9,7 +9,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveQuizRequest;
 use App\Http\Resources\Lms\QuizResource;
 use App\Models\Lesson;
+use App\Support\Lms\QuizStatistics;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class QuizController extends Controller
 {
@@ -32,5 +35,23 @@ final class QuizController extends Controller
         $lesson->loadMissing('quiz')->quiz?->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Как тест проходят: что заваливают и какой неверный вариант выбирают.
+     *
+     * Единственное место, где урок сам сообщает о своей дыре: вопрос, который
+     * не даётся почти никому, обычно разобран в уроке плохо или не разобран
+     * вовсе.
+     */
+    public function statistics(Lesson $lesson, QuizStatistics $statistics): JsonResponse
+    {
+        $quiz = $lesson->loadMissing('quiz')->quiz;
+
+        if ($quiz === null) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        return response()->json(['data' => $statistics->of($quiz)]);
     }
 }

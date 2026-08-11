@@ -22,7 +22,8 @@ final class PermissionController extends Controller
             static fn (Permission $permission): array => [
                 'name' => $permission->value,
                 'label' => $permission->label(),
-                'group' => explode('.', $permission->value)[0],
+                'group' => $permission->group(),
+                'group_label' => $permission->groupLabel(),
             ],
             Permission::cases(),
         );

@@ -7,7 +7,8 @@ const { user } = useAuth()
 
 <template>
   <section>
-    <h1>Здравствуйте, {{ user?.name }}</h1>
+    <!-- By given name: a greeting that opens with a surname reads as a summons. -->
+    <h1>Здравствуйте, {{ user?.first_name }}</h1>
     <p class="muted">
       Вы вошли как {{ user?.email }}. Здесь появится рабочая панель CRM.
     </p>

@@ -5,19 +5,18 @@ declare(strict_types=1);
 namespace Tests\Feature\Lms;
 
 use App\Enums\QuestionType;
-use App\Enums\Role as RoleEnum;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\Quiz;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
+use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
 
 final class QuizTest extends TestCase
 {
-    use ActsAsSpaClient, RefreshDatabase;
+    use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     public function test_the_answer_key_is_never_sent_to_a_learner(): void
     {
@@ -289,15 +288,5 @@ final class QuizTest extends TestCase
             ->mapWithKeys(fn ($question): array => [
                 $question->id => [$question->options->firstWhere('is_correct', false)->id],
             ])->all();
-    }
-
-    private function learner(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Viewer->value);
-    }
-
-    private function author(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Manager->value);
     }
 }

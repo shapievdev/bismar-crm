@@ -24,17 +24,54 @@ final class ProfileTest extends TestCase
 
     public function test_a_user_can_rename_themselves(): void
     {
-        $user = User::factory()->create(['name' => 'Старое имя']);
+        $user = User::factory()->create(['last_name' => 'Старый', 'first_name' => 'Имярек']);
 
         $this->actingAs($user)
             ->putJson(route('profile.update'), [
-                'name' => 'Ада Лавлейс',
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'middle_name' => 'Августовна',
                 'email' => $user->email,
             ])
             ->assertOk()
-            ->assertJsonPath('data.name', 'Ада Лавлейс');
+            ->assertJsonPath('data.last_name', 'Лавлейс')
+            ->assertJsonPath('data.first_name', 'Ада')
+            ->assertJsonPath('data.middle_name', 'Августовна')
+            // The joined form is derived, never stored.
+            ->assertJsonPath('data.name', 'Лавлейс Ада Августовна');
 
-        $this->assertSame('Ада Лавлейс', $user->refresh()->name);
+        $this->assertSame('Лавлейс Ада Августовна', $user->refresh()->name);
+    }
+
+    public function test_a_patronymic_is_optional_and_can_be_cleared(): void
+    {
+        $user = User::factory()->create([
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
+            'middle_name' => 'Августовна',
+        ]);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.middle_name', null)
+            ->assertJsonPath('data.name', 'Лавлейс Ада');
+
+        $this->assertNull($user->refresh()->middle_name);
+    }
+
+    public function test_a_surname_and_a_given_name_are_both_required(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), ['email' => $user->email])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['last_name', 'first_name']);
     }
 
     public function test_saving_without_changing_the_email_is_allowed(): void
@@ -44,7 +81,11 @@ final class ProfileTest extends TestCase
         // The uniqueness rule has to ignore the user's own row, or nobody could
         // ever edit their name without also changing their address.
         $this->actingAs($user)
-            ->putJson(route('profile.update'), ['name' => 'Новое имя', 'email' => $user->email])
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Новая',
+                'first_name' => 'Фамилия',
+                'email' => $user->email,
+            ])
             ->assertOk();
     }
 
@@ -54,15 +95,22 @@ final class ProfileTest extends TestCase
         $other = User::factory()->create();
 
         $this->actingAs($user)
-            ->putJson(route('profile.update'), ['name' => $user->name, 'email' => $other->email])
+            ->putJson(route('profile.update'), [
+                'last_name' => $user->last_name,
+                'first_name' => $user->first_name,
+                'email' => $other->email,
+            ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('email');
     }
 
     public function test_a_guest_cannot_touch_a_profile(): void
     {
-        $this->putJson(route('profile.update'), ['name' => 'Никто', 'email' => 'no@example.com'])
-            ->assertUnauthorized();
+        $this->putJson(route('profile.update'), [
+            'last_name' => 'Никто',
+            'first_name' => 'Никак',
+            'email' => 'no@example.com',
+        ])->assertUnauthorized();
     }
 
     public function test_an_avatar_can_be_uploaded(): void

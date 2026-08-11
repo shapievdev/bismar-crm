@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { can } = useAuth()
+const { can, isSuperAdmin } = useAuth()
 const route = useRoute()
 
 interface NavLink {
@@ -23,7 +23,19 @@ const links = computed<NavLink[]>(() => {
     return [
       { to: '/lms', label: 'Материалы', visible: true, matches: (p: string) => p === '/lms' },
       { to: '/lms/my', label: 'Мои материалы', visible: true },
+      { to: '/lms/assistant', label: 'Консультант', visible: true },
       { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
+    ].filter(link => link.visible)
+  }
+
+  if (path.startsWith('/analytics')) {
+    // Все вкладки под одним правом и на одной витрине: цифры приходят из
+    // одного источника, и разделять «кто видит выручку» и «кто видит клиентов»
+    // здесь нечем.
+    return [
+      { to: '/analytics', label: 'Продажи', visible: true, matches: (p: string) => p === '/analytics' },
+      { to: '/analytics/customers', label: 'Клиенты', visible: true },
+      { to: '/analytics/products', label: 'Товары', visible: true },
     ].filter(link => link.visible)
   }
 
@@ -31,7 +43,10 @@ const links = computed<NavLink[]>(() => {
     return [
       { to: '/settings/profile', label: 'Профиль', visible: true },
       { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
-      { to: '/settings/roles', label: 'Роли', visible: can('roles.manage') },
+      // Пробелы в базе закрывают авторы курсов — журнал открыт им.
+      { to: '/settings/questions', label: 'Вопросы', visible: can('courses.update') },
+      // Платёжный ключ и модель — только суперадминистратору.
+      { to: '/settings/ai', label: 'Консультант', visible: isSuperAdmin.value },
     ].filter(link => link.visible)
   }
 
@@ -80,12 +95,23 @@ function isActive(link: NavLink): boolean {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.module-nav__pill:hover {
+/*
+ * Held off the active pill on purpose. A bare `:hover` outranks `--active` on
+ * specificity, so it would repaint the text of the accent-filled pill in the
+ * page's text colour — near-black on near-black in light, near-white on lime in
+ * dark. Each state gets its own hover instead.
+ */
+.module-nav__pill:hover:not(.module-nav__pill--active) {
   color: var(--color-text);
 }
 
 .module-nav__pill--active {
   background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.module-nav__pill--active:hover {
+  background: var(--color-accent-hover);
   color: var(--color-accent-text);
 }
 

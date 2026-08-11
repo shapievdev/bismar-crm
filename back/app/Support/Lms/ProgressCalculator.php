@@ -25,9 +25,14 @@ final readonly class ProgressCalculator
         return (int) round($this->completedLessons($enrollment) / $total * 100);
     }
 
+    /**
+     * Курс мог быть удалён, а запись на него остаться: прогресс хранится ради
+     * возможного восстановления. Прогресс по несуществующему курсу — ноль, а не
+     * повод уронить страницу, на которой он лишь одна строка из десяти.
+     */
     public function totalLessons(Enrollment $enrollment): int
     {
-        return $enrollment->course->lessons()->count();
+        return $enrollment->course?->lessons()->count() ?? 0;
     }
 
     /**
@@ -36,8 +41,14 @@ final readonly class ProgressCalculator
      */
     public function completedLessons(Enrollment $enrollment): int
     {
+        $course = $enrollment->course;
+
+        if ($course === null) {
+            return 0;
+        }
+
         return $enrollment->completions()
-            ->whereIn('lesson_id', $enrollment->course->lessons()->select('lessons.id'))
+            ->whereIn('lesson_id', $course->lessons()->select('lessons.id'))
             ->count();
     }
 

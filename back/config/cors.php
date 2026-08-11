@@ -15,7 +15,9 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    // broadcasting/auth — подпись подписки на сокет-канал. Живёт вне /api, как и
+    // выдача CSRF-куки, но ходит с теми же куками и с того же адреса.
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/auth'],
 
     'allowed_methods' => ['*'],
 

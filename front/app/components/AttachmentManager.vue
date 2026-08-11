@@ -11,8 +11,9 @@ const emit = defineEmits<{ changed: [] }>()
 const { uploadAttachment, updateAttachment, deleteAttachment } = useLmsApi()
 
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
-const isUploading = ref(false)
 const error = ref<string | null>(null)
+
+const upload = useUploadProgress()
 
 /** Chosen but not yet sent: the caption is written before the upload starts. */
 const pendingFile = ref<File | null>(null)
@@ -35,28 +36,34 @@ function cancelPending() {
   pendingDescription.value = ''
 }
 
-async function upload(lessonId: number | string) {
-  if (!pendingFile.value) {
+async function send(lessonId: number | string) {
+  const file = pendingFile.value
+
+  if (!file) {
     return
   }
 
-  isUploading.value = true
   error.value = null
 
   try {
-    await uploadAttachment(lessonId, pendingFile.value, pendingDescription.value || null)
+    await upload.track(file, options =>
+      uploadAttachment(lessonId, file, pendingDescription.value || null, options))
+
     cancelPending()
     emit('changed')
   }
   catch (caught) {
+    // Cancelling is a decision, not a failure: the file stays chosen so it can
+    // be sent again without picking it a second time.
+    if (caught instanceof UploadAbortedError) {
+      return
+    }
+
     const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
     error.value = failure.data?.errors?.file?.[0]
       ?? failure.data?.errors?.description?.[0]
       ?? failure.data?.message
       ?? 'Не удалось загрузить файл.'
-  }
-  finally {
-    isUploading.value = false
   }
 }
 
@@ -90,11 +97,6 @@ async function remove(attachment: LessonAttachment) {
   }
 }
 
-function formatSize(bytes: number): string {
-  const mb = bytes / 1024 / 1024
-
-  return mb >= 1 ? `${mb.toFixed(1)} МБ` : `${Math.max(1, Math.round(bytes / 1024))} КБ`
-}
 </script>
 
 <template>
@@ -107,7 +109,7 @@ function formatSize(bytes: number): string {
       <button
         type="button"
         class="button-secondary button-sm"
-        :disabled="isUploading"
+        :disabled="upload.isUploading.value"
         @click="fileInput?.click()"
       >
         Выбрать файл
@@ -125,26 +127,52 @@ function formatSize(bytes: number): string {
       {{ error }}
     </p>
 
-    <form v-if="pendingFile" class="card pending" @submit.prevent="upload(lessonId)">
+    <form v-if="pendingFile" class="card pending" @submit.prevent="send(lessonId)">
       <UiFileIcon :name="pendingFile.name" :mime-type="pendingFile.type" />
 
       <div class="pending__body">
         <span class="pending__name">{{ pendingFile.name }}</span>
+
         <input
+          v-if="!upload.isUploading.value"
           v-model.trim="pendingDescription"
           class="input"
           maxlength="500"
           placeholder="Что в этом файле? Например: скан подписанного договора"
         >
+
+        <template v-else>
+          <UiProgressBar
+            :value="upload.percent.value"
+            :indeterminate="upload.isStoring.value"
+            :label="upload.label.value"
+            size="sm"
+          />
+          <span v-if="upload.transferred.value" class="faint pending__transferred">
+            {{ upload.transferred.value }}
+          </span>
+        </template>
       </div>
 
       <div class="pending__actions">
-        <button type="submit" class="button-primary button-sm" :disabled="isUploading">
-          {{ isUploading ? 'Загружаем…' : 'Загрузить' }}
+        <button
+          v-if="upload.isUploading.value"
+          type="button"
+          class="button-ghost button-sm"
+          :disabled="upload.isStoring.value"
+          @click="upload.cancel"
+        >
+          Отменить
         </button>
-        <button type="button" class="button-ghost button-sm" :disabled="isUploading" @click="cancelPending">
-          Отмена
-        </button>
+
+        <template v-else>
+          <button type="submit" class="button-primary button-sm">
+            Загрузить
+          </button>
+          <button type="button" class="button-ghost button-sm" @click="cancelPending">
+            Отмена
+          </button>
+        </template>
       </div>
     </form>
 
@@ -185,7 +213,7 @@ function formatSize(bytes: number): string {
           </p>
 
           <span class="faint item__meta">
-            {{ formatSize(file.size) }}
+            {{ formatBytes(file.size) }}
             <template v-if="!file.opens_inline"> · скачается файлом</template>
           </span>
         </div>
@@ -279,6 +307,11 @@ function formatSize(bytes: number): string {
 .item__name:hover {
   color: var(--color-accent);
   text-decoration: underline;
+}
+
+.pending__transferred {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .pending__actions,

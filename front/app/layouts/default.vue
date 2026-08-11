@@ -13,8 +13,15 @@ const { user, isAuthenticated } = useAuth()
 
         <ModuleNav v-if="isAuthenticated" />
 
-        <NuxtLink v-if="isAuthenticated" to="/settings/profile" class="account" title="Профиль">
-          <span class="account__name">{{ user?.name }}</span>
+        <!-- The avatar alone: the name is on the profile page, and repeating it
+             in every header only tells you what you already know. -->
+        <NuxtLink
+          v-if="isAuthenticated"
+          to="/settings/profile"
+          class="account"
+          title="Профиль"
+          :aria-label="`Профиль: ${user?.name ?? ''}`"
+        >
           <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="36" />
         </NuxtLink>
       </div>
@@ -73,32 +80,18 @@ const { user, isAuthenticated } = useAuth()
 .account {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  flex-shrink: 0;
   margin-left: auto;
   color: inherit;
   text-decoration: none;
 }
 
-.account__name {
-  color: var(--color-text-muted);
-  font-size: 0.88rem;
-}
-
 @media (max-width: 56rem) {
-  .account__name {
-    display: none;
-  }
-
   .topbar__inner {
     /* The brand and account stay put; only the destinations scroll. */
-    gap: 0.75rem;
-  }
-
-  .topbar__inner {
     gap: 0.6rem;
     padding: 0 1rem;
   }
-
 }
 
 /*

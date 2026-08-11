@@ -4,6 +4,7 @@ defineProps<{
   label: string
   type?: string
   autocomplete?: string
+  placeholder?: string
   errors?: string[]
 }>()
 
@@ -19,6 +20,7 @@ const model = defineModel<string>({ required: true })
       v-model="model"
       :type="type ?? 'text'"
       :autocomplete="autocomplete"
+      :placeholder="placeholder"
       :aria-invalid="Boolean(errors?.length)"
       :aria-describedby="errors?.length ? `${id}-error` : undefined"
     >

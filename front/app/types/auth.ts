@@ -1,27 +1,52 @@
 export interface User {
   id: number
+  level: AccessLevel
+  level_label: string
+  /** Права, отмеченные лично этому человеку. У администратора пусто. */
+  own_permissions: string[]
+  /** Фамилия Имя Отчество, собранное на сервере — то, что показывают экраны. */
   name: string
+  last_name: string | null
+  first_name: string
+  middle_name: string | null
   email: string
   avatar_url: string | null
   email_verified_at: string | null
   created_at: string | null
-  roles: string[]
+  /** Всё, что человек реально может. У администратора — весь список. */
   permissions: string[]
 }
 
-export interface Role {
-  id: number
-  name: string
-  label: string
-  is_built_in: boolean
+/** Суперадминистратор, администратор или обычный пользователь. */
+export type AccessLevel = 'super-admin' | 'admin' | 'user'
+
+export interface AccessPayload {
+  level: AccessLevel
   permissions: string[]
-  users_count?: number
+}
+
+export interface NewUserPayload {
+  last_name: string
+  first_name: string
+  middle_name: string | null
+  email: string
+  password: string
+}
+
+export interface UserPayload {
+  last_name: string
+  first_name: string
+  middle_name: string | null
+  email: string
+  /** Отправляется только когда администратор сбрасывает пароль. */
+  password?: string
 }
 
 export interface PermissionOption {
   name: string
   label: string
   group: string
+  group_label: string
 }
 
 export interface LoginCredentials {
@@ -31,7 +56,9 @@ export interface LoginCredentials {
 }
 
 export interface RegisterCredentials {
-  name: string
+  last_name: string
+  first_name: string
+  middle_name: string
   email: string
   password: string
   password_confirmation: string

@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { JSONContent } from '@tiptap/core'
-import type { LessonPayload, QuizPayload } from '~/types/lms'
+import type { LessonAnswerPayload, LessonPayload, QuizPayload, SuggestedAnswer } from '~/types/lms'
+import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
-const { fetchLesson, updateLesson, saveQuiz, deleteQuiz, uploadAttachment, uploadVideo } = useLmsApi()
+const {
+  fetchLesson,
+  updateLesson,
+  saveQuiz,
+  deleteQuiz,
+  uploadAttachment,
+  saveAnswers,
+  suggestAnswers,
+} = useLmsApi()
 
 const lessonId = computed(() => String(route.params.lesson))
 const courseSlug = computed(() => String(route.params.slug))
@@ -30,23 +39,40 @@ const form = ref<LessonPayload>({
   duration_minutes: lesson.value?.duration_minutes ?? null,
 })
 
-const document = ref<JSONContent | null>(lesson.value?.content_json ?? null)
+// Addresses are resolved on the way in and dropped again on the way out, so
+// the record holds attachment ids and never a signature that expires.
+const document = ref<JSONContent | null>(
+  withResolvedMedia(lesson.value?.content_json ?? null, lesson.value?.attachments ?? []),
+)
+
+// A save refetches the lesson, and deleting a file refreshes the attachment
+// list — either way the document needs its addresses resolved again.
+watch(lesson, (value) => {
+  document.value = withResolvedMedia(value?.content_json ?? null, value?.attachments ?? [])
+})
 
 /**
  * Media dropped into the article is stored as a normal lesson attachment, so
- * it is listed, replaceable and deleted along with the lesson. The editor only
- * needs the URL back.
+ * it is listed, replaceable and deleted along with the lesson. The editor gets
+ * back both halves: the id to keep, and the address to show right now.
  */
-async function uploadInlineImage(file: File): Promise<string> {
-  const { data } = await uploadAttachment(lessonId.value, file, 'Изображение в статье')
+async function uploadInlineImage(file: File, options: UploadOptions): Promise<UploadedMedia> {
+  const { data } = await uploadAttachment(lessonId.value, file, 'Изображение в статье', options)
 
-  return data.url
+  return { id: data.id, url: data.url }
 }
 
-async function uploadInlineVideo(file: File): Promise<string> {
-  const { data } = await uploadVideo(lessonId.value, file)
+/**
+ * An attachment too, not the lesson's own video.
+ *
+ * A lesson has exactly one video slot, and posting to it replaces whatever was
+ * there and deletes the old object — so sending an article's video down that
+ * route silently swapped out the lesson's main recording.
+ */
+async function uploadInlineVideo(file: File, options: UploadOptions): Promise<UploadedMedia> {
+  const { data } = await uploadAttachment(lessonId.value, file, 'Видео в статье', options)
 
-  return data.video_upload_url ?? ''
+  return { id: data.id, url: data.url }
 }
 
 const errors = ref<ValidationErrors>({})
@@ -57,6 +83,12 @@ const savedAt = ref<string | null>(null)
 const quizErrors = ref<ValidationErrors>({})
 const isSavingQuiz = ref(false)
 const showQuizBuilder = ref(Boolean(lesson.value?.quiz))
+
+const answerErrors = ref<ValidationErrors>({})
+const isSavingAnswers = ref(false)
+const isSuggesting = ref(false)
+const answerTable = useTemplateRef<{ showSuggestions: (drafts: SuggestedAnswer[]) => void }>('answerTable')
+const transcripts = useTemplateRef<{ reload: () => Promise<void> }>('transcripts')
 
 async function save() {
   isSaving.value = true
@@ -70,11 +102,17 @@ async function save() {
       // The server derives the searchable plain text from the document, so
       // only the document itself is sent.
       content: null,
-      content_json: document.value,
+      content_json: withoutResolvedMedia(document.value),
       video_url: form.value.video_url || null,
     })
 
     await refresh()
+
+    // Правка статьи пересобирает выведенные расшифровки на сервере: у нового
+    // абзаца она появляется, у исчезнувшего пропадает. Без этого список
+    // показывал бы вчерашнее состояние.
+    await transcripts.value?.reload()
+
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
   }
   catch (caught) {
@@ -108,6 +146,58 @@ async function persistQuiz(payload: QuizPayload) {
   }
   finally {
     isSavingQuiz.value = false
+  }
+}
+
+async function persistAnswers(rows: LessonAnswerPayload[]) {
+  isSavingAnswers.value = true
+  answerErrors.value = {}
+
+  try {
+    await saveAnswers(lessonId.value, rows)
+    await refresh()
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      answerErrors.value = caught.errors
+    }
+    else {
+      generalError.value = 'Не удалось сохранить таблицу вопросов.'
+    }
+  }
+  finally {
+    isSavingAnswers.value = false
+  }
+}
+
+/**
+ * Просит модель прочитать урок и предложить вопросы.
+ *
+ * Предложения нигде не сохраняются — они уходят прямо в таблицу, где автор
+ * отбирает нужные. Отказ модели ничему не мешает: заполнить таблицу руками
+ * можно и без подсказки.
+ */
+async function askForSuggestions(transcriptId?: number) {
+  isSuggesting.value = true
+  generalError.value = null
+
+  try {
+    const { data } = await suggestAnswers(lessonId.value, transcriptId)
+    answerTable.value?.showSuggestions(data)
+
+    // Таблица ниже расшифровок, и предложения появляются вне поля зрения
+    // автора, который только что нажал кнопку у расшифровки.
+    //
+    // Через window: `document` здесь — статья в редакторе, а не страница.
+    await nextTick()
+    window.document.getElementById('lesson-answers')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  catch {
+    generalError.value = 'Не удалось получить подсказку. Заполните таблицу вручную или попробуйте позже.'
+  }
+  finally {
+    isSuggesting.value = false
   }
 }
 
@@ -146,7 +236,16 @@ async function removeQuiz() {
       {{ generalError }}
     </p>
 
-    <form class="form" novalidate @submit.prevent="save">
+    <!--
+      Материал слева, вопросы справа.
+
+      Одно правится по другому: автор смотрит в расшифровку и тут же
+      формулирует вопрос. В один столбец таблица оказывалась экраном ниже
+      всего, из чего её составляют, и приходилось ходить туда-обратно.
+    -->
+    <div class="workbench">
+      <div class="workbench__material">
+        <form class="form" novalidate @submit.prevent="save">
       <FormField id="title" v-model="form.title" label="Название" :errors="errors.title" />
 
       <div class="row">
@@ -186,25 +285,58 @@ async function removeQuiz() {
         </p>
       </div>
 
-      <div class="actions">
-        <button type="submit" class="button-primary" :disabled="isSaving">
-          {{ isSaving ? 'Сохраняем…' : 'Сохранить урок' }}
-        </button>
-        <span v-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
+          <div class="actions">
+            <button type="submit" class="button-primary" :disabled="isSaving">
+              {{ isSaving ? 'Сохраняем…' : 'Сохранить урок' }}
+            </button>
+            <span v-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
+          </div>
+        </form>
+
+        <LessonVideoManager
+          :lesson-id="lessonId"
+          :lesson="lesson"
+          @changed="refresh"
+        />
+
+        <AttachmentManager
+          :lesson-id="lessonId"
+          :attachments="lesson.attachments ?? []"
+          @changed="refresh"
+        />
+
+        <!-- После вложений и видео: расшифровка привязана к ним, и до появления
+             файлов расшифровывать нечего. -->
+        <LessonTranscripts
+          ref="transcripts"
+          :lesson-id="lessonId"
+          :lesson="lesson"
+          :attachments="lesson.attachments ?? []"
+          :document="document"
+          :is-suggesting="isSuggesting"
+          @suggest="askForSuggestions"
+        />
       </div>
-    </form>
 
-    <LessonVideoManager
-      :lesson-id="lessonId"
-      :lesson="lesson"
-      @changed="refresh"
-    />
-
-    <AttachmentManager
-      :lesson-id="lessonId"
-      :attachments="lesson.attachments ?? []"
-      @changed="refresh"
-    />
+      <!--
+        Липко к экрану: автор прокручивает расшифровку слева и переносит из неё
+        вопросы, а таблица при этом должна оставаться на виду.
+      -->
+      <aside class="workbench__answers">
+        <LessonAnswerTable
+          ref="answerTable"
+          :lesson="lesson"
+          :answers="lesson.answers ?? []"
+          :attachments="lesson.attachments ?? []"
+          :document="document"
+          :errors="answerErrors"
+          :is-submitting="isSavingAnswers"
+          :is-suggesting="isSuggesting"
+          @save="persistAnswers"
+          @suggest="askForSuggestions"
+        />
+      </aside>
+    </div>
 
     <QuizBuilder
       v-if="showQuizBuilder"
@@ -214,6 +346,10 @@ async function removeQuiz() {
       @save="persistQuiz"
       @remove="removeQuiz"
     />
+
+    <!-- Разбор — только у сохранённого теста: пока его нет, считать нечего.
+         Ключ здесь и так открыт: автор видит верные ответы в самом тесте. -->
+    <QuizStatisticsPanel v-if="lesson.quiz" :key="lesson.quiz.id" :lesson-id="lessonId" />
 
     <section v-else class="add-quiz">
       <button type="button" class="button-plain" @click="showQuizBuilder = true">
@@ -230,6 +366,7 @@ async function removeQuiz() {
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.25rem;
+  flex-wrap: wrap;
 }
 
 .page-header h1 {
@@ -247,11 +384,56 @@ async function removeQuiz() {
   text-decoration: none;
 }
 
+/*
+ * Две колонки: материал и вопросы к нему.
+ *
+ * Правая уже левой и не тянется: статья, видео и расшифровки — то, что читают,
+ * им нужна ширина строки. Таблица вопросов — то, что заполняют, ей нужна
+ * досягаемость.
+ */
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+  align-items: start;
+  gap: 2rem;
+}
+
+.workbench__material {
+  min-width: 0;
+}
+
+.workbench__answers {
+  position: sticky;
+  /* Под липкой шапкой, а не под ней. */
+  top: calc(var(--header-height) + 1rem);
+  min-width: 0;
+  max-height: calc(100vh - var(--header-height) - 2rem);
+  overflow-y: auto;
+  /* Полосе прокрутки нужен зазор, иначе она ложится на поля. */
+  padding-right: 0.35rem;
+}
+
+/*
+ * На узком экране колонки складываются: рядом им нужно около сотни знаков
+ * ширины на двоих, а меньшего не хватит ни одной.
+ */
+@media (max-width: 78rem) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench__answers {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
 .form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 46rem;
 }
 
 .row {

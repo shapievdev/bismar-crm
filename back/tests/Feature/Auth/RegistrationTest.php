@@ -21,14 +21,16 @@ final class RegistrationTest extends TestCase
         Event::fake(Registered::class);
 
         $response = $this->postJson(route('auth.register'), [
-            'name' => 'Ada Lovelace',
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
+            'middle_name' => 'Августовна',
             'email' => 'ada@example.com',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'correct-horse-battery-staple',
         ]);
 
         $response->assertCreated()
-            ->assertJsonPath('data.name', 'Ada Lovelace')
+            ->assertJsonPath('data.name', 'Лавлейс Ада Августовна')
             ->assertJsonPath('data.email', 'ada@example.com')
             ->assertJsonMissingPath('data.password');
 
@@ -45,7 +47,8 @@ final class RegistrationTest extends TestCase
         User::factory()->create(['email' => 'taken@example.com']);
 
         $this->postJson(route('auth.register'), [
-            'name' => 'Ada Lovelace',
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
             'email' => 'taken@example.com',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'correct-horse-battery-staple',
@@ -57,7 +60,9 @@ final class RegistrationTest extends TestCase
     public function test_registration_requires_a_confirmed_password(): void
     {
         $this->postJson(route('auth.register'), [
-            'name' => 'Ada Lovelace',
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
+            'middle_name' => 'Августовна',
             'email' => 'ada@example.com',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'something-else',

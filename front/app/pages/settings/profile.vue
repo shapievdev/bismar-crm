@@ -9,7 +9,9 @@ const { user, updateProfile, uploadAvatar, removeAvatar } = useAuth()
 const { preference, setTheme, options } = useTheme()
 
 const form = reactive({
-  name: user.value?.name ?? '',
+  last_name: user.value?.last_name ?? '',
+  first_name: user.value?.first_name ?? '',
+  middle_name: user.value?.middle_name ?? '',
   email: user.value?.email ?? '',
 })
 
@@ -25,7 +27,13 @@ async function save() {
   savedAt.value = null
 
   try {
-    await updateProfile({ name: form.name, email: form.email })
+    await updateProfile({
+      last_name: form.last_name,
+      first_name: form.first_name,
+      // An empty box means "no patronymic", not an empty string.
+      middle_name: form.middle_name || null,
+      email: form.email,
+    })
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
   }
   catch (caught) {
@@ -100,174 +108,252 @@ function choose(value: ThemePreference) {
       </p>
     </header>
 
-    <section class="card card--raised block">
-      <h2 class="block__title">
-        Фото
-      </h2>
+    <div class="blocks">
+      <div class="blocks__side">
+        <section class="card card--raised block">
+          <header class="block__head">
+            <h2 class="block__title">
+              Фото
+            </h2>
+            <p class="block__hint">
+              PNG, JPG или WebP, до 4 МБ. Без фото показываются инициалы.
+            </p>
+          </header>
 
-      <div class="avatar-row">
-        <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="88" />
+          <div class="avatar-row">
+            <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="72" />
 
-        <div class="avatar-row__actions">
-          <button
-            type="button"
-            class="button-secondary button-sm"
-            :disabled="isUploadingAvatar"
-            @click="avatarInput?.click()"
-          >
-            {{ isUploadingAvatar ? 'Загружаем…' : (user?.avatar_url ? 'Заменить' : 'Загрузить фото') }}
-          </button>
+            <div class="avatar-row__actions">
+              <button
+                type="button"
+                class="button-secondary button-sm"
+                :disabled="isUploadingAvatar"
+                @click="avatarInput?.click()"
+              >
+                {{ isUploadingAvatar ? 'Загружаем…' : (user?.avatar_url ? 'Заменить' : 'Загрузить фото') }}
+              </button>
 
-          <button
-            v-if="user?.avatar_url"
-            type="button"
-            class="button-ghost button-sm"
-            @click="dropAvatar"
-          >
-            Удалить
-          </button>
+              <button
+                v-if="user?.avatar_url"
+                type="button"
+                class="button-ghost button-sm"
+                @click="dropAvatar"
+              >
+                Удалить
+              </button>
 
-          <input
-            ref="avatarInput"
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            class="visually-hidden"
-            @change="onAvatarChosen"
-          >
+              <input
+                ref="avatarInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                class="visually-hidden"
+                @change="onAvatarChosen"
+              >
+            </div>
+          </div>
 
-          <p class="faint avatar-row__hint">
-            PNG, JPG или WebP, до 4 МБ. Без фото показываются инициалы.
+          <p v-if="avatarError" class="alert alert--danger" role="alert">
+            {{ avatarError }}
           </p>
-        </div>
+        </section>
+
+        <section class="card card--raised block">
+          <header class="block__head">
+            <h2 class="block__title">
+              Тема
+            </h2>
+            <p class="block__hint">
+              Настройка этого браузера, а не аккаунта: она описывает экран перед вами.
+            </p>
+          </header>
+
+          <div class="segmented" role="radiogroup" aria-label="Тема оформления">
+            <button
+              v-for="option in options"
+              :key="option.value"
+              type="button"
+              role="radio"
+              class="segmented__option"
+              :class="{ 'segmented__option--on': preference === option.value }"
+              :aria-checked="preference === option.value"
+              @click="choose(option.value)"
+            >
+              <svg
+                class="segmented__icon"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <template v-if="option.value === 'system'">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M9 20h6" />
+                </template>
+                <template v-else-if="option.value === 'light'">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+                </template>
+                <template v-else>
+                  <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+                </template>
+              </svg>
+              {{ option.label }}
+            </button>
+          </div>
+        </section>
       </div>
 
-      <p v-if="avatarError" class="alert alert--danger" role="alert">
-        {{ avatarError }}
-      </p>
-    </section>
-
-    <section class="card card--raised block">
-      <h2 class="block__title">
-        Данные
-      </h2>
-
-      <p v-if="generalError" class="alert alert--danger" role="alert">
-        {{ generalError }}
-      </p>
-
-      <form class="form" novalidate @submit.prevent="save">
-        <div class="field">
-          <label class="field-label" for="name">Имя и фамилия</label>
-          <input id="name" v-model.trim="form.name" class="input" autocomplete="name">
-          <p v-if="errors.name?.length" class="field-error">
-            {{ errors.name[0] }}
+      <section class="card card--raised block">
+        <header class="block__head">
+          <h2 class="block__title">
+            Данные
+          </h2>
+          <p class="block__hint">
+            Имя и адрес, под которыми вас видят в системе.
           </p>
-        </div>
+        </header>
 
-        <div class="field">
-          <label class="field-label" for="email">Email</label>
-          <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
-          <p v-if="errors.email?.length" class="field-error">
-            {{ errors.email[0] }}
-          </p>
-        </div>
+        <p v-if="generalError" class="alert alert--danger" role="alert">
+          {{ generalError }}
+        </p>
 
-        <div class="form__actions">
-          <button type="submit" class="button-primary" :disabled="isSaving">
-            {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
-          </button>
-          <span v-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
-        </div>
-      </form>
-    </section>
+        <form class="form" novalidate @submit.prevent="save">
+          <div class="field">
+            <label class="field-label" for="last-name">Фамилия</label>
+            <input id="last-name" v-model.trim="form.last_name" class="input" autocomplete="family-name">
+            <p v-if="errors.last_name?.length" class="field-error">
+              {{ errors.last_name[0] }}
+            </p>
+          </div>
 
-    <section class="card card--raised block">
-      <h2 class="block__title">
-        Тема
-      </h2>
-      <p class="faint block__hint">
-        Настройка этого браузера, а не аккаунта: она описывает экран перед вами.
-      </p>
+          <div class="field">
+            <label class="field-label" for="first-name">Имя</label>
+            <input id="first-name" v-model.trim="form.first_name" class="input" autocomplete="given-name">
+            <p v-if="errors.first_name?.length" class="field-error">
+              {{ errors.first_name[0] }}
+            </p>
+          </div>
 
-      <div class="themes" role="radiogroup" aria-label="Тема оформления">
-        <button
-          v-for="option in options"
-          :key="option.value"
-          type="button"
-          role="radio"
-          class="theme"
-          :class="{ 'theme--active': preference === option.value }"
-          :aria-checked="preference === option.value"
-          :aria-label="option.label"
-          @click="choose(option.value)"
-        >
-          <span class="theme__preview" :class="`theme__preview--${option.value}`" aria-hidden="true">
-            <span class="theme__bar" />
-            <span class="theme__body" />
-          </span>
-          <span class="theme__label">{{ option.label }}</span>
-          <span class="faint theme__hint">{{ option.hint }}</span>
-        </button>
-      </div>
-    </section>
+          <div class="field">
+            <label class="field-label" for="middle-name">
+              Отчество <span class="field-optional">— если есть</span>
+            </label>
+            <input id="middle-name" v-model.trim="form.middle_name" class="input" autocomplete="additional-name">
+            <p v-if="errors.middle_name?.length" class="field-error">
+              {{ errors.middle_name[0] }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="email">Email</label>
+            <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
+            <p v-if="errors.email?.length" class="field-error">
+              {{ errors.email[0] }}
+            </p>
+          </div>
+
+          <div class="form__actions">
+            <button type="submit" class="button-primary" :disabled="isSaving">
+              {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
+            </button>
+            <span v-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
+          </div>
+        </form>
+      </section>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.profile {
-  max-width: 42rem;
-}
-
 .head {
   margin-bottom: 1.75rem;
 }
 
+/*
+ * The page fills its column, like the other settings screens do — capping it
+ * at a reading measure left the content huddled against the left edge with the
+ * header stretching past it, and made the heading jump when you switched tabs.
+ *
+ * One column until there is room for two. Above that the account form, the
+ * tallest block by far, takes a column of its own and the two short blocks
+ * stack beside it, which is what keeps the two sides close to the same height.
+ */
+.blocks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+/*
+ * The two short blocks are a column of their own rather than two rows of the
+ * page grid. As grid rows they would be pulled apart: the tall form spanning
+ * both rows stretches them, and a gap opens between the photo and the theme.
+ * Until there is a second column the wrapper is not a layout at all and its
+ * cards simply join the single stack.
+ */
+.blocks__side {
+  display: contents;
+}
+
+@media (min-width: 68rem) {
+  .blocks {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* Each column keeps its own height instead of stretching to the other. */
+    align-items: start;
+  }
+
+  .blocks__side {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+/*
+ * Every block is the same shape — heading, one line of explanation, then the
+ * controls — so the three cards line up down the page instead of each finding
+ * its own rhythm.
+ */
 .block {
-  padding: 1.35rem 1.5rem 1.5rem;
-  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.4rem 1.5rem;
+}
+
+.block__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .block__title {
-  margin: 0 0 1rem;
+  margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
 }
 
 .block__hint {
-  margin: -0.7rem 0 1rem;
+  margin: 0;
+  color: var(--color-text-muted);
   font-size: 0.87rem;
 }
 
 .avatar-row {
   display: flex;
   align-items: center;
-  gap: 1.25rem;
+  gap: 1.1rem;
 }
 
 .avatar-row__actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-}
-
-/*
- * .button-secondary paints itself in the raised tone, which is exactly what the
- * card underneath is — so on this page it needs the sunken tone to read as a
- * control at all. Same tone the theme swatches use for the same reason.
- */
-.avatar-row__actions :is(.button-secondary, .button-ghost) {
-  background: var(--color-surface-sunken);
-}
-
-.avatar-row__actions :is(.button-secondary, .button-ghost):hover:not(:disabled) {
-  background: var(--color-border-strong);
-}
-
-.avatar-row__hint {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 0.83rem;
 }
 
 .visually-hidden {
@@ -288,94 +374,92 @@ function choose(value: ThemePreference) {
   gap: 1rem;
 }
 
+/* Marks the one field that may be left empty, so nobody hunts for a rule that
+   is not there. Quieter than the label it follows. */
+.field-optional {
+  color: var(--color-text-faint);
+  font-weight: 400;
+}
+
 .form__actions {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
-.themes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.7rem;
-}
-
-.theme {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.65rem;
-  border: 2px solid transparent;
-  border-radius: var(--radius);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.theme--active {
-  border-color: var(--color-accent);
-  /* Doubles the 2px border optically so the choice reads at a glance. */
-  box-shadow: 0 0 0 1px var(--color-accent);
-}
-
 /*
- * Fixed colours on purpose: a preview has to show what a theme looks like, not
- * what the current one does, so it cannot use the palette variables.
+ * Three mutually exclusive answers to one question, so they share a single
+ * track: the choice reads as a position along it rather than as three cards
+ * competing for attention. The chosen segment is a raised lozenge — the same
+ * tone a card is — which marks it without spending the accent colour on a
+ * setting the reader touches once.
  */
-.theme__preview {
-  display: block;
-  height: 3rem;
-  margin-bottom: 0.45rem;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  /* Strong border so the light swatch stays legible on a light card. */
-  border: 1px solid var(--color-border-strong);
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.25rem;
+  gap: 0.15rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
 }
 
-.theme__bar {
-  display: block;
-  height: 0.85rem;
+.segmented__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.95rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.theme__body {
-  display: block;
-  height: calc(100% - 0.85rem);
+.segmented__option:hover:not(.segmented__option--on) {
+  color: var(--color-text);
 }
 
-.theme__preview--light .theme__bar { background: #d7dadb; }
-.theme__preview--light .theme__body { background: #f4f5f5; }
-
-.theme__preview--dark .theme__bar { background: #1e2221; }
-.theme__preview--dark .theme__body { background: #0e100f; }
-
-/* Split down the middle: the system option is whichever the device says. */
-.theme__preview--system .theme__bar {
-  background: linear-gradient(to right, #d7dadb 50%, #1e2221 50%);
-}
-
-.theme__preview--system .theme__body {
-  background: linear-gradient(to right, #f4f5f5 50%, #0e100f 50%);
-}
-
-.theme__label {
-  font-size: 0.92rem;
+.segmented__option--on {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
   font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 
-.theme__hint {
-  font-size: 0.8rem;
+.segmented__icon {
+  flex-shrink: 0;
 }
 
 @media (max-width: 48rem) {
-  .avatar-row {
-    flex-direction: column;
-    align-items: flex-start;
+  .block {
+    padding: 1.15rem 1.15rem 1.25rem;
   }
 
-  .block {
-    padding: 1.1rem 1.15rem 1.25rem;
+  /* Nothing left to give: the group stops hugging its labels and shares the
+     full width, so three segments still fit on a narrow screen. */
+  .segmented {
+    align-self: stretch;
+  }
+
+  /* Grow from the label's own width rather than from zero: an equal share
+     would be narrower than "Системная" and the word would spill out. */
+  .segmented__option {
+    flex: 1 1 auto;
+    padding: 0.45rem 0.5rem;
+  }
+}
+
+/* On the narrowest screens the icons go rather than the words: a label names
+   the choice outright, an icon only hints at it. */
+@media (max-width: 24rem) {
+  .segmented__icon {
+    display: none;
   }
 }
 </style>

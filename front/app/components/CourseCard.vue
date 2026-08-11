@@ -12,6 +12,7 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
       <span v-if="course.status !== 'published'" class="badge badge--warning">
         {{ course.status_label }}
       </span>
+      <span v-if="course.is_private" class="badge">Приватный</span>
       <span v-if="course.enrollment?.is_completed" class="badge badge--highlight">Пройден</span>
       <span v-else-if="course.enrollment" class="badge">В процессе</span>
       <span v-if="course.category" class="badge">{{ course.category.name }}</span>

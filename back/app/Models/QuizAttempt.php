@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Contracts\PartOfCourse;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['quiz_id', 'user_id', 'score', 'passed', 'answers', 'completed_at'])]
-class QuizAttempt extends Model
+class QuizAttempt extends Model implements PartOfCourse
 {
+    public function owningCourse(): ?Course
+    {
+        return $this->loadMissing('quiz.lesson.module.course')
+            ->quiz?->lesson?->module?->course;
+    }
+
     /**
      * @return array<string, string>
      */

@@ -79,8 +79,41 @@ export default defineNuxtPlugin({
       },
     })
 
+    /**
+     * Sends a file and reports how far it has got.
+     *
+     * Separate from `$api` because $fetch cannot report request-body progress —
+     * see `sendUpload`. Everything else Sanctum needs is shared with the code
+     * above, which is why this lives in the plugin rather than in a composable.
+     */
+    async function upload<T>(path: string, body: FormData, options: UploadOptions = {}): Promise<T> {
+      const url = apiBase.replace(/\/$/, '') + path
+
+      const send = async (): Promise<T> => {
+        await ensureCsrfCookie()
+
+        return sendUpload<T>({ url, body, xsrfToken: readCookie('XSRF-TOKEN'), ...options })
+      }
+
+      try {
+        return await send()
+      }
+      catch (error) {
+        // The same single retry $api gets. A 419 means the token went stale
+        // while the page sat open; the request never reached application logic,
+        // so re-sending is safe — it just costs the transfer again.
+        if (error instanceof UploadError && error.status === 419) {
+          csrfCookieIsStale = true
+
+          return await send()
+        }
+
+        throw error
+      }
+    }
+
     return {
-      provide: { api },
+      provide: { api, upload },
     }
   },
 })

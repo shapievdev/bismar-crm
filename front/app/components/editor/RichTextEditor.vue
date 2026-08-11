@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { JSONContent } from '@tiptap/core'
+import type { UploadedMedia } from '~/utils/editor/attachments'
 
 const props = defineProps<{
-  /** Uploads a file and returns a URL the document can point at. */
-  uploadImage?: (file: File) => Promise<string>
-  uploadVideo?: (file: File) => Promise<string>
+  /**
+   * Stores a file as a lesson attachment and says which one it became. The
+   * document keeps the id, not the address — signed URLs expire, ids do not.
+   * The options are passed straight through so the editor can report progress
+   * on a large video instead of freezing on "загружаем".
+   */
+  uploadImage?: (file: File, options: UploadOptions) => Promise<UploadedMedia>
+  uploadVideo?: (file: File, options: UploadOptions) => Promise<UploadedMedia>
   placeholder?: string
 }>()
 
@@ -41,8 +47,9 @@ onBeforeUnmount(() => editor.value?.destroy())
 
 const imageInput = useTemplateRef<HTMLInputElement>('imageInput')
 const videoInput = useTemplateRef<HTMLInputElement>('videoInput')
-const isUploading = ref(false)
 const uploadError = ref<string | null>(null)
+const upload = useUploadProgress()
+const isUploading = upload.isUploading
 
 async function onImageChosen(event: Event) {
   const input = event.target as HTMLInputElement
@@ -53,18 +60,24 @@ async function onImageChosen(event: Event) {
     return
   }
 
-  isUploading.value = true
   uploadError.value = null
 
   try {
-    const url = await props.uploadImage(file)
-    editor.value?.chain().focus().setImage({ src: url, alt: file.name }).run()
+    const media = await upload.track(file, options => props.uploadImage!(file, options))
+
+    editor.value?.chain().focus().insertContent({
+      type: 'image',
+      attrs: { src: media.url, alt: file.name, attachmentId: media.id },
+    }).run()
   }
-  catch {
+  catch (caught) {
+    // Cancelling is a decision, not a failure: nothing goes into the document
+    // and nothing is reported.
+    if (caught instanceof UploadAbortedError) {
+      return
+    }
+
     uploadError.value = 'Не удалось загрузить изображение.'
-  }
-  finally {
-    isUploading.value = false
   }
 }
 
@@ -77,18 +90,21 @@ async function onVideoChosen(event: Event) {
     return
   }
 
-  isUploading.value = true
   uploadError.value = null
 
   try {
-    const url = await props.uploadVideo(file)
-    editor.value?.chain().focus().setVideoEmbed({ src: url, provider: 'file' }).run()
+    const media = await upload.track(file, options => props.uploadVideo!(file, options))
+
+    editor.value?.chain().focus()
+      .setVideoEmbed({ src: media.url, provider: 'file', attachmentId: media.id })
+      .run()
   }
-  catch {
+  catch (caught) {
+    if (caught instanceof UploadAbortedError) {
+      return
+    }
+
     uploadError.value = 'Не удалось загрузить видео.'
-  }
-  finally {
-    isUploading.value = false
   }
 }
 
@@ -254,9 +270,26 @@ function isActive(name: string, attrs?: Record<string, unknown>): boolean {
 
     <EditorContent :editor="editor" class="prose-editor__body" />
 
-    <p v-if="isUploading" class="faint prose-editor__status">
-      Загружаем файл…
-    </p>
+    <div v-if="isUploading" class="prose-editor__upload">
+      <div class="prose-editor__upload-head">
+        <span class="prose-editor__upload-name">{{ upload.fileName.value }}</span>
+        <button
+          type="button"
+          class="button-ghost button-sm"
+          :disabled="upload.isStoring.value"
+          @click="upload.cancel"
+        >
+          Отменить
+        </button>
+      </div>
+
+      <UiProgressBar
+        :value="upload.percent.value"
+        :indeterminate="upload.isStoring.value"
+        :label="upload.label.value"
+        size="sm"
+      />
+    </div>
   </div>
 </template>
 
@@ -346,9 +379,26 @@ function isActive(name: string, attrs?: Record<string, unknown>): boolean {
   border: 0;
 }
 
-.prose-editor__status {
-  margin: 0;
-  padding: 0 0.9rem 0.7rem;
-  font-size: 0.85rem;
+/* Sits under the writing surface rather than over it: an overlay would hide the
+   paragraph the file is about to be dropped into. */
+.prose-editor__upload {
+  padding: 0.7rem 0.9rem 0.85rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.prose-editor__upload-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-editor__upload-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.87rem;
 }
 </style>

@@ -1,13 +1,19 @@
 <script setup lang="ts">
+import type { SelectOption } from '~/components/ui/Select.vue'
 import type { ValidationErrors } from '~/composables/useAuth'
-import type { Category, CoursePayload, StatusOption } from '~/types/lms'
+import type { Category, CoursePayload, CourseStatus, CourseVisibility, StatusOption } from '~/types/lms'
 
-defineProps<{
+const props = defineProps<{
   statuses: StatusOption[]
   categories: Category[]
   errors: ValidationErrors
   isSubmitting: boolean
   submitLabel: string
+  /**
+   * Может ли этот человек закрыть курс. Решает это автор — у нового курса им
+   * становится тот, кто его заводит, поэтому на создании выбор есть всегда.
+   */
+  canManageAccess: boolean
 }>()
 
 const emit = defineEmits<{ submit: [payload: CoursePayload] }>()
@@ -17,6 +23,21 @@ const model = defineModel<CoursePayload>({ required: true })
 // Publishing is a separate permission on the server; offering it to someone who
 // lacks it would only produce a validation error.
 const { can } = useAuth()
+
+const statusOptions = computed<SelectOption<CourseStatus>[]>(() =>
+  props.statuses
+    .filter(status => status.value !== 'published' || can('courses.publish'))
+    .map(status => ({ value: status.value, label: status.label })),
+)
+
+/**
+ * Подпись под каждым вариантом обязательна: «открытый» и «приватный» — слова
+ * знакомые, а вот кому именно виден приватный курс, из них не следует.
+ */
+const visibilityOptions: SelectOption<CourseVisibility>[] = [
+  { value: 'public', label: 'Открытый', hint: 'Виден всем, кто может читать базу знаний' },
+  { value: 'private', label: 'Приватный', hint: 'Виден автору и тем, кого он добавил' },
+]
 </script>
 
 <template>
@@ -49,17 +70,20 @@ const { can } = useAuth()
 
     <div class="field">
       <label for="status">Статус</label>
-      <select id="status" v-model="model.status">
-        <option
-          v-for="item in statuses.filter(s => s.value !== 'published' || can('courses.publish'))"
-          :key="item.value"
-          :value="item.value"
-        >
-          {{ item.label }}
-        </option>
-      </select>
+      <UiSelect id="status" v-model="model.status" :options="statusOptions" />
       <p v-if="errors.status?.length" class="field__error">
         {{ errors.status[0] }}
+      </p>
+    </div>
+
+    <div v-if="canManageAccess" class="field">
+      <label for="visibility">Доступ</label>
+      <UiSelect id="visibility" v-model="model.visibility" :options="visibilityOptions" />
+      <p v-if="model.visibility === 'private'" class="field__hint">
+        Кого пускать в курс — ниже, под формой.
+      </p>
+      <p v-if="errors.visibility?.length" class="field__error">
+        {{ errors.visibility[0] }}
       </p>
     </div>
 
@@ -105,6 +129,12 @@ const { can } = useAuth()
 .field__error {
   margin: 0;
   color: var(--color-danger);
+  font-size: 0.825rem;
+}
+
+.field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
   font-size: 0.825rem;
 }
 

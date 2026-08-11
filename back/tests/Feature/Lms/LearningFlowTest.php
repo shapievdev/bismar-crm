@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Lms;
 
 use App\Actions\Lms\CompleteLesson;
-use App\Enums\Role as RoleEnum;
+use App\Enums\CourseStatus;
 use App\Exceptions\ConflictException;
 use App\Models\Course;
 use App\Models\Enrollment;
@@ -16,6 +16,7 @@ use Database\Factories\CourseModuleFactory;
 use Database\Factories\LessonFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
+use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
 
 /**
@@ -23,7 +24,7 @@ use Tests\TestCase;
  */
 final class LearningFlowTest extends TestCase
 {
-    use ActsAsSpaClient, RefreshDatabase;
+    use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     public function test_a_learner_sees_only_published_courses(): void
     {
@@ -46,6 +47,37 @@ final class LearningFlowTest extends TestCase
             ->getJson(route('lms.courses.index'))
             ->assertOk()
             ->assertJsonCount(2, 'data');
+    }
+
+    /**
+     * Unpublished material has no publication date, and Postgres sorts nulls
+     * first on a descending order — so without NULLS LAST the catalogue opens
+     * with a draft or something taken out of circulation.
+     */
+    public function test_unpublished_material_sorts_below_published(): void
+    {
+        Course::factory()->create(['title' => 'Черновик']);
+        Course::factory()->published()->create(['title' => 'Опубликованный']);
+        Course::factory()->create(['title' => 'Архив', 'status' => CourseStatus::Archived]);
+
+        $response = $this->actingAs($this->author())
+            ->getJson(route('lms.courses.index'))
+            ->assertOk();
+
+        $this->assertSame('Опубликованный', $response->json('data.0.title'));
+    }
+
+    public function test_an_author_can_list_a_single_status(): void
+    {
+        Course::factory()->published()->create();
+        $draft = Course::factory()->create();
+        Course::factory()->create(['status' => CourseStatus::Archived]);
+
+        $response = $this->actingAs($this->author())
+            ->getJson(route('lms.courses.index', ['status' => CourseStatus::Draft->value]))
+            ->assertOk();
+
+        $this->assertSame([$draft->slug], array_column($response->json('data'), 'slug'));
     }
 
     public function test_a_draft_course_is_not_revealed_to_a_learner(): void
@@ -257,6 +289,61 @@ final class LearningFlowTest extends TestCase
             ->assertJsonPath('data.0.progress', 50);
     }
 
+    /**
+     * Открыть урок — ещё не взяться за курс.
+     *
+     * Запись при этом заводится, чтобы прогресс было куда писать. Но «мои
+     * материалы», построенные по одним записям, превращались в историю
+     * просмотров: туда попадало всё, во что человек когда-либо заглянул.
+     */
+    public function test_merely_opening_a_lesson_does_not_put_the_course_in_my_courses(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.lessons.show', $course->lessons()->first()))
+            ->assertOk();
+
+        // Запись заведена — прогрессу есть куда писаться.
+        $this->assertSame(1, Enrollment::query()->where('user_id', $learner->id)->count());
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.my-courses'))
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    /** Пройденный урок — это «взялся», даже если кнопку начала не нажимали. */
+    public function test_completing_a_lesson_puts_the_course_in_my_courses(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $learner = $this->learner();
+        $lesson = $course->lessons()->first();
+
+        $this->actingAs($learner)->getJson(route('lms.lessons.show', $lesson))->assertOk();
+        $this->actingAs($learner)->postJson(route('lms.lessons.complete', $lesson))->assertOk();
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.my-courses'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
+    /** Нажатие «Начать обучение» — тоже, и без единого пройденного урока. */
+    public function test_pressing_start_puts_the_course_in_my_courses(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.my-courses'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
     public function test_a_course_with_no_lessons_reports_zero_not_complete(): void
     {
         $course = Course::factory()->published()->create();
@@ -275,16 +362,6 @@ final class LearningFlowTest extends TestCase
         $this->actingAs(User::factory()->create())
             ->getJson(route('lms.courses.index'))
             ->assertForbidden();
-    }
-
-    private function learner(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Viewer->value);
-    }
-
-    private function author(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Manager->value);
     }
 
     private function lessonFor(Course $course): Lesson

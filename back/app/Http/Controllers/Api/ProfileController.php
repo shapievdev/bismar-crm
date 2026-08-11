@@ -25,7 +25,10 @@ final class ProfileController extends Controller
         $user = $request->user();
 
         $user->update([
-            'name' => $request->validated('name'),
+            'last_name' => $request->validated('last_name'),
+            'first_name' => $request->validated('first_name'),
+            // Absent means cleared: the form always sends the whole record.
+            'middle_name' => $request->validated('middle_name'),
             'email' => $request->validated('email'),
         ]);
 

@@ -2,7 +2,7 @@
  * Guards pages that require an authenticated user, and optionally a permission
  * declared by the page itself:
  *
- *     definePageMeta({ middleware: 'auth', permission: 'roles.manage' })
+ *     definePageMeta({ middleware: 'auth', permission: 'users.manage' })
  *
  * The API is the real authority — this only keeps users from rendering a page
  * they cannot populate, and remembers where they were headed.

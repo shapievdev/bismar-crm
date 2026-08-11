@@ -23,6 +23,11 @@ final class QuizAttemptResource extends JsonResource
             'score' => $this->score,
             'passed' => $this->passed,
             'completed_at' => $this->completed_at?->toIso8601String(),
+
+            // Разбор — что выбрано и где ошибка. Прикладывается контроллером
+            // там, где попытку показывают одну; в списке прошлых попыток его
+            // нет, чтобы не тянуть весь тест ради строки с процентом.
+            'review' => $this->review,
         ];
     }
 }

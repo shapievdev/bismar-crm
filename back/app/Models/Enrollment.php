@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['course_id', 'user_id', 'enrolled_at', 'completed_at'])]
+#[Fillable(['course_id', 'user_id', 'enrolled_at', 'started_at', 'completed_at'])]
 class Enrollment extends Model
 {
     /** @use HasFactory<EnrollmentFactory> */
@@ -24,6 +24,7 @@ class Enrollment extends Model
     {
         return [
             'enrolled_at' => 'datetime',
+            'started_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
     }

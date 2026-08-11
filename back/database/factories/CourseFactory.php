@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\CourseStatus;
+use App\Enums\CourseVisibility;
 use App\Models\Course;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -31,6 +32,7 @@ final class CourseFactory extends Factory
             'summary' => fake()->sentence(),
             'description' => fake()->paragraphs(2, true),
             'status' => CourseStatus::Draft,
+            'visibility' => CourseVisibility::Public,
             'published_at' => null,
         ];
     }
@@ -41,6 +43,16 @@ final class CourseFactory extends Factory
             'status' => CourseStatus::Published,
             'published_at' => now()->subDays(fake()->numberBetween(0, 30)),
         ]);
+    }
+
+    /**
+     * Курс, закрытый от всех, кроме автора и допущенных.
+     *
+     * Называется не private: так метод назвать нельзя, слово занято языком.
+     */
+    public function closed(): self
+    {
+        return $this->state(fn (): array => ['visibility' => CourseVisibility::Private]);
     }
 
     /**

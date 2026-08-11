@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { QuizAttempt } from '~/types/lms'
+import type { QuizAttempt, QuizReview } from '~/types/lms'
+import { withResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
-const { fetchLesson, fetchCourse, completeLesson, submitQuiz } = useLmsApi()
+const { fetchLesson, fetchCourse, completeLesson, submitQuiz, fetchAttempt } = useLmsApi()
 const { can } = useAuth()
 
 const lessonId = computed(() => String(route.params.lesson))
@@ -33,7 +34,72 @@ useHead(() => ({ title: lesson.value?.title ?? 'Урок' }))
 
 const completedIds = computed(() => new Set(course.value?.enrollment?.completed_lesson_ids ?? []))
 const isEnrolled = computed(() => Boolean(course.value?.enrollment))
-const embedUrl = computed(() => toEmbedUrl(lesson.value?.video_url))
+/**
+ * Куда вести читателя, пришедшего по ссылке на источник.
+ *
+ * Консультант ссылается не на урок, а на место в нём: секунду записи или абзац
+ * текста. Без этого ссылка означала бы «ищите сами», а урок бывает на десять
+ * экранов и на час записи.
+ */
+const startSeconds = computed(() => {
+  const raw = Number(route.query.t)
+
+  return Number.isFinite(raw) && raw > 0 ? raw : null
+})
+
+const targetBlock = computed(() => {
+  const raw = route.query.block
+
+  return typeof raw === 'string' && raw !== '' ? raw : null
+})
+
+const embedUrl = computed(() => toEmbedUrl(lesson.value?.video_url, startSeconds.value))
+
+const uploadedVideo = useTemplateRef<HTMLVideoElement>('uploadedVideo')
+
+/**
+ * Загруженная запись перематывается свойством плеера: адрес подписан, и лишний
+ * параметр в нём сломал бы подпись.
+ */
+watch([uploadedVideo, startSeconds], ([player, seconds]) => {
+  if (player && seconds !== null) {
+    player.currentTime = seconds
+  }
+})
+
+/**
+ * Прокрутка к абзацу.
+ *
+ * Статью рисует редактор внутри ClientOnly, поэтому нужного узла на момент
+ * появления параметра ещё нет — ждём кадр отрисовки. Подсветка снимается сама:
+ * она нужна, чтобы глаз нашёл место, а не чтобы остаться в тексте навсегда.
+ */
+watch(targetBlock, async (blockId) => {
+  if (!blockId || !import.meta.client) {
+    return
+  }
+
+  await nextTick()
+
+  const target = document.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`)
+
+  if (!(target instanceof HTMLElement)) {
+    return
+  }
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  target.classList.add('block--highlighted')
+
+  setTimeout(() => target.classList.remove('block--highlighted'), 2600)
+}, { immediate: true })
+
+/**
+ * The article with a current address for every picture and video it embeds.
+ * The document stores attachment ids; the signatures are minted per request.
+ */
+const article = computed(() =>
+  withResolvedMedia(lesson.value?.content_json ?? null, lesson.value?.attachments ?? []),
+)
 
 /** The body is plain text; blank lines separate paragraphs. */
 const paragraphs = computed(() =>
@@ -114,6 +180,41 @@ function retry() {
   answers.value = {}
 }
 
+/**
+ * Разбор прошлой попытки.
+ *
+ * К нему возвращаются: сдал с третьего раза, через месяц перечитываешь урок и
+ * хочешь вспомнить, что тогда понял неверно. Поэтому не в свежем ответе, а по
+ * запросу — и по одной попытке за раз, чтобы список не превращался в простыню.
+ */
+const openedAttemptId = ref<number | null>(null)
+const openedReview = ref<QuizReview | null>(null)
+const isLoadingReview = ref(false)
+
+async function openReview(id: number) {
+  if (openedAttemptId.value === id) {
+    openedAttemptId.value = null
+    openedReview.value = null
+
+    return
+  }
+
+  openedAttemptId.value = id
+  openedReview.value = null
+  isLoadingReview.value = true
+
+  try {
+    openedReview.value = (await fetchAttempt(id)).data.review ?? null
+  }
+  catch {
+    actionError.value = 'Не удалось показать разбор попытки.'
+    openedAttemptId.value = null
+  }
+  finally {
+    isLoadingReview.value = false
+  }
+}
+
 function formatSize(bytes: number): string {
   const mb = bytes / 1024 / 1024
 
@@ -182,7 +283,7 @@ function formatSize(bytes: number): string {
       </header>
 
       <div v-if="lesson.video_upload_url" class="video">
-        <video :src="lesson.video_upload_url" controls preload="metadata" />
+        <video ref="uploadedVideo" :src="lesson.video_upload_url" controls preload="metadata" />
       </div>
 
       <div v-else-if="embedUrl" class="video">
@@ -201,7 +302,7 @@ function formatSize(bytes: number): string {
 
       <div class="prose">
         <ClientOnly>
-          <EditorRichTextRenderer :content="lesson.content_json ?? null" :fallback-text="lesson.content" />
+          <EditorRichTextRenderer :content="article" :fallback-text="lesson.content" />
 
           <template #fallback>
             <p v-for="(paragraph, index) in paragraphs" :key="index">
@@ -266,6 +367,10 @@ function formatSize(bytes: number): string {
           </button>
         </div>
 
+        <!-- Разбор сразу под результатом: «68%, не сдано» без него отправляет
+             человека пересдавать с тем же знанием, с каким он пришёл. -->
+        <QuizReviewPanel v-if="attempt?.review" :review="attempt.review" />
+
         <template v-if="!isCompleted && !attempt?.passed">
           <div v-for="(question, index) in lesson.quiz.questions ?? []" :key="question.id" class="question">
             <p class="question__text">
@@ -305,11 +410,30 @@ function formatSize(bytes: number): string {
           <summary>Мои попытки ({{ attemptsUsed }})</summary>
           <ul>
             <li v-for="past in lesson.own_attempts" :key="past.id">
-              <span :class="past.passed ? 'pass' : 'fail'">{{ past.passed ? 'сдано' : 'не сдано' }}</span>
-              <span>{{ past.score }}%</span>
-              <span class="faint">
-                {{ past.completed_at ? new Date(past.completed_at).toLocaleString('ru-RU') : '' }}
-              </span>
+              <button
+                type="button"
+                class="history__row"
+                :aria-expanded="openedAttemptId === past.id"
+                @click="openReview(past.id)"
+              >
+                <span :class="past.passed ? 'pass' : 'fail'">{{ past.passed ? 'сдано' : 'не сдано' }}</span>
+                <span>{{ past.score }}%</span>
+                <span class="faint">
+                  {{ past.completed_at ? new Date(past.completed_at).toLocaleString('ru-RU') : '' }}
+                </span>
+                <span class="faint history__toggle">
+                  {{ openedAttemptId === past.id ? 'скрыть разбор' : 'разбор' }}
+                </span>
+              </button>
+
+              <p v-if="openedAttemptId === past.id && isLoadingReview" class="faint">
+                Загружаем разбор…
+              </p>
+              <QuizReviewPanel
+                v-else-if="openedAttemptId === past.id && openedReview"
+                :review="openedReview"
+                class="history__review"
+              />
             </li>
           </ul>
         </details>
@@ -492,6 +616,46 @@ function formatSize(bytes: number): string {
   margin-bottom: 1.25rem;
 }
 
+/*
+ * Место, на которое сослался консультант.
+ *
+ * Подсветка, а не прокрутка молча: читатель пришёл проверить одно утверждение,
+ * и середина экрана сама по себе не говорит, какой именно абзац имелся в виду.
+ * Гаснет через пару секунд — глаз уже нашёл, а насовсем крашеный абзац читать
+ * мешает.
+ *
+ * :deep, потому что абзац рисует редактор внутри своего поддерева, куда
+ * scoped-стили страницы не достают.
+ */
+:deep(.block--highlighted) {
+  animation: block-found 2.6s ease-out;
+  border-radius: 0.35rem;
+}
+
+/*
+ * Мягкий фон, а не акцент: лаймовый акцент закреплён за активной вкладкой, и
+ * подсвеченный им абзац читался бы как выбранный раздел. К тому же в светлой
+ * теме акцент почти чёрный — подсветкой ему не быть.
+ */
+@keyframes block-found {
+  0%, 55% {
+    background: var(--color-accent-soft);
+    box-shadow: 0 0 0 0.4rem var(--color-accent-soft);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0.4rem transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :deep(.block--highlighted) {
+    animation: none;
+    background: var(--color-accent-soft);
+    box-shadow: 0 0 0 0.4rem var(--color-accent-soft);
+  }
+}
+
 .prose {
   max-width: 44rem;
 }
@@ -650,10 +814,37 @@ function formatSize(bytes: number): string {
   list-style: none;
 }
 
+/* Строка попытки и её разбор — одним столбцом: разбор раскрывается под той
+   строкой, к которой относится. */
 .history li {
   display: flex;
-  gap: 0.9rem;
+  flex-direction: column;
+  gap: 0.4rem;
   padding: 0.3rem 0;
+}
+
+.history__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.2rem 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history__toggle {
+  margin-left: auto;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.history__review {
+  padding-left: 0.2rem;
 }
 
 .pass { color: var(--color-success); }

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Actions\User;
 
 use App\Models\User;
+use App\Support\Lms\StoredFiles;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 final readonly class StoreAvatar
 {
@@ -24,9 +24,9 @@ final readonly class StoreAvatar
         // the key or overwrite somebody else's file.
         $user->update(['avatar_path' => $file->store("avatars/{$user->getKey()}", self::DISK)]);
 
-        if ($previous !== null) {
-            Storage::disk(self::DISK)->delete($previous);
-        }
+        // Уборка старого файла — уже не часть замены: она удалась. Неудача
+        // здесь не должна отменять её для сотрудника, см. StoredFiles.
+        StoredFiles::discard(self::DISK, $previous);
 
         return $user->refresh();
     }
@@ -37,9 +37,7 @@ final readonly class StoreAvatar
 
         $user->update(['avatar_path' => null]);
 
-        if ($path !== null) {
-            Storage::disk(self::DISK)->delete($path);
-        }
+        StoredFiles::discard(self::DISK, $path);
 
         return $user->refresh();
     }

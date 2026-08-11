@@ -16,8 +16,10 @@ use App\Http\Resources\Lms\QuizAttemptResource;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
+use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Support\Lms\ProgressCalculator;
+use App\Support\Lms\QuizReview;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -33,15 +35,53 @@ final class LearningController extends Controller
     public function __construct(
         private readonly ProgressCalculator $progress,
         private readonly CompleteLesson $completeLesson,
+        private readonly QuizReview $review,
     ) {}
+
+    /**
+     * Разбор одной попытки — своей и только своей.
+     *
+     * Отдельным маршрутом, потому что к разбору возвращаются: сдал с третьего
+     * раза, а через месяц перечитываешь урок и хочешь вспомнить, что тогда
+     * понял неверно.
+     */
+    public function showAttempt(Request $request, QuizAttempt $attempt): QuizAttemptResource
+    {
+        /** @var User $learner */
+        $learner = $request->user();
+
+        // 404, а не 403: чужая попытка — не то, о существовании чего стоит
+        // сообщать, и уж точно не то, о чём стоит спорить.
+        if ($attempt->user_id !== $learner->getKey()) {
+            abort(HttpResponse::HTTP_NOT_FOUND);
+        }
+
+        $attempt->setAttribute('review', $this->review->of($attempt, $learner));
+
+        return QuizAttemptResource::make($attempt);
+    }
 
     /**
      * The signed-in learner's own courses, each with its progress.
      */
     public function myEnrollments(Request $request): AnonymousResourceCollection
     {
+        /** @var User $learner */
+        $learner = $request->user();
+
         $enrollments = Enrollment::query()
-            ->where('user_id', $request->user()?->getKey())
+            ->where('user_id', $learner->getKey())
+            // Курс могли удалить, а запись на него осталась — прогресс по нему
+            // хранится ради возможного восстановления. Показывать её нечем:
+            // материала, к которому она относится, в базе знаний больше нет.
+            //
+            // Из приватного курса человека могли и вывести. Прогресс так же
+            // остаётся — вернут доступ, и курс вернётся в список.
+            ->whereHas('course', fn ($query) => $query->visibleTo($learner))
+            // Только то, за что человек взялся: нажал «Начать обучение» или
+            // прошёл хотя бы один урок. Иначе список — история просмотров, где
+            // начатое не найти.
+            ->whereNotNull('started_at')
             ->with(['course.author', 'completions'])
             ->latest('enrolled_at')
             ->get()
@@ -76,6 +116,10 @@ final class LearningController extends Controller
         }
 
         $lesson->load('attachments', 'quiz.questions.options');
+
+        // Строки таблицы едут вместе с уроком: редактор правит их на той же
+        // странице, а читателю они показывают, что урок разбирает.
+        $lesson->loadAnswers();
 
         // A knowledge base has no sign-up step: opening a lesson is enough to
         // start tracking progress, so the enrolment is created on the spot.
@@ -146,6 +190,10 @@ final class LearningController extends Controller
 
         $attempt = $gradeQuizAttempt->handle($lesson->quiz, $learner, $request->answers(), $enrollment);
 
+        // Разбор прикладывается сразу: человек хочет знать, где ошибся, ровно
+        // в ту секунду, когда увидел результат, а не после отдельного запроса.
+        $attempt->setAttribute('review', $this->review->of($attempt, $learner));
+
         return QuizAttemptResource::make($attempt)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
@@ -213,7 +261,9 @@ final class LearningController extends Controller
         /** @var User $reader */
         $reader = $request->user();
 
-        return app(EnrollLearner::class)->handle($course, $reader);
+        // Открыть урок — ещё не взяться за курс. Запись заводится, чтобы
+        // прогресс было куда писать, но начатой не считается.
+        return app(EnrollLearner::class)->handle($course, $reader, deliberate: false);
     }
 
     /**

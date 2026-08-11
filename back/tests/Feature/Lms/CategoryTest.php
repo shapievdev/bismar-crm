@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
-use App\Enums\Role as RoleEnum;
 use App\Models\Category;
 use App\Models\Course;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
+use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
 
 final class CategoryTest extends TestCase
 {
-    use ActsAsSpaClient, RefreshDatabase;
+    use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     public function test_categories_are_returned_as_a_tree(): void
     {
@@ -22,13 +21,33 @@ final class CategoryTest extends TestCase
         Category::factory()->create(['name' => 'Возражения', 'parent_id' => $root->id]);
         Category::factory()->create(['name' => 'Регламенты', 'position' => 1]);
 
-        $response = $this->actingAs($this->reader())
+        $response = $this->actingAs($this->learner())
             ->getJson(route('lms.categories.index'))
             ->assertOk();
 
         // Only roots at the top level; children hang off their parent.
         $this->assertCount(2, $response->json('data'));
         $this->assertSame('Возражения', $response->json('data.0.children.0.name'));
+    }
+
+    /**
+     * The catalogue shows how much material a category holds, at every level —
+     * so a nested one has to carry its own count rather than reporting zero.
+     */
+    public function test_every_category_in_the_tree_carries_its_course_count(): void
+    {
+        $root = Category::factory()->create(['name' => 'Продажи']);
+        $child = Category::factory()->create(['name' => 'Возражения', 'parent_id' => $root->id]);
+
+        Course::factory()->count(2)->create(['category_id' => $root->id]);
+        Course::factory()->count(3)->create(['category_id' => $child->id]);
+
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.categories.index'))
+            ->assertOk();
+
+        $this->assertSame(2, $response->json('data.0.courses_count'));
+        $this->assertSame(3, $response->json('data.0.children.0.courses_count'));
     }
 
     public function test_a_category_can_be_nested_under_another(): void
@@ -82,7 +101,7 @@ final class CategoryTest extends TestCase
         $inChild = Course::factory()->published()->create(['category_id' => $child->id]);
         Course::factory()->published()->create();
 
-        $response = $this->actingAs($this->reader())
+        $response = $this->actingAs($this->learner())
             ->getJson(route('lms.courses.index', ['category' => $parent->slug]))
             ->assertOk();
 
@@ -107,18 +126,8 @@ final class CategoryTest extends TestCase
 
     public function test_a_reader_cannot_manage_categories(): void
     {
-        $this->actingAs($this->reader())
+        $this->actingAs($this->learner())
             ->postJson(route('lms.categories.store'), ['name' => 'Своя'])
             ->assertForbidden();
-    }
-
-    private function reader(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Viewer->value);
-    }
-
-    private function author(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Manager->value);
     }
 }

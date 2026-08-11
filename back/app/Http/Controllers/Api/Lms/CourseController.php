@@ -37,6 +37,9 @@ final class CourseController extends Controller
         $courses = Course::query()
             ->with('author', 'category')
             ->withCount(['lessons', 'enrollments'])
+            // Приватные курсы — только свои: чужой закрытый курс не должен
+            // попадать в каталог даже названием.
+            ->visibleTo($user)
             ->matching($request->query('search'))
             ->when(
                 $request->filled('category'),
@@ -53,7 +56,10 @@ final class CourseController extends Controller
                     fn ($query) => $query->where('status', $request->query('status')),
                 ),
             )
-            ->orderByDesc('published_at')
+            // NULLS LAST because Postgres puts them first on a DESC sort, and
+            // `published_at` is null for everything unpublished — without it a
+            // draft or an archived course opens the catalogue.
+            ->orderByRaw('published_at DESC NULLS LAST')
             ->orderByDesc('updated_at')
             ->paginate(15)
             ->withQueryString();
@@ -67,7 +73,11 @@ final class CourseController extends Controller
             abort(HttpResponse::HTTP_NOT_FOUND);
         }
 
-        $course->load(['author', 'category', 'modules.lessons.quiz'])->loadCount(['lessons', 'enrollments']);
+        // Ответственные — всем, кто курс видит: к ним идут с вопросом, на
+        // который материал не ответил, и знать о них должен читатель, а не
+        // редактор.
+        $course->load(['author', 'category', 'experts', 'modules.lessons.quiz'])
+            ->loadCount(['lessons', 'enrollments', 'members']);
 
         $course->setAttribute('learner_enrollment', $this->enrollmentPayload($request, $course));
 

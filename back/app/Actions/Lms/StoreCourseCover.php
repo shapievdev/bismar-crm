@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Actions\Lms;
 
 use App\Models\Course;
+use App\Support\Lms\StoredFiles;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 final readonly class StoreCourseCover
 {
@@ -24,9 +24,8 @@ final readonly class StoreCourseCover
             'cover_path' => $file->store("courses/{$course->getKey()}/cover", self::DISK),
         ]);
 
-        if ($previous !== null) {
-            Storage::disk(self::DISK)->delete($previous);
-        }
+        // Замена состоялась; неудачная уборка старого файла её не отменяет.
+        StoredFiles::discard(self::DISK, $previous);
 
         return $course->refresh();
     }
@@ -37,9 +36,7 @@ final readonly class StoreCourseCover
 
         $course->update(['cover_path' => null]);
 
-        if ($path !== null) {
-            Storage::disk(self::DISK)->delete($path);
-        }
+        StoredFiles::discard(self::DISK, $path);
 
         return $course->refresh();
     }

@@ -19,6 +19,7 @@ const form = ref<CoursePayload>({
   summary: '',
   description: '',
   status: 'draft',
+  visibility: 'public',
   category_id: null,
 })
 
@@ -76,6 +77,7 @@ async function submit(payload: CoursePayload) {
       :categories="reference?.categories ?? []"
       :errors="errors"
       :is-submitting="isSubmitting"
+      :can-manage-access="true"
       submit-label="Создать"
       @submit="submit"
     />

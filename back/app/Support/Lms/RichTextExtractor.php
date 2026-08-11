@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Support\Lms;
 
+use App\Support\PlainText;
+
 final readonly class RichTextExtractor
 {
     /**
@@ -50,9 +52,11 @@ final readonly class RichTextExtractor
         }
 
         // Raw HTML blocks are searchable by their visible words, not by their
-        // markup, so tags are stripped rather than indexed.
+        // markup. `strip_tags` is not enough on its own — it keeps the contents
+        // of <style> and <script>, which is how whole stylesheets ended up in
+        // the searchable text of pasted pages.
         if (($node['type'] ?? null) === 'htmlBlock' && is_string($node['attrs']['html'] ?? null)) {
-            $pieces[] = strip_tags($node['attrs']['html']);
+            $pieces[] = PlainText::of($node['attrs']['html']);
         }
 
         foreach (['content'] as $key) {

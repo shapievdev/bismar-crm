@@ -6,7 +6,8 @@ definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
 const router = useRouter()
-const { fetchCourse, updateCourse, fetchStatuses, fetchCategories } = useLmsApi()
+const { fetchCourse, updateCourse, deleteCourse, fetchStatuses, fetchCategories } = useLmsApi()
+const { can } = useAuth()
 
 const slug = computed(() => String(route.params.slug))
 
@@ -34,8 +35,12 @@ const form = ref<CoursePayload>({
   summary: data.value?.course.summary ?? '',
   description: data.value?.course.description ?? '',
   status: data.value?.course.status ?? 'draft',
+  visibility: data.value?.course.visibility ?? 'public',
   category_id: data.value?.course.category?.id ?? null,
 })
+
+/** Закрывать курс и вести список допущенных вправе автор — и только он. */
+const canManageAccess = computed(() => data.value?.course.can_manage_access ?? false)
 
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
@@ -75,6 +80,35 @@ async function submit(payload: CoursePayload) {
     isSubmitting.value = false
   }
 }
+
+/**
+ * Удаление материала — с подтверждением и названием в вопросе.
+ *
+ * Название не для красоты: подтверждение, в котором не сказано, что именно
+ * удаляют, люди прожимают не глядя. На сервере удаление мягкое, но материал
+ * вместе со всеми уроками уходит из базы знаний сразу.
+ */
+const isDeleting = ref(false)
+
+async function remove() {
+  const title = data.value?.course.title ?? ''
+
+  if (!window.confirm(`Удалить материал «${title}» со всеми уроками?`)) {
+    return
+  }
+
+  isDeleting.value = true
+  generalError.value = null
+
+  try {
+    await deleteCourse(slug.value)
+    await router.replace('/lms')
+  }
+  catch {
+    generalError.value = 'Не удалось удалить материал.'
+    isDeleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -98,13 +132,36 @@ async function submit(payload: CoursePayload) {
       :categories="data.categories"
       :errors="errors"
       :is-submitting="isSubmitting"
+      :can-manage-access="canManageAccess"
       submit-label="Сохранить"
       @submit="submit"
     >
       <template #secondary-actions>
         <span v-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
+
+        <button
+          v-if="can('courses.delete')"
+          type="button"
+          class="button-danger course-delete"
+          :disabled="isDeleting"
+          @click="remove"
+        >
+          {{ isDeleting ? 'Удаляем…' : 'Удалить материал' }}
+        </button>
       </template>
     </CourseForm>
+
+    <CourseAccessPanel
+      v-if="canManageAccess"
+      :key="data.course.id"
+      :slug="slug"
+      :is-private="data.course.is_private"
+      :author-name="data.course.author?.name ?? null"
+    />
+
+    <!-- Ответственные — не доступ: их назначает всякий, кто правит курс, и
+         видит их всякий, кто курс открыл. -->
+    <CourseExpertsPanel :key="`experts-${data.course.id}`" :slug="slug" />
 
     <ModuleTree
       :course-slug="slug"
@@ -136,6 +193,12 @@ async function submit(payload: CoursePayload) {
 .muted {
   color: var(--color-text-muted);
   font-size: 0.85rem;
+}
+
+/* Подальше от «Сохранить»: соседство с кнопкой, которую жмут постоянно, — не
+   то место для той, которую жмут раз в жизни. */
+.course-delete {
+  margin-left: auto;
 }
 
 .visually-hidden {

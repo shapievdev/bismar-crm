@@ -1,4 +1,12 @@
 export type CourseStatus = 'draft' | 'published' | 'archived'
+
+/**
+ * Кому курс виден вообще — вопрос отдельный от того, готов ли он.
+ *
+ * Приватный курс открыт автору, тем, кого он добавил, и суперадминистратору;
+ * для остальных его нет ни в каталоге, ни у консультанта.
+ */
+export type CourseVisibility = 'public' | 'private'
 export type QuestionType = 'single' | 'multiple'
 
 export interface LessonSummary {
@@ -16,6 +24,7 @@ export interface LessonSummary {
   content?: string | null
   content_json?: Record<string, unknown> | null
   attachments?: LessonAttachment[]
+  answers?: LessonAnswer[]
   quiz?: Quiz | null
   is_completed?: boolean
   /** Present on the lesson endpoint: what to show as previous/next. */
@@ -110,12 +119,20 @@ export interface Course {
   description: string | null
   status: CourseStatus
   status_label: string
+  visibility: CourseVisibility
+  visibility_label: string
+  is_private: boolean
+  /** Может ли этот человек закрыть курс и вести список допущенных. */
+  can_manage_access: boolean
+  members_count?: number
   published_at: string | null
   cover_url: string | null
   category: Category | null
   lessons_count?: number
   enrollments_count?: number
   author: { id: number, name: string } | null
+  /** Кому писать, если написанного в курсе не хватило. */
+  experts?: CoursePerson[]
   modules?: CourseModule[]
   enrollment: LearnerEnrollment | null
 }
@@ -135,6 +152,53 @@ export interface QuizAttempt {
   score: number
   passed: boolean
   completed_at: string | null
+  /** Разбор — только там, где попытку показывают одну. В списке прошлых нет. */
+  review?: QuizReview | null
+}
+
+export interface QuizReviewOption {
+  id: number
+  text: string
+  is_chosen: boolean
+  /** Null, пока попытки не кончились и тест не сдан: это ключ. */
+  is_correct: boolean | null
+}
+
+export interface QuizReviewQuestion {
+  id: number
+  text: string
+  type: QuestionType
+  points: number
+  is_correct: boolean
+  is_answered: boolean
+  selected_option_ids: number[]
+  options: QuizReviewOption[]
+}
+
+/** Что человек выбрал и где ошибся. */
+export interface QuizReview {
+  /** Раскрыты ли верные ответы. */
+  reveals_key: boolean
+  questions: QuizReviewQuestion[]
+}
+
+export interface QuizQuestionStatistics {
+  id: number
+  text: string
+  answered: number
+  correct: number
+  /** Доля верных среди отвечавших; null — вопрос никто не тронул. */
+  correct_share: number | null
+  options: { id: number, text: string, is_correct: boolean, chosen: number }[]
+}
+
+/** Как тест проходят — по первым попыткам каждого. */
+export interface QuizStatistics {
+  attempts: number
+  learners: number
+  passed: number
+  average_first_score: number | null
+  questions: QuizQuestionStatistics[]
 }
 
 export interface CoursePayload {
@@ -142,7 +206,25 @@ export interface CoursePayload {
   summary: string | null
   description: string | null
   status: CourseStatus
+  visibility: CourseVisibility
   category_id: number | null
+}
+
+/**
+ * Человек на экране доступа: допущенный или найденный поиском.
+ *
+ * Ровно то, чем один сотрудник отличается от другого на глаз, — прав и
+ * должности здесь нет, автору курса они ни к чему.
+ */
+export interface CoursePerson {
+  id: number
+  name: string
+  email: string
+  avatar_url: string | null
+  /** Когда открыли доступ. У найденного поиском — нет. */
+  granted_at?: string | null
+  /** Когда назначили ответственным. То же самое со стороны ответственных. */
+  appointed_at?: string | null
 }
 
 export interface ModulePayload {
@@ -180,6 +262,169 @@ export interface QuizPayload {
 export interface StatusOption {
   value: CourseStatus
   label: string
+}
+
+/** Где в уроке написан ответ. */
+export type AnswerSourceKind = 'text' | 'video' | 'attachment'
+
+/** Место внутри урока, куда ведёт ссылка на источник. */
+export interface SourceLocation {
+  kind: AnswerSourceKind
+  /** Готовая подпись: «Видео урока, 12:35». */
+  label: string
+  seconds: number | null
+  page: number | null
+  block_id: string | null
+  attachment_name: string | null
+  attachment_url: string | null
+}
+
+/** A lesson the consultant leaned on, so the reader can go and check it. */
+export interface ConsultantSource {
+  lesson_id: number
+  lesson_title: string
+  course_title: string
+  course_slug: string
+  /** Кусок урока или готовый ответ, на котором стоит утверждение. */
+  quote: string
+  /** Вопрос строки таблицы — есть, только если ответ пришёл оттуда. */
+  question: string | null
+  location: SourceLocation | null
+}
+
+/** Что сотрудник сказал о полученном ответе. */
+export type AnswerFeedback = 'helpful' | 'unhelpful'
+
+/** Ответ, дописанный автором после заявки. */
+export interface ConsultantResolution {
+  answer: string
+  answered_at: string | null
+  /** Новым остаётся до первой загрузки переписки, где его показали. */
+  is_new: boolean
+  lesson: {
+    lesson_id: number
+    lesson_title: string
+    course_title: string | null
+    course_slug: string | null
+  } | null
+}
+
+/**
+ * Человек, к которому консультант отправляет с вопросом без ответа.
+ *
+ * Не источник: на него не ссылаются, его не цитируют — ему пишут.
+ */
+export interface ConsultantExpert {
+  user_id: number
+  name: string
+  email: string
+  avatar_url: string | null
+  course_title: string
+  course_slug: string
+}
+
+export interface ConsultantAnswer {
+  /**
+   * Строка журнала, в которую записан вопрос: по ней ставится оценка и подаётся
+   * заявка. Null — журнал был недоступен, оценивать нечего.
+   */
+  id: number | null
+  answer: string
+  /** Отдан ли готовый ответ автора как есть, без участия модели. */
+  verbatim: boolean
+  sources: ConsultantSource[]
+  /**
+   * Материал по соседству: не то, на чём стоит ответ, а то, что стоит открыть
+   * следом. Ручаться за него ответ не может, поэтому и список отдельный.
+   */
+  related: ConsultantSource[]
+  /** К кому идти, если ответа не нашлось. Пусто, когда ответ есть. */
+  experts: ConsultantExpert[]
+}
+
+/** Заданный когда-то вопрос вместе с ответом — как он лежит в истории. */
+export interface ConsultantExchange {
+  id: number
+  question: string
+  answer: ConsultantAnswer
+  /** Помог ли ответ, по словам самого спрашивавшего. */
+  feedback: AnswerFeedback | null
+  /** Подана ли заявка на дополнение. */
+  requested: boolean
+  /** Дописанный автором ответ — есть, только если заявку уже закрыли. */
+  resolution?: ConsultantResolution
+  asked_at: string | null
+}
+
+/** Строка таблицы урока: вопрос, ответ и место, где он написан. */
+export interface LessonAnswer {
+  id: number
+  position: number
+  question: string
+  answer: string
+  source_kind: AnswerSourceKind
+  source_attachment_id: number | null
+  source_seconds: number | null
+  source_page: number | null
+  source_block_id: string | null
+  /** Указывает ли строка ещё на существующее место. */
+  source_is_live: boolean
+  /**
+   * Посчитаны ли векторы: пока нет, смысловой поиск строку не находит.
+   *
+   * Отсутствует, когда смыслового поиска нет вовсе — без модели эмбеддингов
+   * векторов не будет никогда, и говорить об ожидании нечего.
+   */
+  is_indexed?: boolean
+}
+
+/** Что редактор шлёт: таблицу целиком, взамен той, что была. */
+export interface LessonAnswerPayload {
+  question: string
+  answer: string
+  source_kind: AnswerSourceKind
+  source_attachment_id?: number | null
+  source_seconds?: number | null
+  source_page?: number | null
+  source_block_id?: string | null
+}
+
+/**
+ * Черновик, предложенный моделью. Ничего не сохранено, пока автор не утвердит.
+ *
+ * Источник приходит готовым: он выведен из расшифровки, откуда взят вопрос, —
+ * автору не остаётся ничего указывать руками.
+ */
+export interface SuggestedAnswer {
+  question: string
+  answer: string
+  source_kind: AnswerSourceKind
+  source_attachment_id: number | null
+  source_seconds: number | null
+  source_page: number | null
+  source_block_id: string | null
+}
+
+/**
+ * Расшифровка одной единицы содержания урока: записи, файла или блока статьи.
+ *
+ * Читателю не видна — это не часть материала, а то, чем материал становится
+ * доступен консультанту.
+ */
+export interface LessonTranscript {
+  id: number
+  source_kind: AnswerSourceKind
+  source_attachment_id: number | null
+  source_block_id: string | null
+  /** Выведена из текста блока, а не загружена: такую нельзя удалить. */
+  is_derived: boolean
+  original_name: string | null
+  format: 'srt' | 'vtt' | 'timed' | 'plain' | null
+  /** Текст как его вставил автор — то, что он показывает и правит. */
+  content: string | null
+  characters: number
+  segments_count: number
+  updated_at: string | null
 }
 
 /** Laravel's paginated collection envelope. */

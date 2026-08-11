@@ -50,10 +50,14 @@ export function useTheme() {
     }
   }
 
-  const options: { value: ThemePreference, label: string, hint: string }[] = [
-    { value: 'system', label: 'Как в системе', hint: 'Следует настройке устройства' },
-    { value: 'light', label: 'Светлая', hint: 'Всегда светлая' },
-    { value: 'dark', label: 'Тёмная', hint: 'Всегда тёмная' },
+  /**
+   * One word each: they sit side by side in a segmented control, where a long
+   * label would push the group past the width of a phone.
+   */
+  const options: { value: ThemePreference, label: string }[] = [
+    { value: 'system', label: 'Системная' },
+    { value: 'light', label: 'Светлая' },
+    { value: 'dark', label: 'Тёмная' },
   ]
 
   return { preference, htmlAttribute, setTheme, options }

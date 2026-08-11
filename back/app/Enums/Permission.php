@@ -37,7 +37,15 @@ enum Permission: string
 
     case ViewUsers = 'users.view';
     case ManageUsers = 'users.manage';
-    case ManageRoles = 'roles.manage';
+
+    /**
+     * Торговая аналитика: выручка, прибыль, долги, остатки.
+     *
+     * Одно право на весь раздел, а не на каждую панель. Дробить его нечем:
+     * цифры приходят из одной выгрузки, и человек, которому показали выручку,
+     * увидит её же в разрезе менеджеров — прятать от него вкладку смысла нет.
+     */
+    case ViewAnalytics = 'analytics.view';
 
     /**
      * Human-readable label for permission management screens.
@@ -65,7 +73,31 @@ enum Permission: string
             self::ManageEnrollments => 'Управление записью на курсы',
             self::ViewUsers => 'Просмотр пользователей',
             self::ManageUsers => 'Управление пользователями',
-            self::ManageRoles => 'Управление ролями',
+            self::ViewAnalytics => 'Просмотр аналитики',
+        };
+    }
+
+    /** The area this permission belongs to, as the access editor groups them. */
+    public function group(): string
+    {
+        return explode('.', $this->value)[0];
+    }
+
+    /**
+     * A heading a person can read. The prefix alone is a machine name — the
+     * editor is for people choosing what a colleague may do.
+     */
+    public function groupLabel(): string
+    {
+        return match ($this->group()) {
+            'contacts' => 'Контакты',
+            'companies' => 'Компании',
+            'deals' => 'Сделки',
+            'courses' => 'База знаний',
+            'enrollments' => 'Запись на курсы',
+            'users' => 'Пользователи',
+            'analytics' => 'Аналитика',
+            default => $this->group(),
         };
     }
 

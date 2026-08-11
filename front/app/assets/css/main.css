@@ -70,6 +70,16 @@
   --color-danger: #b83a31;
   --color-danger-soft: #f9e5e3;
 
+  /*
+   * The tone a control paints itself in, and what it becomes under the cursor.
+   * A field or a quiet button has to differ from the surface it sits on, and
+   * the raised tone is the top of the scale — inside a raised card a control
+   * painted in it would be invisible. The card overrides these two, so every
+   * control follows without any page having to know where it was dropped.
+   */
+  --control-surface: var(--color-surface-raised);
+  --control-surface-hover: var(--color-surface-sunken);
+
   --radius-sm: 10px;
   --radius: 16px;
   --radius-lg: 24px;
@@ -241,12 +251,12 @@ a {
 }
 
 .button-secondary {
-  background: var(--color-surface-raised);
+  background: var(--control-surface);
   color: var(--color-text);
 }
 
 .button-secondary:hover:not(:disabled) {
-  background: var(--color-surface-sunken);
+  background: var(--control-surface-hover);
 }
 
 .button-ghost {
@@ -292,19 +302,29 @@ a {
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
+  background: var(--control-surface);
   color: var(--color-text-muted);
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .button-icon:hover:not(:disabled) {
-  background: var(--color-surface-sunken);
+  background: var(--control-surface-hover);
   color: var(--color-text);
 }
 
 .button-icon--dark {
   background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+/*
+ * Stated separately because `.button-icon:hover` outranks `.button-icon--dark`
+ * on specificity: without this the accent button would drop to the quiet tone
+ * under the cursor while its glyph kept the accent's contrasting colour.
+ */
+.button-icon--dark:hover:not(:disabled) {
+  background: var(--color-accent-hover);
   color: var(--color-accent-text);
 }
 
@@ -323,6 +343,10 @@ a {
 .card--raised {
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-sm);
+
+  /* The card is itself the raised tone, so its controls step down instead. */
+  --control-surface: var(--color-surface-sunken);
+  --control-surface-hover: var(--color-border-strong);
 }
 
 .page-title {
@@ -425,13 +449,12 @@ a {
 /* ---------- Forms ---------- */
 
 .input,
-.select,
 .textarea {
   width: 100%;
   padding: 0.65rem 1rem;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
+  background: var(--control-surface);
   color: var(--color-text);
   font: inherit;
   transition: border-color 0.15s ease;
@@ -443,17 +466,12 @@ a {
   resize: vertical;
 }
 
-.select {
-  padding-right: 2rem;
-}
-
 .input::placeholder,
 .textarea::placeholder {
   color: var(--color-text-faint);
 }
 
 .input:hover,
-.select:hover,
 .textarea:hover {
   border-color: var(--color-border-strong);
 }
@@ -469,6 +487,95 @@ a {
   margin: 0.35rem 0 0;
   color: var(--color-danger);
   font-size: 0.83rem;
+}
+
+/* ---------- Checkbox and radio ---------- */
+
+/*
+ * Drawn rather than native.
+ *
+ * `color-scheme: light dark` lets the browser paint form controls in the
+ * reader's OS scheme — so on a dark desktop an *unchecked* box arrives as a
+ * filled dark square and a *checked* radio as an empty ring. On our light
+ * surfaces that reads exactly backwards. These are drawn here instead, so the
+ * tick is ours and means what it looks like.
+ */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex-shrink: 0;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  border: 1.5px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+input[type='checkbox'] {
+  border-radius: 5px;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+/*
+ * Ticked is lime, which is what the highlight is for: "a selected value". It
+ * also reads the same in both themes, where the accent does not — the accent is
+ * near-black in light and lime in dark, so a box painted with it would change
+ * meaning between the two.
+ */
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--color-highlight);
+  border-color: var(--color-highlight-strong);
+}
+
+/* The tick, drawn from two borders so it needs no glyph, font or image. */
+input[type='checkbox']::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.28rem;
+  border-left: 2px solid var(--color-highlight-text);
+  border-bottom: 2px solid var(--color-highlight-text);
+  transform: rotate(-45deg) translate(1px, -1px);
+  opacity: 0;
+}
+
+input[type='radio']::before {
+  content: '';
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--color-highlight-text);
+  opacity: 0;
+}
+
+input[type='checkbox']:checked::before,
+input[type='radio']:checked::before {
+  opacity: 1;
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    transition: none;
+  }
 }
 
 /* ---------- Feedback ---------- */

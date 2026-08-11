@@ -17,7 +17,10 @@ final class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'last_name' => ['required', 'string', 'max:255'],
+            'first_name' => ['required', 'string', 'max:255'],
+            // Not everyone has one, so it is the only part that may be left out.
+            'middle_name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:'.User::class.',email'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
         ];
@@ -25,7 +28,7 @@ final class RegisterRequest extends FormRequest
 
     public function toData(): RegisterData
     {
-        /** @var array{name: string, email: string, password: string} $validated */
+        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email: string, password: string} $validated */
         $validated = $this->validated();
 
         return RegisterData::fromArray($validated);

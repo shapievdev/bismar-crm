@@ -7,18 +7,22 @@ namespace App\Data\Auth;
 final readonly class RegisterData
 {
     public function __construct(
-        public string $name,
+        public string $lastName,
+        public string $firstName,
+        public ?string $middleName,
         public string $email,
         public string $password,
     ) {}
 
     /**
-     * @param  array{name: string, email: string, password: string}  $validated
+     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, password: string}  $validated
      */
     public static function fromArray(array $validated): self
     {
         return new self(
-            name: $validated['name'],
+            lastName: $validated['last_name'],
+            firstName: $validated['first_name'],
+            middleName: $validated['middle_name'] ?? null,
             email: $validated['email'],
             password: $validated['password'],
         );

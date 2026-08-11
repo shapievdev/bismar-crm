@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
-use App\Enums\Role as RoleEnum;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\ActsAsSpaClient;
+use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
 
 /**
@@ -22,7 +21,7 @@ use Tests\TestCase;
  */
 final class LessonAttachmentTest extends TestCase
 {
-    use ActsAsSpaClient, RefreshDatabase;
+    use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -126,6 +125,60 @@ final class LessonAttachmentTest extends TestCase
             ->getJson(route('lms.lessons.show', $lesson))
             ->assertOk()
             ->assertJsonPath('data.attachments.0.name', 'notes.pdf');
+    }
+
+    /**
+     * The article editor stores an embedded video as an attachment. It must not
+     * reach the lesson's single video slot, which replacing would swap out the
+     * lesson's own recording and delete it from storage.
+     */
+    public function test_a_video_attachment_leaves_the_lessons_own_video_alone(): void
+    {
+        $lesson = $this->lesson();
+        $author = $this->author();
+
+        $this->actingAs($author)->postJson(route('lms.video.store', $lesson), [
+            'video' => UploadedFile::fake()->create('основное.mp4', 512, 'video/mp4'),
+        ])->assertOk();
+
+        $mainVideo = $lesson->refresh()->video_path;
+
+        $this->actingAs($author)->postJson(route('lms.attachments.store', $lesson), [
+            'file' => UploadedFile::fake()->create('в-статье.mp4', 256, 'video/mp4'),
+            'description' => 'Видео в статье',
+        ])->assertCreated();
+
+        $after = $lesson->refresh();
+
+        $this->assertSame($mainVideo, $after->video_path, 'Видео урока подменено вложением.');
+        $this->assertSame('основное.mp4', $after->video_name);
+        Storage::disk('s3')->assertExists($mainVideo);
+
+        // And the article's own video really was stored, separately.
+        $attachment = LessonAttachment::query()->sole();
+        $this->assertSame('в-статье.mp4', $attachment->name);
+        Storage::disk('s3')->assertExists($attachment->path);
+    }
+
+    /**
+     * A video attachment is allowed the same size as a lesson video: it is the
+     * same recording, and which endpoint it arrived at should not decide it.
+     */
+    public function test_a_video_attachment_may_exceed_the_ordinary_attachment_limit(): void
+    {
+        $overAttachmentLimit = (int) config('lms.attachment_max_kb') + 1024;
+
+        $this->assertLessThan(
+            (int) config('lms.video_max_kb'),
+            $overAttachmentLimit,
+            'Тест бессмыслен, если лимит видео не выше лимита вложений.',
+        );
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.attachments.store', $this->lesson()), [
+                'file' => UploadedFile::fake()->create('лекция.mp4', $overAttachmentLimit, 'video/mp4'),
+            ])
+            ->assertCreated();
     }
 
     public function test_an_author_can_upload_a_lesson_video(): void
@@ -282,15 +335,5 @@ final class LessonAttachmentTest extends TestCase
     private function lesson(): Lesson
     {
         return Course::factory()->withLessons(1)->create()->lessons()->firstOrFail();
-    }
-
-    private function learner(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Viewer->value);
-    }
-
-    private function author(): User
-    {
-        return User::factory()->create()->assignRole(RoleEnum::Manager->value);
     }
 }

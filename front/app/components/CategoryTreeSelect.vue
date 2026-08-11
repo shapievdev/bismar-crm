@@ -9,14 +9,12 @@ const props = defineProps<{
 
 const model = defineModel<number | null>({ required: true })
 
-interface Option { id: number, label: string }
-
 /**
- * Flattens the tree into indented options, since a native <select> cannot
- * nest. Depth is shown with figure dashes so alignment survives any font.
+ * Flattens the tree into indented options, since a list cannot nest. Depth is
+ * shown with figure dashes so alignment survives any font.
  */
-const options = computed<Option[]>(() => {
-  const flat: Option[] = []
+const options = computed(() => {
+  const flat: { value: number | null, label: string }[] = [{ value: null, label: 'Без категории' }]
 
   const walk = (nodes: Category[], depth: number) => {
     for (const node of nodes) {
@@ -24,7 +22,7 @@ const options = computed<Option[]>(() => {
         continue
       }
 
-      flat.push({ id: node.id, label: `${'‒ '.repeat(depth)}${node.name}` })
+      flat.push({ value: node.id, label: `${'‒ '.repeat(depth)}${node.name}` })
       walk(node.children ?? [], depth + 1)
     }
   }
@@ -36,12 +34,5 @@ const options = computed<Option[]>(() => {
 </script>
 
 <template>
-  <select v-model="model" class="select">
-    <option :value="null">
-      Без категории
-    </option>
-    <option v-for="option in options" :key="option.id" :value="option.id">
-      {{ option.label }}
-    </option>
-  </select>
+  <UiSelect v-model="model" :options="options" placeholder="Без категории" />
 </template>

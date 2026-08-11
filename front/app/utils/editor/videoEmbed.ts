@@ -1,11 +1,16 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import VideoEmbedView from '~/components/editor/VideoEmbedView.vue'
+import { attachmentIdAttribute } from '~/utils/editor/attachments'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     videoEmbed: {
-      setVideoEmbed: (attrs: { src: string, provider?: 'file' | 'embed' }) => ReturnType
+      setVideoEmbed: (attrs: {
+        src: string
+        provider?: 'file' | 'embed'
+        attachmentId?: number | null
+      }) => ReturnType
     }
   }
 }
@@ -28,6 +33,9 @@ export const VideoEmbed = Node.create({
       src: { default: '' },
       provider: { default: 'embed' },
       title: { default: null },
+      // Set for uploaded files, null for a YouTube or Vimeo link, which owns
+      // its address and needs nothing resolved.
+      attachmentId: attachmentIdAttribute(),
     }
   },
 

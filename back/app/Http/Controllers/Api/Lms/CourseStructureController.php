@@ -13,6 +13,7 @@ use App\Http\Resources\Lms\LessonResource;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Lesson;
+use App\Support\Lms\BlockIdentifier;
 use App\Support\Lms\RichTextExtractor;
 use App\Support\SlugGenerator;
 use Illuminate\Http\JsonResponse;
@@ -28,6 +29,7 @@ final class CourseStructureController extends Controller
     public function __construct(
         private readonly CompleteLesson $completeLesson,
         private readonly RichTextExtractor $richText,
+        private readonly BlockIdentifier $blocks,
     ) {}
 
     public function storeModule(StoreModuleRequest $request, Course $course): JsonResponse
@@ -112,6 +114,10 @@ final class CourseStructureController extends Controller
      * `content` is what search runs against, so it is always derived from the
      * document rather than trusted from the client — the two cannot drift.
      *
+     * Имена блокам присваиваются здесь же и тоже на сервере: на них ссылаются
+     * строки таблицы урока, и имя, пришедшее от клиента, может оказаться
+     * выдуманным или занятым чужим блоком.
+     *
      * @return array{content: ?string, content_json: ?array<mixed>}
      */
     private function contentAttributes(StoreLessonRequest $request): array
@@ -125,6 +131,8 @@ final class CourseStructureController extends Controller
                 'content_json' => null,
             ];
         }
+
+        $document = $this->blocks->assign($document);
 
         return [
             'content' => $this->richText->toPlainText($document),
