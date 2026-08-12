@@ -661,8 +661,6 @@ const typingLabel = computed(() => {
             ←
           </button>
 
-          <UserAvatar :name="active.title" :src="active.companion?.avatar_url ?? null" :size="36" />
-
           <div class="pane__who">
             <span class="pane__name">{{ active.title }}</span>
             <span class="faint pane__status">
@@ -681,6 +679,16 @@ const typingLabel = computed(() => {
           >
             {{ isManaging ? 'Готово' : 'Участники' }}
           </button>
+
+          <!-- Аватар последним в разметке: на телефоне он справа, как в
+               привычных мессенджерах. На столе его возвращает на место перед
+               именем `order` — там кнопки «назад» нет и центрировать нечего. -->
+          <UserAvatar
+            class="pane__avatar"
+            :name="active.title"
+            :src="active.companion?.avatar_url ?? null"
+            :size="36"
+          />
         </header>
 
         <!-- Состав группы: правит владелец, выйти может любой. -->
@@ -790,8 +798,40 @@ const typingLabel = computed(() => {
                      когда сказали, а правка — к тому, что теперь написано. -->
                 <span v-if="message.edited_at" :title="`Изменено ${time(message.edited_at)}`">изменено</span>
                 {{ time(message.created_at) }}
-                <!-- Вторая галочка — когда собеседник дочитал до этого места. -->
-                <template v-if="isMine(message)">{{ isSeen(message) ? '✓✓' : '✓' }}</template>
+
+                <!-- Одна галочка — отправлено, две — собеседник дочитал до
+                     этого места. Обводка берёт цвет текста, поэтому знак виден
+                     и на своём пузыре, и на чужом. -->
+                <svg
+                  v-if="isMine(message) && isSeen(message)"
+                  class="tick"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-label="Прочитано"
+                  role="img"
+                >
+                  <path
+                    d="M14.5 4L7.5 12L4.5 9M4.5 12L1.5 9M11.5 4L7.25 8.875"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <svg
+                  v-else-if="isMine(message)"
+                  class="tick"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-label="Отправлено"
+                  role="img"
+                >
+                  <path
+                    d="M16 4L7.6 14L4 10.25"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </span>
 
               <!-- Действия над репликой. Кнопкой, а не долгим нажатием: долгое
@@ -806,7 +846,11 @@ const typingLabel = computed(() => {
                 ⋯
               </button>
 
-              <ul v-if="menuFor === message.id" class="actions" :class="{ 'actions--up': menuUp }">
+              <ul
+                v-if="menuFor === message.id"
+                class="actions"
+                :class="{ 'actions--up': menuUp, 'actions--left': !isMine(message) }"
+              >
                 <li>
                   <button type="button" @click="startReply(message)">
                     Ответить
@@ -854,7 +898,15 @@ const typingLabel = computed(() => {
             <!-- При правке скрепка убрана: правка меняет слова, а приложить
                  файл задним числом — это новое сообщение. -->
             <label v-if="!editing" class="composer__clip" title="Приложить файл">
-              📎
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M15.1715 6.99992L8.58553 13.5859C8.39451 13.7704 8.24215 13.9911 8.13733 14.2351C8.03251 14.4791 7.97734 14.7416 7.97503 15.0071C7.97272 15.2727 8.02333 15.536 8.12389 15.7818C8.22445 16.0276 8.37296 16.2509 8.56074 16.4387C8.74853 16.6265 8.97183 16.775 9.21762 16.8756C9.46342 16.9761 9.72678 17.0267 9.99233 17.0244C10.2579 17.0221 10.5203 16.9669 10.7643 16.8621C11.0083 16.7573 11.229 16.6049 11.4135 16.4139L17.8275 9.82792C18.5562 9.07351 18.9593 8.0631 18.9502 7.01431C18.9411 5.96553 18.5204 4.96228 17.7788 4.22065C17.0372 3.47901 16.0339 3.05834 14.9851 3.04922C13.9363 3.04011 12.9259 3.44329 12.1715 4.17192L5.75653 10.7569C4.63122 11.8822 3.99902 13.4085 3.99902 14.9999C3.99902 16.5914 4.63122 18.1176 5.75653 19.2429C6.88184 20.3682 8.4081 21.0004 9.99953 21.0004C11.591 21.0004 13.1172 20.3682 14.2425 19.2429L20.4995 12.9999"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
               <input ref="filePicker" type="file" multiple hidden @change="pickFiles">
             </label>
 
@@ -1085,6 +1137,12 @@ const typingLabel = computed(() => {
   overflow: hidden;
 }
 
+/* На столе аватар стоит перед именем: кнопки «назад» там нет, и центрировать
+   имя не от чего. На телефоне порядок разметки берёт своё — аватар справа. */
+.pane__avatar {
+  order: -1;
+}
+
 .pane__head {
   display: flex;
   align-items: center;
@@ -1159,7 +1217,9 @@ const typingLabel = computed(() => {
   gap: 0.15rem;
   max-width: min(34rem, 78%);
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-lg);
+  /* Скругление сдержаннее, чем у карточек интерфейса: у реплики оно спорит с
+     текстом, а не обрамляет его. */
+  border-radius: var(--radius-sm);
   background: var(--color-surface-sunken);
 }
 
@@ -1191,10 +1251,19 @@ const typingLabel = computed(() => {
 
 .bubble__meta {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  align-items: center;
   align-self: flex-end;
   font-size: 0.7rem;
   opacity: 0.7;
+}
+
+/* Знак прочтения. Размер задан здесь, а не в самом svg: у двух знаков разные
+   системы координат (16 и 20), а в ленте они обязаны выглядеть одинаково. */
+.tick {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
 }
 
 /* ---------- Цитата над ответом ---------- */
@@ -1293,6 +1362,18 @@ const typingLabel = computed(() => {
 .actions--up {
   top: auto;
   bottom: 1.5rem;
+}
+
+/*
+ * У чужой реплики меню растёт вправо, а не влево.
+ *
+ * Чужие пузыри прижаты к левому краю и бывают узкими — в одно слово. Меню
+ * шириной в одиннадцать знаков, отсчитанное от правого края такого пузыря,
+ * уходило за левый край экрана, и «Ответить» с «Удалить» было видно наполовину.
+ */
+.actions--left {
+  right: auto;
+  left: 0.3rem;
 }
 
 .actions button {
@@ -1422,7 +1503,16 @@ const typingLabel = computed(() => {
   height: 2.5rem;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 1.1rem;
+  color: var(--color-text-muted);
+}
+
+.composer__clip svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.composer__clip:hover svg {
+  color: var(--color-text);
 }
 
 .composer__clip:hover {
@@ -1616,6 +1706,17 @@ const typingLabel = computed(() => {
   .messenger--open .pane__head {
     flex-shrink: 0;
     padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  /* Имя — по центру между «назад» и аватаром, аватар — справа. */
+  .messenger--open .pane__avatar {
+    order: 0;
+  }
+
+  .messenger--open .pane__who {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
   }
 
   /* Поле ввода — на нижней кромке, с оглядкой на полосу жестов. */
