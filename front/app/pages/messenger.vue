@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage, ChatPerson } from '~/types/chat'
+import type { ChatMessage, ChatPerson, MessageAttachment } from '~/types/chat'
 
 // `fills`: страница занимает ровно экран и не растёт с содержимым — оболочка
 // объявляет себя в `100dvh` и снимает нижний отступ. См. «Высота» ниже.
@@ -146,6 +146,77 @@ function closeMenu(): void {
 
 onMounted(() => document.addEventListener('click', closeMenu))
 onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
+
+/* ---------- Просмотр вложений ---------- */
+
+/**
+ * Снимки и записи открываются здесь же, поверх переписки.
+ *
+ * Раньше вложение было ссылкой и уводило в новую вкладку: человек терял место в
+ * разговоре и возвращался кнопкой браузера. В мессенджере смотрят не выходя, и
+ * из открытого снимка листают соседние — поэтому просматриваемое ищется не в
+ * одном сообщении, а во всей загруженной ленте.
+ */
+function isViewable(file: MessageAttachment): boolean {
+  return file.mime_type?.startsWith('image/') === true
+    || file.mime_type?.startsWith('video/') === true
+}
+
+const viewable = computed(() => messages.value.flatMap(one => one.attachments ?? []).filter(isViewable))
+const viewingId = ref<number | null>(null)
+const viewing = computed(() => viewable.value.find(one => one.id === viewingId.value) ?? null)
+const viewingAt = computed(() => viewable.value.findIndex(one => one.id === viewingId.value))
+
+function view(file: MessageAttachment): void {
+  viewingId.value = file.id
+}
+
+/**
+ * Вложение остаётся ссылкой, и это намеренно: обычный файл так и скачивается,
+ * а средний щелчок по снимку по-прежнему открывает его отдельно, для тех, кому
+ * так удобнее. Перехватывается только обычное нажатие по тому, что можно
+ * показать здесь же.
+ */
+function openAttachment(file: MessageAttachment, event: MouseEvent): void {
+  if (!isViewable(file)) {
+    return
+  }
+
+  event.preventDefault()
+  view(file)
+}
+
+function closeViewer(): void {
+  viewingId.value = null
+}
+
+/** Листание соседних: -1 назад, +1 вперёд. За краями ничего не происходит. */
+function stepViewer(by: number): void {
+  const next = viewable.value[viewingAt.value + by]
+
+  if (next) {
+    viewingId.value = next.id
+  }
+}
+
+function onViewerKey(event: KeyboardEvent): void {
+  if (viewingId.value === null) {
+    return
+  }
+
+  if (event.key === 'Escape') {
+    closeViewer()
+  }
+  else if (event.key === 'ArrowLeft') {
+    stepViewer(-1)
+  }
+  else if (event.key === 'ArrowRight') {
+    stepViewer(1)
+  }
+}
+
+onMounted(() => document.addEventListener('keydown', onViewerKey))
+onBeforeUnmount(() => document.removeEventListener('keydown', onViewerKey))
 
 /** Править можно только своё и только сказанное словами. */
 function canEdit(message: ChatMessage): boolean {
@@ -785,8 +856,12 @@ const typingLabel = computed(() => {
                 target="_blank"
                 rel="noopener noreferrer"
                 class="file"
+                @click="openAttachment(file, $event)"
               >
-                <img v-if="file.opens_inline && file.mime_type?.startsWith('image/')" :src="file.url ?? ''" :alt="file.name" class="file__image">
+                <img v-if="file.mime_type?.startsWith('image/')" :src="file.url ?? ''" :alt="file.name" class="file__image">
+                <span v-else-if="file.mime_type?.startsWith('video/')" class="file__video">
+                  ▶ {{ file.name }}
+                </span>
                 <template v-else>
                   <span class="file__name">{{ file.name }}</span>
                   <span class="faint file__size">{{ sizeOf(file.size) }}</span>
@@ -945,6 +1020,54 @@ const typingLabel = computed(() => {
         title="Выберите переписку"
         description="Слева — те, с кем вы уже говорили. Кнопка «Написать» заведёт новую."
       />
+    </div>
+
+    <!-- Снимок или запись во весь экран, не выходя из разговора. Щелчок мимо
+         закрывает — как во всяком просмотрщике. -->
+    <div v-if="viewing" class="viewer" @click.self="closeViewer">
+      <button type="button" class="viewer__close" aria-label="Закрыть" @click="closeViewer">
+        ✕
+      </button>
+
+      <button
+        v-if="viewingAt > 0"
+        type="button"
+        class="viewer__step viewer__step--back"
+        aria-label="Предыдущее"
+        @click.stop="stepViewer(-1)"
+      >
+        ‹
+      </button>
+
+      <img
+        v-if="viewing.mime_type?.startsWith('image/')"
+        :src="viewing.url ?? ''"
+        :alt="viewing.name"
+        class="viewer__media"
+      >
+      <!-- `controls` и ничего сверх: свой проигрыватель здесь ничего не
+           добавит, а системный умеет полный экран и картинку-в-картинке. -->
+      <video
+        v-else
+        :src="viewing.url ?? ''"
+        class="viewer__media"
+        controls
+        playsinline
+      />
+
+      <button
+        v-if="viewingAt < viewable.length - 1"
+        type="button"
+        class="viewer__step viewer__step--next"
+        aria-label="Следующее"
+        @click.stop="stepViewer(1)"
+      >
+        ›
+      </button>
+
+      <a :href="viewing.url ?? '#'" target="_blank" rel="noopener noreferrer" class="viewer__name">
+        {{ viewing.name }}
+      </a>
     </div>
 
     <!-- Новая переписка: один выбранный — личная, несколько — группа. -->
@@ -1396,6 +1519,84 @@ const typingLabel = computed(() => {
   color: var(--color-danger);
 }
 
+/* ---------- Просмотр снимков и записей ---------- */
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 3.5rem 1rem;
+  background: rgb(0 0 0 / 88%);
+}
+
+.viewer__media {
+  max-width: 100%;
+  /* Не 100%: сверху крестик, снизу имя файла, и снимок не должен лезть под них. */
+  max-height: calc(100dvh - 7rem);
+  object-fit: contain;
+}
+
+.viewer__close,
+.viewer__step {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 14%);
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.viewer__close:hover,
+.viewer__step:hover {
+  background: rgb(255 255 255 / 26%);
+}
+
+.viewer__close {
+  top: max(1rem, env(safe-area-inset-top));
+  right: 1rem;
+}
+
+.viewer__step--back {
+  left: 0.75rem;
+}
+
+.viewer__step--next {
+  right: 0.75rem;
+}
+
+.viewer__name {
+  position: absolute;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  max-width: 80%;
+  overflow: hidden;
+  color: #fff;
+  font-size: 0.85rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.viewer__name:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* Запись в ленте — строкой с треугольником, а не пустым прямоугольником:
+   кадр из видео взять неоткуда, а имя файла говорит больше. */
+.file__video {
+  font-size: 0.85rem;
+}
+
 /* ---------- Полоса «отвечаем / изменяем» ---------- */
 
 .composing {
@@ -1760,10 +1961,30 @@ const typingLabel = computed(() => {
     backdrop-filter: blur(14px);
   }
 
-  /* Поле ввода — на нижней кромке, с оглядкой на полосу жестов. */
+  /*
+   * Нижняя панель — тоже без сплошной подложки: фон есть у поля и у кнопок по
+   * отдельности, а между ними просвечивает лента. Разделительной полосы нет по
+   * той же причине, что и у шапки: она рисовала бы границу там, где её нет.
+   */
   .messenger--open .composer {
     flex-shrink: 0;
-    padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+    border-top: 0;
+    background: none;
+    /* Приподнята над кромкой: прижатая вплотную кнопка попадает под полосу
+       жестов, и нажатие уходит системе, а не приложению. */
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  /* Поле — такая же полупрозрачная плашка с размытием, как плашки шапки. */
+  .messenger--open .composer__field {
+    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .messenger--open .composer__clip {
+    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+    backdrop-filter: blur(14px);
+    border-radius: 50%;
   }
 
   .messenger--open .list {
