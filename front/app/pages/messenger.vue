@@ -1701,22 +1701,63 @@ const typingLabel = computed(() => {
     background: var(--color-bg);
   }
 
-  /* Шапка переписки встаёт на место шапки приложения, поэтому её видно на
-     тёмном фоне и она не уезжает вместе с лентой. */
+  /*
+   * Шапка лежит поверх ленты, а не над ней.
+   *
+   * Сплошной полосы нет: фон прозрачный, границы нет, и сообщения проходят
+   * под кнопками — так же, как в привычных мессенджерах. Фон есть у каждой
+   * кнопки по отдельности, и он полупрозрачный с размытием, чтобы буквы под
+   * ним не мешали читать надпись.
+   */
   .messenger--open .pane__head {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 5;
     flex-shrink: 0;
     padding-top: max(0.75rem, env(safe-area-inset-top));
+    border-bottom: 0;
+    background: none;
+    pointer-events: none;
   }
 
-  /* Имя — по центру между «назад» и аватаром, аватар — справа. */
+  /* Сама полоса кликов не ловит — иначе она накрыла бы верхние сообщения, —
+     а плашки ловят. */
+  .messenger--open .pane__head > * {
+    pointer-events: auto;
+  }
+
+  /* Лента начинается под шапкой, но прокручивается за неё. */
+  .messenger--open .thread {
+    padding-top: calc(3.9rem + max(0.75rem, env(safe-area-inset-top)));
+  }
+
+  /* Плашки под кнопками: своё скругление и размытие у каждой. */
+  .messenger--open .pane__back,
+  .messenger--open .pane__who {
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  /*
+   * Плашка имени по ширине надписи, а не во всю строку: `margin: auto`
+   * прижимает её к середине между «назад» и аватаром — как в образце.
+   */
+  .messenger--open .pane__who {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0 auto;
+    padding: 0.25rem 1rem;
+    text-align: center;
+  }
+
+  /* Аватар справа: на столе его держит перед именем `order: -1`. */
   .messenger--open .pane__avatar {
     order: 0;
-  }
-
-  .messenger--open .pane__who {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
+    border-radius: 50%;
+    backdrop-filter: blur(14px);
   }
 
   /* Поле ввода — на нижней кромке, с оглядкой на полосу жестов. */

@@ -69,6 +69,42 @@ class User extends Authenticatable
     }
 
     /**
+     * Имя с инициалами: «Давлет К. И.».
+     *
+     * Полное «Курабанов Давлет Избуллаевич» в заголовке переписки не помещается
+     * и обрезается многоточием на середине фамилии. В разговоре обращаются по
+     * имени, поэтому оно идёт первым, а фамилия с отчеством сжимаются в буквы —
+     * их дело отличить одного Давлета от другого.
+     *
+     * Собирается из частей записи, а не разбором готовой строки: разбор гадал
+     * бы, где кончается двойная фамилия.
+     *
+     * @return Attribute<string, never>
+     */
+    protected function shortName(): Attribute
+    {
+        return Attribute::get(function (): string {
+            $initials = array_map(
+                static fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)).'.',
+                array_filter(
+                    [$this->last_name, $this->middle_name],
+                    static fn (?string $part): bool => $part !== null && $part !== '',
+                ),
+            );
+
+            // Без имени остаётся то, что есть: у записи может не быть ничего,
+            // кроме фамилии, и «К. И.» лучше пустоты.
+            $first = $this->first_name;
+
+            if ($first === null || $first === '') {
+                return $initials === [] ? $this->name : implode(' ', $initials);
+            }
+
+            return trim($first.' '.implode(' ', $initials));
+        });
+    }
+
+    /**
      * Приватные курсы, в которые этого человека впустили.
      *
      * Своих курсов здесь нет: доступ автора следует из авторства, а не из

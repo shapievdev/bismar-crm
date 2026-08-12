@@ -35,9 +35,11 @@ final class ConversationResource extends JsonResource
             'kind' => $this->kind->value,
             'is_group' => $this->isGroup(),
 
+            // Личная переписка называется именем собеседника, и коротким:
+            // полное ФИО не помещается ни в заголовок, ни в строчку списка.
             'title' => $this->isGroup()
                 ? (string) $this->title
-                : ($companion?->name ?? 'Переписка'),
+                : ($companion?->shortName ?? 'Переписка'),
 
             // Собеседник личной переписки: его лицо стоит в списке, его же
             // «в сети» показывают в заголовке.

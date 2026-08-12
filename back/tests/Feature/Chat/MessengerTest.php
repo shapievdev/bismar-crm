@@ -57,24 +57,54 @@ final class MessengerTest extends TestCase
         $this->assertSame(1, Conversation::query()->count());
     }
 
-    /** Имя личной переписки — имя собеседника, у каждого своё. */
+    /**
+     * Имя личной переписки — имя собеседника, у каждого своё.
+     *
+     * И короткое: полное ФИО в заголовок не помещается и обрезается на середине
+     * фамилии. Полное при этом остаётся при собеседнике — оно нужно там, где
+     * человека называют официально.
+     */
     public function test_a_direct_conversation_is_named_after_the_other_person(): void
     {
         $me = $this->employee();
-        $other = User::factory()->create(['first_name' => 'Пётр', 'last_name' => 'Петров']);
+        $other = User::factory()->create([
+            'first_name' => 'Пётр',
+            'last_name' => 'Петров',
+            'middle_name' => 'Иванович',
+        ]);
 
         $conversation = $this->conversationBetween($me, $other);
 
         $this->actingAs($me)
             ->getJson(route('chat.conversations.show', $conversation))
             ->assertOk()
-            ->assertJsonPath('data.title', $other->name)
-            ->assertJsonPath('data.companion.id', $other->id);
+            ->assertJsonPath('data.title', 'Пётр П. И.')
+            ->assertJsonPath('data.companion.id', $other->id)
+            ->assertJsonPath('data.companion.name', 'Петров Пётр Иванович')
+            ->assertJsonPath('data.companion.short_name', 'Пётр П. И.');
 
         $this->actingAs($other)
             ->getJson(route('chat.conversations.show', $conversation))
             ->assertOk()
-            ->assertJsonPath('data.title', $me->name);
+            ->assertJsonPath('data.title', $me->short_name);
+    }
+
+    /** Без фамилии и отчества сокращать нечего — остаётся одно имя. */
+    public function test_a_short_name_falls_back_to_the_first_name_alone(): void
+    {
+        $me = $this->employee();
+        $other = User::factory()->create([
+            'first_name' => 'Саида',
+            'last_name' => null,
+            'middle_name' => null,
+        ]);
+
+        $conversation = $this->conversationBetween($me, $other);
+
+        $this->actingAs($me)
+            ->getJson(route('chat.conversations.show', $conversation))
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Саида');
     }
 
     /** Отправленное попадает в ленту и уходит в эфир. */

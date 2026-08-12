@@ -23,6 +23,11 @@ final class PersonResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+
+            // «Давлет К. И.» — для заголовка переписки и списка, где полное ФИО
+            // не помещается и обрезается на середине фамилии.
+            'short_name' => $this->shortName,
+
             'email' => $this->email,
             'avatar_url' => $this->avatarUrl(),
 

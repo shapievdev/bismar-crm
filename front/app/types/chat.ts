@@ -6,7 +6,10 @@ export type MessageKind = 'text' | 'system'
 
 export interface ChatPerson {
   id: number
+  /** Полное ФИО: «Курабанов Давлет Избуллаевич». */
   name: string
+  /** Имя с инициалами: «Давлет К. И.» — для заголовков и списка. */
+  short_name: string
   email: string
   avatar_url: string | null
   /** До какого места дочитал — есть, когда список участников загружен с ним. */
