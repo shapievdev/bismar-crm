@@ -113,8 +113,32 @@ const editing = ref<ChatMessage | null>(null)
 /** У какого сообщения открыто меню действий. */
 const menuFor = ref<number | null>(null)
 
-function toggleMenu(message: ChatMessage): void {
-  menuFor.value = menuFor.value === message.id ? null : message.id
+/**
+ * Куда раскрывать меню — вниз или вверх.
+ *
+ * Лента прокручивается, а меню лежит внутри неё, и её нижний край его срезает:
+ * у последних сообщений — а именно с ними чаще всего что-то делают — нижние
+ * пункты оказывались за краем и не нажимались вовсе. Поэтому у реплики из
+ * нижней половины меню раскрывается вверх, и целиком остаётся внутри.
+ */
+const menuUp = ref(false)
+
+function toggleMenu(message: ChatMessage, event: MouseEvent): void {
+  if (menuFor.value === message.id) {
+    menuFor.value = null
+
+    return
+  }
+
+  const bubble = (event.currentTarget as HTMLElement).closest('.bubble')
+  const box = thread.value?.getBoundingClientRect()
+
+  if (bubble && box) {
+    const top = bubble.getBoundingClientRect().top
+    menuUp.value = top > box.top + box.height / 2
+  }
+
+  menuFor.value = message.id
 }
 
 // Клик мимо закрывает меню — как всякое всплывающее. Нажатие на саму кнопку
@@ -824,12 +848,12 @@ const typingLabel = computed(() => {
                 type="button"
                 class="bubble__more"
                 :aria-label="`Действия с сообщением от ${time(message.created_at)}`"
-                @click.stop="toggleMenu(message)"
+                @click.stop="toggleMenu(message, $event)"
               >
                 ⋯
               </button>
 
-              <ul v-if="menuFor === message.id" class="actions">
+              <ul v-if="menuFor === message.id" class="actions" :class="{ 'actions--up': menuUp }">
                 <li>
                   <button type="button" @click="startReply(message)">
                     Ответить
@@ -891,8 +915,21 @@ const typingLabel = computed(() => {
               @keydown="onKeydown"
             />
 
-            <button type="submit" class="button-primary" :disabled="!canSend">
-              {{ isSending ? '…' : (editing ? 'Сохранить' : 'Отправить') }}
+            <!-- На телефоне подпись сворачивается в стрелку: со словом
+                 «Отправить» кнопка забирала треть строки, и поле ввода
+                 оставалось уже самой кнопки. -->
+            <button
+              type="submit"
+              class="button-primary composer__send"
+              :disabled="!canSend"
+              :aria-label="editing ? 'Сохранить' : 'Отправить'"
+            >
+              <span class="composer__send-word">
+                {{ isSending ? '…' : (editing ? 'Сохранить' : 'Отправить') }}
+              </span>
+              <span class="composer__send-sign" aria-hidden="true">
+                {{ isSending ? '…' : (editing ? '✓' : '↑') }}
+              </span>
             </button>
           </div>
         </form>
@@ -1273,9 +1310,10 @@ const typingLabel = computed(() => {
 
 /*
  * Под пальцем наведения не бывает, и спрятанная кнопка недосягаема — там она
- * видна всегда.
+ * видна всегда. Узкое окно на столе сюда же: мышь там есть, но раскладка уже
+ * телефонная, и прятать единственный путь к действиям незачем.
  */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 52rem) {
   .bubble__more {
     opacity: 0.5;
   }
@@ -1295,6 +1333,13 @@ const typingLabel = computed(() => {
   color: var(--color-text);
   box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
   list-style: none;
+}
+
+/* Раскрытое вверх — для реплик у нижнего края ленты, см. toggleMenu(). Идёт
+   после `.actions`: специфичность одинаковая, и решает порядок. */
+.actions--up {
+  top: auto;
+  bottom: 1.5rem;
 }
 
 .actions button {
@@ -1350,6 +1395,15 @@ const typingLabel = computed(() => {
   background: none;
   color: inherit;
   cursor: pointer;
+}
+
+/* На широком экране у кнопки слово, знак спрятан. Подмена — в медиазапросе. */
+.composer__send {
+  flex-shrink: 0;
+}
+
+.composer__send-sign {
+  display: none;
 }
 
 .file {
@@ -1607,6 +1661,39 @@ const typingLabel = computed(() => {
   /* Пузырь на телефоне шире: 78% от 390 точек — это обрывок строки. */
   .bubble {
     max-width: 88%;
+  }
+
+  /*
+   * Кнопка сворачивается в круг со стрелкой.
+   *
+   * Со словом «Отправить» она занимала 118 точек из 352, и полю ввода
+   * оставалось 149 — уже, чем сама кнопка. Писать в такое поле нельзя: видно
+   * последние два слова.
+   */
+  .composer__send-word {
+    display: none;
+  }
+
+  .composer__send-sign {
+    display: block;
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+
+  .composer__send {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  /* Поле забирает всё, что осталось: без min-width оно не ужимается ниже
+     своего содержимого и выдавливает соседей. */
+  .composer__field {
+    flex: 1;
+    min-width: 0;
   }
 
   /* Лист выезжает снизу — там, где до него дотягивается большой палец. */
