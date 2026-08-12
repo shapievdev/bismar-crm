@@ -43,7 +43,7 @@ final class ConversationController extends Controller
 
         $conversations = Conversation::query()
             ->of($reader)
-            ->with(['activeParticipants', 'lastMessage.author'])
+            ->with(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->withCount('activeParticipants')
             // Пустая переписка — только что заведённая: её место наверху, пока
             // в ней не сказали ни слова.
@@ -140,7 +140,7 @@ final class ConversationController extends Controller
 
     private function loaded(Conversation $conversation): Conversation
     {
-        return $conversation->load(['activeParticipants', 'lastMessage.author'])
+        return $conversation->load(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->loadCount('activeParticipants');
     }
 

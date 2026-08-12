@@ -558,7 +558,9 @@ function preview(message: ChatMessage | undefined): string {
     return message.body
   }
 
-  return message.attachments.length ? 'Файл' : ''
+  // Через `?.`: строчка списка приходит без вложений, если их забыли догрузить,
+  // и одна недостающая мелочь не должна ронять весь мессенджер — а ронял.
+  return message.attachments?.length ? 'Файл' : ''
 }
 
 function day(iso: string | null): string {

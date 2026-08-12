@@ -186,6 +186,59 @@ final class MessageEditingTest extends TestCase
         $this->assertNull($shown['reply_to']['excerpt']);
     }
 
+    /**
+     * Удалили последнюю реплику — в списке показывается предыдущая.
+     *
+     * `latestOfMany` выбирает наибольший идентификатор отдельным подзапросом, и
+     * правило мягкого удаления до него не доходит: без явного условия удалённая
+     * оставалась в строчке списка, причём пустой — текст при удалении
+     * обнуляется. Список от этого падал.
+     */
+    public function test_deleting_the_last_message_promotes_the_previous_one(): void
+    {
+        $me = $this->employee();
+        $conversation = $this->conversationBetween($me, $this->employee());
+
+        $earlier = $this->say($conversation, $me, 'первое');
+        $latest = $this->say($conversation, $me, 'второе');
+
+        $this->actingAs($me)
+            ->deleteJson(route('chat.messages.destroy', [$conversation, $latest]))
+            ->assertNoContent();
+
+        $this->actingAs($me)
+            ->getJson(route('chat.conversations.index'))
+            ->assertOk()
+            ->assertJsonPath('data.0.last_message.id', $earlier->id)
+            ->assertJsonPath('data.0.last_message.body', 'первое');
+    }
+
+    /**
+     * У сообщения из одних вложений строчка списка всё равно знает про файлы.
+     *
+     * Список не догружал вложения, и приложение читало их как массив — на
+     * сообщении без текста это роняло весь мессенджер.
+     */
+    public function test_the_list_preview_carries_attachments_of_a_wordless_message(): void
+    {
+        Storage::fake('s3');
+
+        $me = $this->employee();
+        $conversation = $this->conversationBetween($me, $this->employee());
+
+        $this->actingAs($me)
+            ->postJson(route('chat.messages.store', $conversation), [
+                'attachments' => [UploadedFile::fake()->create('прайс.pdf', 8)],
+            ])
+            ->assertCreated();
+
+        $this->actingAs($me)
+            ->getJson(route('chat.conversations.index'))
+            ->assertOk()
+            ->assertJsonPath('data.0.last_message.body', null)
+            ->assertJsonCount(1, 'data.0.last_message.attachments');
+    }
+
     /** За порядком в группе следит тот, кто её завёл: чужое он убрать может. */
     public function test_the_group_owner_may_delete_someone_elses_message(): void
     {

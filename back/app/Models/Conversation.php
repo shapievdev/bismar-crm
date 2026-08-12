@@ -78,11 +78,20 @@ class Conversation extends Model
     /**
      * Последнее сообщение — для списка переписок.
      *
+     * Удалённые исключаются здесь же, внутри подзапроса, а не полагаясь на
+     * общее правило мягкого удаления: `latestOfMany` сначала выбирает
+     * наибольший идентификатор отдельным запросом, и правило до него не
+     * доходит. Без этого удаление последней реплики оставляло её же в строчке
+     * списка — пустую, потому что текст при удалении обнуляется.
+     *
      * @return HasOne<Message, $this>
      */
     public function lastMessage(): HasOne
     {
-        return $this->hasOne(Message::class)->latestOfMany();
+        return $this->hasOne(Message::class)->ofMany(
+            ['id' => 'max'],
+            fn ($query) => $query->whereNull('deleted_at'),
+        );
     }
 
     public function isGroup(): bool
