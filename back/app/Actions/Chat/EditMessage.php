@@ -7,6 +7,7 @@ namespace App\Actions\Chat;
 use App\Events\Chat\MessageEdited;
 use App\Models\Message;
 use App\Models\User;
+use App\Support\Chat\Announcement;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -51,7 +52,7 @@ final readonly class EditMessage
             ])->save();
         });
 
-        MessageEdited::dispatch($message->load(['author', 'attachments', 'replyTo.author']));
+        Announcement::attempt(new MessageEdited($message->load(['author', 'attachments', 'replyTo.author'])));
 
         return $message;
     }

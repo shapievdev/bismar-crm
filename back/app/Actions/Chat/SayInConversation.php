@@ -9,6 +9,7 @@ use App\Events\Chat\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Support\Chat\Announcement;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -71,7 +72,7 @@ final readonly class SayInConversation
             return $message;
         });
 
-        MessageSent::dispatch($message->load(['author', 'attachments', 'replyTo.author']));
+        Announcement::attempt(new MessageSent($message->load(['author', 'attachments', 'replyTo.author'])));
 
         return $message;
     }
@@ -95,7 +96,7 @@ final readonly class SayInConversation
             return $message;
         });
 
-        MessageSent::dispatch($message->load('attachments'));
+        Announcement::attempt(new MessageSent($message->load('attachments')));
 
         return $message;
     }

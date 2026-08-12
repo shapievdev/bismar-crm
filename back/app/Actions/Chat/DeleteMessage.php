@@ -6,6 +6,7 @@ namespace App\Actions\Chat;
 
 use App\Events\Chat\MessageDeleted;
 use App\Models\Message;
+use App\Support\Chat\Announcement;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -45,6 +46,6 @@ final readonly class DeleteMessage
             $attachment->deleteFromStorage();
         }
 
-        MessageDeleted::dispatch($message);
+        Announcement::attempt(new MessageDeleted($message));
     }
 }

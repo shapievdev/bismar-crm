@@ -7,6 +7,7 @@ namespace App\Actions\Chat;
 use App\Events\Chat\MessagesRead;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Support\Chat\Announcement;
 
 /**
  * Отмечает переписку прочитанной и говорит об этом собеседнику.
@@ -25,7 +26,7 @@ final readonly class MarkConversationRead
             'last_read_at' => $readAt,
         ]);
 
-        MessagesRead::dispatch($conversation, $reader, $readAt->toIso8601String());
+        Announcement::attempt(new MessagesRead($conversation, $reader, $readAt->toIso8601String()));
 
         return $readAt->toIso8601String();
     }

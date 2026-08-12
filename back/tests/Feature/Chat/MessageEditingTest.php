@@ -255,6 +255,31 @@ final class MessageEditingTest extends TestCase
         $this->assertSoftDeleted('messages', ['id' => $message->id]);
     }
 
+    /**
+     * Упавший сокет-сервер не мешает писать.
+     *
+     * События уходят синхронно, внутри того же запроса, и недоступный Reverb
+     * бросал исключение уже после того, как сообщение записано: сотрудник видел
+     * пятисотую и писал заново, а сказанное лежало в базе. Стоило серверу
+     * сокетов упасть — переписка переставала принимать сообщения целиком.
+     */
+    public function test_a_message_still_goes_through_when_broadcasting_fails(): void
+    {
+        Event::listen(function (\App\Events\Chat\MessageSent $event): void {
+            throw new \RuntimeException('сокет-сервер недоступен');
+        });
+
+        $me = $this->employee();
+        $conversation = $this->conversationBetween($me, $this->employee());
+
+        $this->actingAs($me)
+            ->postJson(route('chat.messages.store', $conversation), ['body' => 'дошло?'])
+            ->assertCreated()
+            ->assertJsonPath('data.body', 'дошло?');
+
+        $this->assertDatabaseHas('messages', ['body' => 'дошло?']);
+    }
+
     /** Системную отметку не правит и не удаляет никто: её писал не человек. */
     public function test_a_system_note_is_left_alone(): void
     {
