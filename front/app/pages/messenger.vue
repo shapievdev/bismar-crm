@@ -1581,6 +1581,47 @@ const typingLabel = computed(() => {
     grid-template-columns: 1fr;
   }
 
+  /*
+   * Открытая переписка занимает весь экран.
+   *
+   * Как во всяком мессенджере: в разговоре не нужны ни шапка приложения, ни
+   * рельса разделов — выходят из него кнопкой «назад», и она ведёт в список.
+   * Место, которое они занимали, уходит ленте.
+   *
+   * `fixed` здесь важнее внешнего вида: страница перестаёт зависеть от сетки
+   * оболочки и её отступов, а `100dvh` вместе с
+   * `interactive-widget=resizes-content` означает «то, что видно сейчас» — и
+   * при выехавшей клавиатуре тоже. Поэтому ничего никуда не съезжает.
+   */
+  .messenger--open {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    height: 100dvh;
+    padding: 0;
+    background: var(--color-bg);
+  }
+
+  /* Во весь экран рамка и скругления только мешают: края экрана и есть края. */
+  .messenger--open .pane {
+    border: 0;
+    border-radius: 0;
+    background: var(--color-bg);
+  }
+
+  /* Шапка переписки встаёт на место шапки приложения, поэтому её видно на
+     тёмном фоне и она не уезжает вместе с лентой. */
+  .messenger--open .pane__head {
+    flex-shrink: 0;
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  /* Поле ввода — на нижней кромке, с оглядкой на полосу жестов. */
+  .messenger--open .composer {
+    flex-shrink: 0;
+    padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+  }
+
   .messenger--open .list {
     display: none;
   }

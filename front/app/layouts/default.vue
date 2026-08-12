@@ -73,11 +73,19 @@ const fills = computed(() => route.meta.fills === true)
   overflow: hidden;
 }
 
-/* Растянуть строку сетки до низа: по умолчанию она по содержимому (align-items:
-   start), и страница заняла бы столько, сколько написано. */
+/*
+ * Растянуть строку сетки до низа.
+ *
+ * Одного `align-items: stretch` мало, и на этом я уже обжёгся: он растягивает
+ * содержимое внутри строки, а сами строки остаются по содержимому. Страница
+ * получалась в экран, а страница внутри неё — по написанному, и прокручивать
+ * было нечего. Размер задаётся строке: `minmax(0, 1fr)`, где `0` разрешает ей
+ * стать меньше содержимого — без него внутренняя прокрутка не включится.
+ */
 .shell--fills .body {
   min-height: 0;
   align-items: stretch;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .shell--fills .main {
@@ -180,6 +188,12 @@ const fills = computed(() => route.meta.fills === true)
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     padding: 1rem 1rem 4rem;
+  }
+
+  /* Здесь рельса разделов — не колонка слева, а строка сверху, и строк
+     становится две: ей по содержимому, странице всё остальное. */
+  .shell--fills .body--railed {
+    grid-template-rows: auto minmax(0, 1fr);
   }
 }
 </style>
