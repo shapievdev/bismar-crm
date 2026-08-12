@@ -23,6 +23,19 @@ export interface MessageAttachment {
   url: string | null
 }
 
+/**
+ * Цитата над ответом: столько, сколько нужно, чтобы узнать реплику.
+ *
+ * Удалённая приходит помеченной и без текста — показать надо, что отвечали на
+ * что-то, чего больше нет.
+ */
+export interface QuotedMessage {
+  id: number
+  deleted: boolean
+  author: ChatPerson | null
+  excerpt: string | null
+}
+
 export interface ChatMessage {
   id: number
   conversation_id: number
@@ -32,6 +45,10 @@ export interface ChatMessage {
   author: ChatPerson | null
   attachments: MessageAttachment[]
   created_at: string | null
+  /** Когда правили; null — не правили ни разу. */
+  edited_at: string | null
+  /** На что отвечали; null — ни на что. */
+  reply_to: QuotedMessage | null
 }
 
 export interface Conversation {

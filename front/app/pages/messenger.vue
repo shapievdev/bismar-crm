@@ -100,7 +100,96 @@ const files = ref<File[]>([])
 const isSending = ref(false)
 const filePicker = useTemplateRef<HTMLInputElement>('filePicker')
 
-const canSend = computed(() => (draft.value.trim().length > 0 || files.value.length > 0) && !isSending.value)
+/* ---------- Ответ и правка ---------- */
+
+/**
+ * На что отвечаем и что переписываем. Одновременно ни то ни другое: правка
+ * своей реплики и ответ на чужую — разные намерения, и одно поле ввода не может
+ * означать оба сразу. Начатое второе отменяет первое.
+ */
+const replyTo = ref<ChatMessage | null>(null)
+const editing = ref<ChatMessage | null>(null)
+
+/** У какого сообщения открыто меню действий. */
+const menuFor = ref<number | null>(null)
+
+function toggleMenu(message: ChatMessage): void {
+  menuFor.value = menuFor.value === message.id ? null : message.id
+}
+
+// Клик мимо закрывает меню — как всякое всплывающее. Нажатие на саму кнопку
+// до документа не доходит (`@click.stop`), иначе меню закрывалось бы тем же
+// щелчком, которым открылось.
+function closeMenu(): void {
+  menuFor.value = null
+}
+
+onMounted(() => document.addEventListener('click', closeMenu))
+onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
+
+/** Править можно только своё и только сказанное словами. */
+function canEdit(message: ChatMessage): boolean {
+  return message.kind === 'text' && isMine(message)
+}
+
+/** Удалять — своё, а в группе ещё и чужое, если группу завёл ты. */
+function canDelete(message: ChatMessage): boolean {
+  return message.kind === 'text' && (isMine(message) || active.value?.is_owner === true)
+}
+
+function startReply(message: ChatMessage): void {
+  editing.value = null
+  replyTo.value = message
+  menuFor.value = null
+  field.value?.focus()
+}
+
+function startEditing(message: ChatMessage): void {
+  replyTo.value = null
+  editing.value = message
+  // Высоту поля подгонит наблюдатель за draft — здесь только фокус.
+  draft.value = message.body ?? ''
+  menuFor.value = null
+
+  void nextTick(() => field.value?.focus())
+}
+
+/** Отмена возвращает поле к тому, что в нём было до правки, — то есть к пустому. */
+function cancelComposing(): void {
+  if (editing.value) {
+    draft.value = ''
+  }
+
+  replyTo.value = null
+  editing.value = null
+}
+
+async function removeMessage(message: ChatMessage): Promise<void> {
+  menuFor.value = null
+
+  await messenger.remove(message.id)
+
+  // Правили или отвечали именно на неё — теперь не на что.
+  if (editing.value?.id === message.id) {
+    cancelComposing()
+  }
+
+  if (replyTo.value?.id === message.id) {
+    replyTo.value = null
+  }
+}
+
+const canSend = computed(() => {
+  if (isSending.value) {
+    return false
+  }
+
+  // При правке пустой текст — это удаление, а его делают иначе: у пустого поля
+  // кнопка просто неактивна.
+  return editing.value
+    ? draft.value.trim().length > 0
+    : draft.value.trim().length > 0 || files.value.length > 0
+})
 
 async function submit(): Promise<void> {
   if (!canSend.value) {
@@ -110,15 +199,23 @@ async function submit(): Promise<void> {
   isSending.value = true
 
   try {
-    await messenger.send(draft.value.trim(), files.value)
-    draft.value = ''
-    files.value = []
-
-    if (filePicker.value) {
-      filePicker.value.value = ''
+    if (editing.value) {
+      await messenger.edit(editing.value.id, draft.value.trim())
+      editing.value = null
+      draft.value = ''
     }
+    else {
+      await messenger.send(draft.value.trim(), files.value, replyTo.value?.id ?? null)
+      replyTo.value = null
+      draft.value = ''
+      files.value = []
 
-    await scrollToEnd()
+      if (filePicker.value) {
+        filePicker.value.value = ''
+      }
+
+      await scrollToEnd()
+    }
   }
   finally {
     isSending.value = false
@@ -161,6 +258,14 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void submit()
+
+    return
+  }
+
+  // Escape бросает начатую правку или ответ — там же, где их и начали.
+  if (event.key === 'Escape' && (editing.value || replyTo.value)) {
+    event.preventDefault()
+    cancelComposing()
 
     return
   }
@@ -258,6 +363,34 @@ async function scrollToEnd(): Promise<void> {
   if (thread.value) {
     thread.value.scrollTop = thread.value.scrollHeight
   }
+}
+
+/**
+ * Перескок к процитированной реплике.
+ *
+ * Только если она уже загружена: догружать ради этого всё, что было между,
+ * можно очень долго — цитата могла быть годичной давности. Не нашли — ничего не
+ * делаем, цитата и так сказала главное.
+ */
+const highlighted = ref<number | null>(null)
+
+function jumpTo(messageId: number): void {
+  const target = thread.value?.querySelector(`[data-message="${messageId}"]`)
+
+  if (!target) {
+    return
+  }
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+  // Подсветка гаснет сама: она отвечает на «куда меня перенесло», а дальше
+  // только мешает читать.
+  highlighted.value = messageId
+  setTimeout(() => {
+    if (highlighted.value === messageId) {
+      highlighted.value = null
+    }
+  }, 1600)
 }
 
 /** Дочитали до верха — подгружаем то, что было раньше, сохраняя место. */
@@ -629,10 +762,32 @@ const typingLabel = computed(() => {
               {{ message.body }}
             </p>
 
-            <div v-else class="bubble" :class="{ 'bubble--mine': isMine(message) }">
+            <div
+              v-else
+              class="bubble"
+              :class="{ 'bubble--mine': isMine(message), 'bubble--found': highlighted === message.id }"
+              :data-message="message.id"
+            >
               <span v-if="active.is_group && !isMine(message)" class="bubble__author">
                 {{ message.author?.name ?? 'Бывший сотрудник' }}
               </span>
+
+              <!-- Цитата: на что отвечали. Удалённая говорит об этом прямо,
+                   иначе ответ висел бы без того, с чем соглашались. -->
+              <button
+                v-if="message.reply_to"
+                type="button"
+                class="quote"
+                :class="{ 'quote--gone': message.reply_to.deleted }"
+                @click="jumpTo(message.reply_to.id)"
+              >
+                <span class="quote__author">
+                  {{ message.reply_to.author?.name ?? 'Бывший сотрудник' }}
+                </span>
+                <span class="quote__text">
+                  {{ message.reply_to.deleted ? 'Сообщение удалено' : message.reply_to.excerpt }}
+                </span>
+              </button>
 
               <p v-if="message.body" class="bubble__text">
                 {{ message.body }}
@@ -654,15 +809,61 @@ const typingLabel = computed(() => {
               </a>
 
               <span class="bubble__meta">
+                <!-- «изменено» стоит раньше времени: время относится к тому,
+                     когда сказали, а правка — к тому, что теперь написано. -->
+                <span v-if="message.edited_at" :title="`Изменено ${time(message.edited_at)}`">изменено</span>
                 {{ time(message.created_at) }}
                 <!-- Вторая галочка — когда собеседник дочитал до этого места. -->
                 <template v-if="isMine(message)">{{ isSeen(message) ? '✓✓' : '✓' }}</template>
               </span>
+
+              <!-- Действия над репликой. Кнопкой, а не долгим нажатием: долгое
+                   нажатие на телефоне уже занято выделением текста, и отнимать
+                   его у того, кто хочет скопировать сообщение, нельзя. -->
+              <button
+                type="button"
+                class="bubble__more"
+                :aria-label="`Действия с сообщением от ${time(message.created_at)}`"
+                @click.stop="toggleMenu(message)"
+              >
+                ⋯
+              </button>
+
+              <ul v-if="menuFor === message.id" class="actions">
+                <li>
+                  <button type="button" @click="startReply(message)">
+                    Ответить
+                  </button>
+                </li>
+                <li v-if="canEdit(message)">
+                  <button type="button" @click="startEditing(message)">
+                    Изменить
+                  </button>
+                </li>
+                <li v-if="canDelete(message)">
+                  <button type="button" class="actions__danger" @click="removeMessage(message)">
+                    Удалить у всех
+                  </button>
+                </li>
+              </ul>
             </div>
           </template>
         </div>
 
         <form class="composer" @submit.prevent="submit">
+          <!-- Что сейчас делается с полем: отвечаем или переписываем. Без этой
+               полосы правка неотличима от нового сообщения, и человек
+               отправляет второе вместо исправления первого. -->
+          <div v-if="replyTo || editing" class="composing">
+            <span class="composing__kind">{{ editing ? 'Изменение' : 'Ответ' }}</span>
+            <span class="composing__text">
+              {{ editing ? (editing.body ?? '') : (replyTo?.body ?? 'Вложение') }}
+            </span>
+            <button type="button" class="composing__cancel" aria-label="Отменить" @click="cancelComposing">
+              ✕
+            </button>
+          </div>
+
           <ul v-if="files.length" class="composer__files">
             <li v-for="(file, index) in files" :key="`${file.name}-${index}`">
               {{ file.name }}
@@ -673,7 +874,9 @@ const typingLabel = computed(() => {
           </ul>
 
           <div class="composer__row">
-            <label class="composer__clip" title="Приложить файл">
+            <!-- При правке скрепка убрана: правка меняет слова, а приложить
+                 файл задним числом — это новое сообщение. -->
+            <label v-if="!editing" class="composer__clip" title="Приложить файл">
               📎
               <input ref="filePicker" type="file" multiple hidden @change="pickFiles">
             </label>
@@ -684,12 +887,12 @@ const typingLabel = computed(() => {
               class="input composer__field"
               rows="1"
               maxlength="5000"
-              placeholder="Сообщение…"
+              :placeholder="editing ? 'Изменить сообщение…' : 'Сообщение…'"
               @keydown="onKeydown"
             />
 
             <button type="submit" class="button-primary" :disabled="!canSend">
-              {{ isSending ? '…' : 'Отправить' }}
+              {{ isSending ? '…' : (editing ? 'Сохранить' : 'Отправить') }}
             </button>
           </div>
         </form>
@@ -959,6 +1162,7 @@ const typingLabel = computed(() => {
 }
 
 .bubble {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-self: flex-start;
@@ -967,6 +1171,12 @@ const typingLabel = computed(() => {
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-lg);
   background: var(--color-surface-sunken);
+}
+
+/* Куда перенесло по нажатию на цитату. Гаснет само — см. jumpTo(). */
+.bubble--found {
+  outline: 2px solid var(--color-highlight-strong);
+  outline-offset: 2px;
 }
 
 .bubble--mine {
@@ -990,9 +1200,156 @@ const typingLabel = computed(() => {
 }
 
 .bubble__meta {
+  display: flex;
+  gap: 0.35rem;
   align-self: flex-end;
   font-size: 0.7rem;
   opacity: 0.7;
+}
+
+/* ---------- Цитата над ответом ---------- */
+
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 0;
+  /* Полоса слева — то, чем цитата отличается от текста самого сообщения. */
+  border-left: 2px solid currentcolor;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quote:hover {
+  background: color-mix(in srgb, currentcolor 18%, transparent);
+}
+
+/* Удалённую не к чему перематывать: курсор об этом и говорит. */
+.quote--gone {
+  cursor: default;
+  font-style: italic;
+}
+
+.quote__author {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.quote__text {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* ---------- Действия над репликой ---------- */
+
+.bubble__more {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.3rem;
+  padding: 0 0.2rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.bubble:hover .bubble__more,
+.bubble__more:focus-visible {
+  opacity: 0.6;
+}
+
+/*
+ * Под пальцем наведения не бывает, и спрятанная кнопка недосягаема — там она
+ * видна всегда.
+ */
+@media (pointer: coarse) {
+  .bubble__more {
+    opacity: 0.5;
+  }
+}
+
+.actions {
+  position: absolute;
+  top: 1.5rem;
+  right: 0.3rem;
+  z-index: 5;
+  min-width: 11rem;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
+  list-style: none;
+}
+
+.actions button {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: var(--color-surface-sunken);
+}
+
+.actions__danger {
+  color: var(--color-danger);
+}
+
+/* ---------- Полоса «отвечаем / изменяем» ---------- */
+
+.composing {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: 0.82rem;
+}
+
+.composing__kind {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.composing__text {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.composing__cancel {
+  flex-shrink: 0;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 .file {

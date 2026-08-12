@@ -261,6 +261,10 @@ Route::middleware('auth:sanctum')->prefix('chat')->as('chat.')->group(function (
         ->name('messages.index');
     Route::post('conversations/{conversation}/messages', [MessageController::class, 'store'])
         ->name('messages.store');
+    Route::patch('conversations/{conversation}/messages/{message}', [MessageController::class, 'update'])
+        ->name('messages.update');
+    Route::delete('conversations/{conversation}/messages/{message}', [MessageController::class, 'destroy'])
+        ->name('messages.destroy');
 
     Route::post('conversations/{conversation}/participants', [ParticipantController::class, 'store'])
         ->name('participants.store');

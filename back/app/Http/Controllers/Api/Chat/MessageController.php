@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Chat;
 
+use App\Actions\Chat\DeleteMessage;
+use App\Actions\Chat\EditMessage;
 use App\Actions\Chat\SayInConversation;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Chat\EditMessageRequest;
 use App\Http\Requests\Chat\SendMessageRequest;
 use App\Http\Resources\Chat\MessageResource;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -37,7 +42,7 @@ final class MessageController extends Controller
         $before = $request->integer('before');
 
         $messages = $conversation->messages()
-            ->with(['author', 'attachments'])
+            ->with(['author', 'attachments', 'replyTo.author'])
             ->when($before > 0, fn ($query) => $query->where('id', '<', $before))
             ->latest('id')
             ->limit(self::PAGE)
@@ -59,10 +64,56 @@ final class MessageController extends Controller
         /** @var User $author */
         $author = $request->user();
 
-        $message = $say->handle($conversation, $author, $request->body(), $request->attachments());
+        $message = $say->handle(
+            $conversation,
+            $author,
+            $request->body(),
+            $request->attachments(),
+            $request->replyToId(),
+        );
 
-        return MessageResource::make($message->load(['author', 'attachments']))
+        return MessageResource::make($message->load(['author', 'attachments', 'replyTo.author']))
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Правка своей реплики.
+     *
+     * Принадлежность сообщения переписке из адреса проверяется отдельно: без
+     * этого чужую реплику можно было бы править, подставив к своей переписке
+     * идентификатор из соседней.
+     */
+    public function update(
+        EditMessageRequest $request,
+        Conversation $conversation,
+        Message $message,
+        EditMessage $edit,
+    ): MessageResource {
+        $this->ensureBelongs($message, $conversation);
+        Gate::authorize('update', $message);
+
+        /** @var User $editor */
+        $editor = $request->user();
+
+        return MessageResource::make($edit->handle($message, $editor, $request->body()));
+    }
+
+    public function destroy(
+        Conversation $conversation,
+        Message $message,
+        DeleteMessage $delete,
+    ): Response {
+        $this->ensureBelongs($message, $conversation);
+        Gate::authorize('delete', $message);
+
+        $delete->handle($message);
+
+        return response()->noContent();
+    }
+
+    private function ensureBelongs(Message $message, Conversation $conversation): void
+    {
+        abort_unless($message->conversation_id === $conversation->getKey(), HttpResponse::HTTP_NOT_FOUND);
     }
 }

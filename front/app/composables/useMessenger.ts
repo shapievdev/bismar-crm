@@ -60,6 +60,12 @@ export function useMessenger() {
       .listen('.message.sent', (event: { conversation_id: number, message: ChatMessage }) => {
         absorb(event.conversation_id, event.message)
       })
+      .listen('.message.edited', (event: { conversation_id: number, message: ChatMessage }) => {
+        replace(event.conversation_id, event.message)
+      })
+      .listen('.message.deleted', (event: { conversation_id: number, message_id: number }) => {
+        forget(event.conversation_id, event.message_id)
+      })
 
     $echo.join('presence.employees')
       .here((people: ChatPerson[]) => {
@@ -131,6 +137,52 @@ export function useMessenger() {
     }
   }
 
+  /**
+   * Реплику переписали: подменяем её целиком там, где она видна.
+   *
+   * Целиком, а не по полям: с сервера приходит та же структура, что при
+   * отправке, и сращивать её по кускам значит держать в голове, какие поля
+   * могли измениться.
+   */
+  function replace(conversationId: number, message: ChatMessage): void {
+    if (activeId.value === conversationId) {
+      messages.value = messages.value.map(one => (one.id === message.id ? message : one))
+    }
+
+    const conversation = conversations.value.find(one => one.id === conversationId)
+
+    // Строчка в списке показывает последнее сказанное — и если правили именно
+    // его, она обязана измениться вместе с ним.
+    if (conversation?.last_message?.id === message.id) {
+      conversation.last_message = message
+    }
+  }
+
+  /**
+   * Реплику убрали.
+   *
+   * Ответы на неё остаются, но их цитата протухла: сервер уже отдаёт её
+   * помеченной удалённой, а у нас на руках прежняя. Правим на месте, чтобы не
+   * перечитывать ленту целиком ради одной пометки.
+   */
+  function forget(conversationId: number, messageId: number): void {
+    if (activeId.value === conversationId) {
+      messages.value = messages.value
+        .filter(one => one.id !== messageId)
+        .map(one => (one.reply_to?.id === messageId
+          ? { ...one, reply_to: { ...one.reply_to, deleted: true, excerpt: null } }
+          : one))
+    }
+
+    const conversation = conversations.value.find(one => one.id === conversationId)
+
+    // Удалили последнее сказанное — в списке надо показать предыдущее, а его у
+    // вкладки нет. Это единственный случай, когда список перечитывается.
+    if (conversation?.last_message?.id === messageId) {
+      void refreshConversations()
+    }
+  }
+
   /* ---------- Открытая переписка ---------- */
 
   let thread: ReturnType<NonNullable<typeof $echo>['private']> | null = null
@@ -163,6 +215,12 @@ export function useMessenger() {
     thread
       .listen('.message.sent', (event: { conversation_id: number, message: ChatMessage }) => {
         absorb(event.conversation_id, event.message)
+      })
+      .listen('.message.edited', (event: { conversation_id: number, message: ChatMessage }) => {
+        replace(event.conversation_id, event.message)
+      })
+      .listen('.message.deleted', (event: { conversation_id: number, message_id: number }) => {
+        forget(event.conversation_id, event.message_id)
       })
       .listen('.messages.read', (event: { user_id: number, read_at: string }) => {
         const conversation = conversations.value.find(one => one.id === id)
@@ -202,14 +260,14 @@ export function useMessenger() {
     messages.value = [...data, ...messages.value]
   }
 
-  async function send(body: string, files: File[] = []): Promise<void> {
+  async function send(body: string, files: File[] = [], replyToId: number | null = null): Promise<void> {
     const id = activeId.value
 
     if (!id) {
       return
     }
 
-    const { data } = await api.sendMessage(id, body, files)
+    const { data } = await api.sendMessage(id, body, files, {}, replyToId)
 
     // Показываем сразу, не дожидаясь эха от сокета: своё сообщение должно
     // появляться мгновенно, иначе поле ввода очищается «в никуда».
@@ -224,6 +282,37 @@ export function useMessenger() {
       conversation.last_message_at = data.created_at
       conversations.value = [conversation, ...conversations.value.filter(one => one.id !== id)]
     }
+  }
+
+  /**
+   * Правит свою реплику.
+   *
+   * Ответ сервера кладём на место сразу, не дожидаясь эха: правка должна быть
+   * видна тому, кто её сделал, ровно в тот момент, когда он нажал «готово».
+   */
+  async function edit(messageId: number, body: string): Promise<void> {
+    const id = activeId.value
+
+    if (!id) {
+      return
+    }
+
+    const { data } = await api.editMessage(id, messageId, body)
+
+    replace(id, data)
+  }
+
+  /** Убирает реплику у всех. */
+  async function remove(messageId: number): Promise<void> {
+    const id = activeId.value
+
+    if (!id) {
+      return
+    }
+
+    await api.deleteMessage(id, messageId)
+
+    forget(id, messageId)
   }
 
   /** Сообщает собеседнику, что мы печатаем. */
@@ -289,6 +378,8 @@ export function useMessenger() {
     closeThread,
     loadOlder,
     send,
+    edit,
+    remove,
     announceTyping,
     markRead,
     writeTo,

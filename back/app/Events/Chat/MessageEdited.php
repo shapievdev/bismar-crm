@@ -7,15 +7,17 @@ namespace App\Events\Chat;
 use App\Http\Resources\Chat\MessageResource;
 
 /**
- * Сказанное в переписке — тем, кто в ней состоит.
+ * Реплику переписали — тем, кто мог её уже прочесть.
  *
- * Куда именно уходит и почему сразу, а не через очередь, — см. MessageEvent.
+ * Уходит целиком, а не одним новым текстом: у собеседника на экране лежит та же
+ * структура, что пришла при отправке, и подменить её целиком дешевле и
+ * надёжнее, чем сращивать по полям.
  */
-final class MessageSent extends MessageEvent
+final class MessageEdited extends MessageEvent
 {
     public function broadcastAs(): string
     {
-        return 'message.sent';
+        return 'message.edited';
     }
 
     /**

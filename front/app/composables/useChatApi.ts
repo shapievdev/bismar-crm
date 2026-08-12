@@ -52,6 +52,7 @@ export function useChatApi() {
       body: string,
       files: File[] = [],
       options: UploadOptions = {},
+      replyToId: number | null = null,
     ): Promise<ResourceResponse<ChatMessage>> => {
       const form = new FormData()
 
@@ -59,10 +60,29 @@ export function useChatApi() {
         form.append('body', body)
       }
 
+      if (replyToId !== null) {
+        form.append('reply_to_id', String(replyToId))
+      }
+
       files.forEach(file => form.append('attachments[]', file))
 
       return $upload<ResourceResponse<ChatMessage>>(`/api/chat/conversations/${id}/messages`, form, options)
     },
+
+    /** Правка своей реплики. Вложения не трогаются — меняются только слова. */
+    editMessage: (
+      conversationId: number,
+      messageId: number,
+      body: string,
+    ): Promise<ResourceResponse<ChatMessage>> =>
+      $api<ResourceResponse<ChatMessage>>(
+        `/api/chat/conversations/${conversationId}/messages/${messageId}`,
+        { method: 'PATCH', body: { body } },
+      ),
+
+    /** Удаление — у всех сразу: «убрать у себя» здесь нет намеренно. */
+    deleteMessage: (conversationId: number, messageId: number) =>
+      $api(`/api/chat/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' }),
 
     markRead: (id: number): Promise<ResourceResponse<{ read_at: string }>> =>
       $api<ResourceResponse<{ read_at: string }>>(`/api/chat/conversations/${id}/read`, { method: 'POST' }),

@@ -26,14 +26,22 @@ final readonly class SayInConversation
 
     /**
      * @param  list<UploadedFile>  $files
+     * @param  int|null  $replyToId  реплика, на которую отвечают; её принадлежность
+     *                               этой же переписке проверяет SendMessageRequest
      */
-    public function handle(Conversation $conversation, User $author, ?string $body, array $files = []): Message
-    {
+    public function handle(
+        Conversation $conversation,
+        User $author,
+        ?string $body,
+        array $files = [],
+        ?int $replyToId = null,
+    ): Message {
         $body = $body === null ? null : trim($body);
 
-        $message = DB::transaction(function () use ($conversation, $author, $body, $files): Message {
+        $message = DB::transaction(function () use ($conversation, $author, $body, $files, $replyToId): Message {
             $message = $conversation->messages()->create([
                 'user_id' => $author->getKey(),
+                'reply_to_id' => $replyToId,
                 'kind' => MessageKind::Text,
                 'body' => $body === '' ? null : $body,
             ]);
@@ -63,7 +71,7 @@ final readonly class SayInConversation
             return $message;
         });
 
-        MessageSent::dispatch($message->load(['author', 'attachments']));
+        MessageSent::dispatch($message->load(['author', 'attachments', 'replyTo.author']));
 
         return $message;
     }
