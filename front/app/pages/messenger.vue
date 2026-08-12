@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { ChatMessage, ChatPerson } from '~/types/chat'
 
-definePageMeta({ middleware: 'auth' })
+// `fills`: страница меряет себя по экрану, а не растёт с содержимым, поэтому
+// оболочка снимает свой нижний отступ — см. `fit()` ниже.
+definePageMeta({ middleware: 'auth', fills: true })
 useHead({ title: 'Сообщения' })
 
 const { user } = useAuth()
@@ -206,28 +208,44 @@ function fit(): void {
     return
   }
 
-  const viewport = window.visualViewport?.height ?? window.innerHeight
+  const viewport = window.visualViewport
 
-  element.style.height = `${Math.max(320, viewport - element.getBoundingClientRect().top)}px`
+  /*
+   * Обе величины обязаны быть в одной системе отсчёта, и это главное здесь.
+   *
+   * `getBoundingClientRect().top` отмеряется от разметочной области, а
+   * `visualViewport.height` — от видимой. Пока клавиатуры нет, они совпадают и
+   * разницы не видно. Стоит ей выехать, видимая область сжимается и уезжает
+   * вниз внутри разметочной, и вычитание одного из другого начинает врать
+   * ровно на высоту клавиатуры. Приводим верх к видимой области через
+   * `offsetTop` — тогда высота верна в обоих состояниях.
+   *
+   * Прежняя поправка на «лишнюю» длину документа отсюда убрана: она сравнивала
+   * `scrollHeight` разметочной области с высотой видимой и потому вычитала
+   * клавиатуру второй раз — лента схлопывалась, а поле ввода оказывалось
+   * посреди экрана. Причину поправки лечит `fills` в мета-данных страницы:
+   * под мессенджером просто не остаётся отступа, который нужно было бы
+   * компенсировать.
+   */
+  const height = viewport?.height ?? window.innerHeight
+  const top = element.getBoundingClientRect().top - (viewport?.offsetTop ?? 0)
 
-  // Под лентой может лежать нижний отступ страницы — тогда документ оказывается
-  // длиннее экрана и всё едет. Забираем лишнее, ничего не зная о раскладке.
-  const spare = document.documentElement.scrollHeight - viewport
-
-  if (spare > 0) {
-    element.style.height = `${Math.max(320, element.getBoundingClientRect().height - spare)}px`
-  }
+  element.style.height = `${Math.max(320, height - top)}px`
 }
 
 onMounted(() => {
   fit()
   window.addEventListener('resize', fit)
   window.visualViewport?.addEventListener('resize', fit)
+  // Пока клавиатура открыта, видимая область ещё и ездит внутри разметочной,
+  // а событие об этом приходит как прокрутка, не как изменение размера.
+  window.visualViewport?.addEventListener('scroll', fit)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', fit)
   window.visualViewport?.removeEventListener('resize', fit)
+  window.visualViewport?.removeEventListener('scroll', fit)
 })
 
 /* ---------- Прокрутка ленты ---------- */

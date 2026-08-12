@@ -1,6 +1,14 @@
 <script setup lang="ts">
 const { user, isAuthenticated } = useAuth()
 
+/*
+ * Страница, которая меряет себя по экрану, а не растёт вместе с содержимым
+ * (мессенджер). Нижний отступ оболочки под такой страницей снимается: всё,
+ * что осталось ниже, делает документ длиннее экрана, а на телефоне это видно
+ * как поле ввода, выехавшее за нижний край под клавиатуру.
+ */
+const route = useRoute()
+const fills = computed(() => route.meta.fills === true)
 </script>
 
 <template>
@@ -27,7 +35,7 @@ const { user, isAuthenticated } = useAuth()
       </div>
     </header>
 
-    <div class="body" :class="{ 'body--railed': isAuthenticated }">
+    <div class="body" :class="{ 'body--railed': isAuthenticated, 'body--fills': fills }">
       <SideRail v-if="isAuthenticated" />
 
       <main class="main">
@@ -113,6 +121,12 @@ const { user, isAuthenticated } = useAuth()
 
 .body--railed {
   grid-template-columns: 2.9rem minmax(0, 1fr);
+}
+
+/* См. комментарий у `fills` выше: под такой страницей не должно оставаться
+   ничего, иначе документ длиннее экрана и низ страницы недосягаем. */
+.body--fills {
+  padding-bottom: 0;
 }
 
 .main {
