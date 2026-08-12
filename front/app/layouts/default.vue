@@ -12,7 +12,7 @@ const fills = computed(() => route.meta.fills === true)
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'shell--fills': fills }">
     <header class="topbar">
       <div class="topbar__inner">
         <NuxtLink to="/" class="brand" aria-label="Bismar">
@@ -50,6 +50,39 @@ const fills = computed(() => route.meta.fills === true)
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * Страница ровно в экран, без прокрутки документа.
+ *
+ * `dvh`, а не `vh`: на телефоне адресная строка прячется при прокрутке и
+ * возвращается обратно, `vh` меряет по её отсутствию и потому промахивается —
+ * снизу оставалась пустота. `dvh` меняется вместе с ней.
+ *
+ * Высоту считает браузер, а не скрипт. Прежде её выставлял `fit()` в пикселях
+ * на каждое изменение видимой области, и на iOS это превращалось в гонку: при
+ * прокрутке адресная строка едет, событие приходит на каждом кадре, скрипт
+ * переписывает высоту — лента дёргалась. Одна строчка CSS делает то же самое
+ * без единого события.
+ */
+.shell--fills {
+  height: 100dvh;
+  min-height: 0;
+  /* Прокручивается лента внутри, а не сам документ: поле ввода обязано
+     остаться на нижней кромке. */
+  overflow: hidden;
+}
+
+/* Растянуть строку сетки до низа: по умолчанию она по содержимому (align-items:
+   start), и страница заняла бы столько, сколько написано. */
+.shell--fills .body {
+  min-height: 0;
+  align-items: stretch;
+}
+
+.shell--fills .main {
+  min-height: 0;
+  height: 100%;
 }
 
 .topbar {

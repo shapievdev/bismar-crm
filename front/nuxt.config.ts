@@ -9,6 +9,17 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      /*
+       * `interactive-widget=resizes-content` — про выезжающую клавиатуру.
+       *
+       * По умолчанию она сжимает только видимую область, разметочная остаётся
+       * прежней, и низ страницы уходит под клавиатуру. С этим значением
+       * браузер сжимает саму разметку, и `100dvh` честно означает «то, что
+       * видно», — а значит поле ввода остаётся над клавиатурой само, без
+       * единой строчки скрипта.
+       */
+      viewport: 'width=device-width, initial-scale=1, interactive-widget=resizes-content',
+
       // The SVG mark carries its own light/dark rule, so one file covers both.
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' },

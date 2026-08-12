@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { ChatMessage, ChatPerson } from '~/types/chat'
 
-// `fills`: страница меряет себя по экрану, а не растёт с содержимым, поэтому
-// оболочка снимает свой нижний отступ — см. `fit()` ниже.
+// `fills`: страница занимает ровно экран и не растёт с содержимым — оболочка
+// объявляет себя в `100dvh` и снимает нижний отступ. См. «Высота» ниже.
 definePageMeta({ middleware: 'auth', fills: true })
 useHead({ title: 'Сообщения' })
 
@@ -60,8 +60,6 @@ watch(() => route.query.id, async (value) => {
     // и без этого кнопка «назад» меняла адрес, не закрывая ленту: нажатие
     // выглядело как не сработавшее.
     messenger.closeThread()
-    await nextTick()
-    fit()
 
     return
   }
@@ -80,8 +78,6 @@ async function openConversation(id: number): Promise<void> {
 
   try {
     await messenger.open(id)
-    await nextTick()
-    fit()
     await scrollToEnd()
   }
   finally {
@@ -316,66 +312,21 @@ function announce(): void {
 
 /* ---------- Высота ---------- */
 
-/**
- * Мессенджер занимает ровно то, что осталось от экрана.
+/*
+ * Её здесь больше нет, и это осознанно.
  *
- * Не `calc(100vh - 8rem)`: сверху лежит шапка, отступ страницы и — на телефоне
- * — ещё и рельса разделов, и все эти величины разные на разных ширинах.
- * Угаданное число промахивается, а промах здесь виден сразу: поле ввода
- * уезжает под нижний край, и написать нельзя, пока не прокрутишь.
+ * Раньше высоту считал скрипт: мерил от своей верхней кромки до низа видимой
+ * области и переписывал её на каждое событие. На телефоне это оборачивалось
+ * гонкой с браузером — при прокрутке уезжает адресная строка, события идут
+ * потоком, высота переписывается на каждом кадре, лента дёргается, а внизу
+ * остаётся пустота.
  *
- * Меряем от собственной верхней кромки до низа видимой области. На телефоне
- * это ещё и единственный способ пережить выезжающую адресную строку и
- * клавиатуру: visualViewport меняется вместе с ними, а 100vh — нет.
+ * Теперь всё делает раскладка: оболочка страницы объявлена в `100dvh` и
+ * растягивает эту строку сетки до низа (`shell--fills` в layouts/default.vue),
+ * а мессенджер занимает её целиком. Клавиатуру берёт на себя
+ * `interactive-widget=resizes-content` из viewport (nuxt.config.ts): с ним она
+ * сжимает саму разметку, и `dvh` учитывает её наравне с адресной строкой.
  */
-const shell = useTemplateRef<HTMLElement>('shell')
-
-function fit(): void {
-  const element = shell.value
-
-  if (!element) {
-    return
-  }
-
-  const viewport = window.visualViewport
-
-  /*
-   * Обе величины обязаны быть в одной системе отсчёта, и это главное здесь.
-   *
-   * `getBoundingClientRect().top` отмеряется от разметочной области, а
-   * `visualViewport.height` — от видимой. Пока клавиатуры нет, они совпадают и
-   * разницы не видно. Стоит ей выехать, видимая область сжимается и уезжает
-   * вниз внутри разметочной, и вычитание одного из другого начинает врать
-   * ровно на высоту клавиатуры. Приводим верх к видимой области через
-   * `offsetTop` — тогда высота верна в обоих состояниях.
-   *
-   * Прежняя поправка на «лишнюю» длину документа отсюда убрана: она сравнивала
-   * `scrollHeight` разметочной области с высотой видимой и потому вычитала
-   * клавиатуру второй раз — лента схлопывалась, а поле ввода оказывалось
-   * посреди экрана. Причину поправки лечит `fills` в мета-данных страницы:
-   * под мессенджером просто не остаётся отступа, который нужно было бы
-   * компенсировать.
-   */
-  const height = viewport?.height ?? window.innerHeight
-  const top = element.getBoundingClientRect().top - (viewport?.offsetTop ?? 0)
-
-  element.style.height = `${Math.max(320, height - top)}px`
-}
-
-onMounted(() => {
-  fit()
-  window.addEventListener('resize', fit)
-  window.visualViewport?.addEventListener('resize', fit)
-  // Пока клавиатура открыта, видимая область ещё и ездит внутри разметочной,
-  // а событие об этом приходит как прокрутка, не как изменение размера.
-  window.visualViewport?.addEventListener('scroll', fit)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', fit)
-  window.visualViewport?.removeEventListener('resize', fit)
-  window.visualViewport?.removeEventListener('scroll', fit)
-})
 
 /* ---------- Прокрутка ленты ---------- */
 
@@ -648,7 +599,7 @@ const typingLabel = computed(() => {
 </script>
 
 <template>
-  <section ref="shell" class="messenger" :class="{ 'messenger--open': activeId !== null }">
+  <section class="messenger" :class="{ 'messenger--open': activeId !== null }">
     <!-- Слева переписки, справа лента. На узком экране показывается одна из
          двух: список, пока никто не выбран, и лента, когда выбран. -->
     <aside class="list">
@@ -1004,9 +955,9 @@ const typingLabel = computed(() => {
   display: grid;
   grid-template-columns: 20rem 1fr;
   gap: 1rem;
-  /* Настоящую высоту ставит fit() при открытии и на каждое изменение экрана;
-     здесь — на случай, если сценарий ещё не отработал. */
-  height: 70dvh;
+  /* Ровно то, что осталось от экрана: оболочка страницы объявлена в высоту
+     экрана и растягивает эту строку сетки до низа (см. `shell--fills`). */
+  height: 100%;
   min-height: 0;
 }
 
