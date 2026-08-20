@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Chat;
 
+use App\Actions\Chat\ClearConversation;
+use App\Actions\Chat\DeleteConversation;
 use App\Actions\Chat\ManageParticipants;
 use App\Actions\Chat\MarkConversationRead;
 use App\Actions\Chat\SayInConversation;
 use App\Actions\Chat\StartConversation;
 use App\Enums\ConversationKind;
+use App\Enums\DeletionScope;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Chat\DeleteConversationRequest;
 use App\Http\Requests\Chat\StartConversationRequest;
 use App\Http\Resources\Chat\ConversationResource;
 use App\Models\Conversation;
@@ -43,6 +47,7 @@ final class ConversationController extends Controller
 
         $conversations = Conversation::query()
             ->of($reader)
+            ->withClearing($reader)
             ->with(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->withCount('activeParticipants')
             // Пустая переписка — только что заведённая: её место наверху, пока
@@ -65,7 +70,7 @@ final class ConversationController extends Controller
             ? $start->direct($actor, User::query()->findOrFail($request->validated('user_id')))
             : $start->group($actor, (string) $request->validated('title'), $request->userIds());
 
-        return ConversationResource::make($this->loaded($conversation))
+        return ConversationResource::make($this->loaded($conversation, $actor))
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
     }
@@ -79,7 +84,7 @@ final class ConversationController extends Controller
 
         return ConversationResource::make($this->withUnread(
             $reader,
-            new Collection([$this->loaded($conversation)]),
+            new Collection([$this->loaded($conversation, $reader)]),
         )->first());
     }
 
@@ -102,7 +107,39 @@ final class ConversationController extends Controller
             $say->system($conversation, sprintf('%s переименовал группу «%s» в «%s»', $actor->name, $was, $title));
         }
 
-        return ConversationResource::make($this->loaded($conversation));
+        return ConversationResource::make($this->loaded($conversation, $actor));
+    }
+
+    /**
+     * Удаляет переписку — у себя либо у всех.
+     *
+     * Два разных дела, и потому две разные проверки прав: убрать у себя может
+     * всякий участник, у всех — только тот, кому этот разговор принадлежит
+     * целиком (см. ConversationPolicy). Чего именно хотят, говорит запрос;
+     * умолчание — меньшее из двух.
+     */
+    public function destroy(
+        DeleteConversationRequest $request,
+        Conversation $conversation,
+        ClearConversation $clear,
+        DeleteConversation $delete,
+    ): JsonResponse {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        $scope = $request->scope();
+
+        if ($scope === DeletionScope::Everyone) {
+            Gate::authorize('deleteForEveryone', $conversation);
+
+            $delete->handle($conversation);
+        } else {
+            Gate::authorize('clear', $conversation);
+
+            $clear->handle($conversation, $actor);
+        }
+
+        return response()->json(['data' => ['scope' => $scope->value]]);
     }
 
     /** Прочитано до сих пор — и собеседник об этом узнаёт сразу. */
@@ -138,8 +175,17 @@ final class ConversationController extends Controller
         return response()->json(['data' => ['unread' => $this->unread->total($reader)]]);
     }
 
-    private function loaded(Conversation $conversation): Conversation
+    /**
+     * Одна переписка глазами читателя.
+     *
+     * Отметку об удалении у себя здесь приходится доставать отдельно: подзапрос
+     * из scopeWithClearing() выгоден списку, а не одной строке, которую и так
+     * уже нашли по адресу.
+     */
+    private function loaded(Conversation $conversation, User $reader): Conversation
     {
+        $conversation->setAttribute('cleared_at', $conversation->membershipOf($reader)?->cleared_at);
+
         return $conversation->load(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->loadCount('activeParticipants');
     }

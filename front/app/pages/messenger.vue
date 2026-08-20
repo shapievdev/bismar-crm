@@ -587,14 +587,92 @@ async function leave(): Promise<void> {
 
   await api.leaveConversation(activeId.value)
   isManaging.value = false
-  messenger.closeThread()
-  await messenger.refreshConversations()
-  void router.push({ query: {} })
+  messenger.dismiss(activeId.value)
 }
 
 async function refreshActive(): Promise<void> {
   await messenger.refreshConversations()
 }
+
+/* ---------- Удаление переписки ---------- */
+
+/** Открыто ли меню самой переписки — то, что в заголовке. */
+const isChatMenuOpen = ref(false)
+
+function toggleChatMenu(): void {
+  isChatMenuOpen.value = !isChatMenuOpen.value
+}
+
+// Закрывается щелчком мимо — тем же слушателем, что и меню у сообщения.
+onMounted(() => document.addEventListener('click', closeChatMenu))
+onBeforeUnmount(() => document.removeEventListener('click', closeChatMenu))
+
+function closeChatMenu(): void {
+  isChatMenuOpen.value = false
+}
+
+/**
+ * Удалить у всех может не всякий: личную — любой из двоих, группу — только тот,
+ * кто её завёл. Остальным остаётся выход и удаление у себя.
+ */
+const canEraseForEveryone = computed(() => active.value !== null
+  && (!active.value.is_group || active.value.is_owner))
+
+/**
+ * Убирает переписку у себя.
+ *
+ * Из группы при этом не выходим: разговор убран с глаз, но человек в нём
+ * остался — напишут снова, и группа вернётся, уже без прошлого.
+ */
+async function eraseForMe(): Promise<void> {
+  const id = activeId.value
+
+  if (!id || !active.value) {
+    return
+  }
+
+  const what = active.value.is_group ? 'группу' : 'переписку'
+
+  if (!window.confirm(`Удалить ${what} у себя? У остальных она останется, к вам вернётся с новым сообщением — но уже без прошлого.`)) {
+    return
+  }
+
+  closeChatMenu()
+  await messenger.erase(id, 'mine')
+}
+
+/** Стирает разговор у всех — вместе с сообщениями и приложенными файлами. */
+async function eraseForEveryone(): Promise<void> {
+  const id = activeId.value
+
+  if (!id || !active.value) {
+    return
+  }
+
+  const question = active.value.is_group
+    ? 'Удалить группу у всех? Сообщения и файлы исчезнут навсегда.'
+    : 'Удалить переписку у обоих? Сообщения и файлы исчезнут навсегда.'
+
+  if (!window.confirm(question)) {
+    return
+  }
+
+  closeChatMenu()
+  await messenger.erase(id, 'everyone')
+}
+
+/*
+ * Открытой переписки не стало — её удалили у всех, пока мы в неё смотрели, либо
+ * убрали мы сами. Возвращаемся к списку: адрес указывает на разговор, которого
+ * больше нет, и кнопка «назад» привела бы обратно в пустоту.
+ */
+watch(conversations, (list) => {
+  const shown = Number(route.query.id)
+
+  if (shown && !list.some(one => one.id === shown)) {
+    void router.replace({ query: {} })
+  }
+})
 
 /* ---------- Показ ---------- */
 
@@ -751,6 +829,41 @@ const typingLabel = computed(() => {
             {{ isManaging ? 'Готово' : 'Участники' }}
           </button>
 
+          <!-- Что можно сделать с самим разговором: убрать у себя, стереть у
+               всех, выйти из группы. Меню, а не кнопки в ряд: заголовок и так
+               тесен, а действия эти делают раз в жизни. -->
+          <div class="pane__menu">
+            <button
+              type="button"
+              class="pane__more"
+              aria-label="Действия с перепиской"
+              :aria-expanded="isChatMenuOpen"
+              @click.stop="toggleChatMenu"
+            >
+              ⋯
+            </button>
+
+            <!-- Щелчок по пункту меню до документа доходит: там он и закроет
+                 меню — в том числе когда от действия отказались. -->
+            <ul v-if="isChatMenuOpen" class="actions actions--chat">
+              <li v-if="active.is_group">
+                <button type="button" @click="leave">
+                  Выйти из группы
+                </button>
+              </li>
+              <li>
+                <button type="button" @click="eraseForMe">
+                  Удалить у себя
+                </button>
+              </li>
+              <li v-if="canEraseForEveryone">
+                <button type="button" class="actions__danger" @click="eraseForEveryone">
+                  {{ active.is_group ? 'Удалить группу у всех' : 'Удалить у всех' }}
+                </button>
+              </li>
+            </ul>
+          </div>
+
           <!-- Аватар последним в разметке: на телефоне он справа, как в
                привычных мессенджерах. На столе его возвращает на место перед
                именем `order` — там кнопки «назад» нет и центрировать нечего. -->
@@ -798,9 +911,9 @@ const typingLabel = computed(() => {
             </ul>
           </div>
 
-          <button type="button" class="button-ghost button-sm crew__leave" @click="leave">
-            Выйти из группы
-          </button>
+          <!-- Выхода здесь больше нет: он стоит в меню переписки, рядом с
+               удалением. Действия над самим разговором собраны в одном месте, а
+               эта панель — про состав. -->
         </div>
 
         <div ref="thread" class="thread" @scroll="onThreadScroll">
@@ -1302,6 +1415,28 @@ const typingLabel = computed(() => {
   font-size: 0.78rem;
 }
 
+/* Держатель меню переписки: позиционирует список, который из него выпадает. */
+.pane__menu {
+  position: relative;
+  display: flex;
+}
+
+.pane__more {
+  padding: 0 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pane__more:hover,
+.pane__more:focus-visible {
+  color: var(--color-text);
+}
+
 .thread {
   display: flex;
   flex-direction: column;
@@ -1513,6 +1648,19 @@ const typingLabel = computed(() => {
 
 .actions button:hover {
   background: var(--color-surface-sunken);
+}
+
+/*
+ * То же меню, но у заголовка переписки, а не у реплики.
+ *
+ * Отсчитывается от кнопки «⋯», а не от ленты: заголовок ничего не
+ * прокручивает, и обрезать меню нечему — довольно выпустить его вниз под
+ * кнопку, прижав к правому краю, чтобы оно не уходило за край экрана.
+ */
+.actions--chat {
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 10;
 }
 
 .actions__danger {
@@ -1762,18 +1910,13 @@ const typingLabel = computed(() => {
   flex: 1;
 }
 
-.crew__remove,
-.crew__leave {
+.crew__remove {
   border: none;
   background: transparent;
   color: var(--color-danger);
   font: inherit;
   font-size: 0.82rem;
   cursor: pointer;
-}
-
-.crew__leave {
-  align-self: flex-start;
 }
 
 .finder {
@@ -1936,10 +2079,18 @@ const typingLabel = computed(() => {
 
   /* Плашки под кнопками: своё скругление и размытие у каждой. */
   .messenger--open .pane__back,
-  .messenger--open .pane__who {
+  .messenger--open .pane__who,
+  .messenger--open .pane__more {
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--color-surface) 78%, transparent);
     backdrop-filter: blur(14px);
+  }
+
+  /* «⋯» лежит поверх сообщений, и без собственной плашки знак терялся бы в
+     них — как и «назад» на другом краю. */
+  .messenger--open .pane__more {
+    padding: 0.15rem 0.6rem;
+    color: var(--color-text);
   }
 
   /*

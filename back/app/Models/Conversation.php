@@ -28,6 +28,10 @@ class Conversation extends Model
         return [
             'kind' => ConversationKind::class,
             'last_message_at' => 'datetime',
+
+            // Не колонка этой таблицы, а отметка читателя, приставленная
+            // подзапросом, — см. scopeWithClearing().
+            'cleared_at' => 'datetime',
         ];
     }
 
@@ -65,6 +69,24 @@ class Conversation extends Model
     public function activeParticipants(): BelongsToMany
     {
         return $this->participants()->wherePivotNull('left_at');
+    }
+
+    /**
+     * Строки участия — те же, что за `participants()`, но сами по себе.
+     *
+     * Нужны там, где интересен не человек, а его отметки: до какого места
+     * дочитал, вышел ли, когда удалил переписку у себя.
+     *
+     * @return HasMany<ConversationParticipant, $this>
+     */
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(ConversationParticipant::class);
+    }
+
+    public function membershipOf(User $user): ?ConversationParticipant
+    {
+        return $this->memberships()->where('user_id', $user->getKey())->first();
     }
 
     /**
@@ -106,7 +128,13 @@ class Conversation extends Model
     }
 
     /**
-     * Переписки этого человека — те, из которых он не вышел.
+     * Переписки этого человека — те, из которых он не вышел и которые не удалил
+     * у себя.
+     *
+     * Удалённая у себя возвращается, как только в ней снова что-то скажут:
+     * сравнение идёт с временем последнего сообщения, и потому обходится
+     * колонкой самой переписки — она же и индексирована — вместо подзапроса к
+     * ленте на каждую строчку списка.
      *
      * @param  Builder<$this>  $query
      */
@@ -116,7 +144,28 @@ class Conversation extends Model
             'participants',
             fn (Builder $participants) => $participants
                 ->whereKey($user->getKey())
-                ->whereNull('conversation_participants.left_at'),
+                ->whereNull('conversation_participants.left_at')
+                ->where(fn (Builder $cleared) => $cleared
+                    ->whereNull('conversation_participants.cleared_at')
+                    ->orWhereColumn('conversations.last_message_at', '>', 'conversation_participants.cleared_at')),
         );
+    }
+
+    /**
+     * Приставляет к переписке отметку о том, когда читатель удалил её у себя.
+     *
+     * Одним подзапросом на весь список, а не обращением на строчку: список
+     * переписок открывают в мессенджере чаще всего.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeWithClearing(Builder $query, User $reader): void
+    {
+        $query->addSelect(['cleared_at' => ConversationParticipant::query()
+            ->select('cleared_at')
+            ->whereColumn('conversation_participants.conversation_id', 'conversations.id')
+            ->where('conversation_participants.user_id', $reader->getKey())
+            ->limit(1),
+        ]);
     }
 }

@@ -4,6 +4,9 @@ export type ConversationKind = 'direct' | 'group'
 /** Сказанное человеком или отмеченное системой. */
 export type MessageKind = 'text' | 'system'
 
+/** У кого удаляют переписку: у себя одного или у всех сразу. */
+export type DeletionScope = 'mine' | 'everyone'
+
 export interface ChatPerson {
   id: number
   /** Полное ФИО: «Курабанов Давлет Избуллаевич». */

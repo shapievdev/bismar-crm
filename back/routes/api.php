@@ -252,6 +252,11 @@ Route::middleware('auth:sanctum')->prefix('chat')->as('chat.')->group(function (
     Route::get('conversations/{conversation}', [ConversationController::class, 'show'])->name('conversations.show');
     Route::put('conversations/{conversation}', [ConversationController::class, 'update'])->name('conversations.update');
 
+    // Удаление: «у себя» убирает переписку из своего списка, «у всех» стирает
+    // разговор целиком. Что именно — говорит `scope` в теле запроса.
+    Route::delete('conversations/{conversation}', [ConversationController::class, 'destroy'])
+        ->name('conversations.destroy');
+
     Route::post('conversations/{conversation}/read', [ConversationController::class, 'read'])
         ->name('conversations.read');
     Route::post('conversations/{conversation}/leave', [ConversationController::class, 'leave'])

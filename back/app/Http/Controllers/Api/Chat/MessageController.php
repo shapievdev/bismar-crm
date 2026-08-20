@@ -39,10 +39,18 @@ final class MessageController extends Controller
     {
         Gate::authorize('view', $conversation);
 
+        /** @var User $reader */
+        $reader = $request->user();
+
         $before = $request->integer('before');
+
+        // Удалённое у себя не показывается заново: для этого человека переписка
+        // начинается с той минуты, когда он её убрал.
+        $clearedAt = $conversation->membershipOf($reader)?->cleared_at;
 
         $messages = $conversation->messages()
             ->with(['author', 'attachments', 'replyTo.author'])
+            ->when($clearedAt !== null, fn ($query) => $query->where('messages.created_at', '>', $clearedAt))
             ->when($before > 0, fn ($query) => $query->where('id', '<', $before))
             ->latest('id')
             ->limit(self::PAGE)
