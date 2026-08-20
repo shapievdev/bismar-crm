@@ -1,5 +1,5 @@
 import type { ResourceResponse } from '~/types/auth'
-import type { ChatMessage, ChatPerson, Conversation } from '~/types/chat'
+import type { ChatMessage, ChatPerson, Conversation, DeletionScope } from '~/types/chat'
 
 /**
  * Обращения к мессенджеру.
@@ -89,6 +89,16 @@ export function useChatApi() {
 
     leaveConversation: (id: number) =>
       $api(`/api/chat/conversations/${id}/leave`, { method: 'POST' }),
+
+    /**
+     * Удаление переписки: у себя либо у всех.
+     *
+     * У себя — разговор уходит из своего списка вместе с прошлым, у собеседника
+     * остаётся целиком. У всех — не остаётся ни у кого: личную так удаляет
+     * любой из двоих, группу — только тот, кто её завёл.
+     */
+    deleteConversation: (id: number, scope: DeletionScope = 'mine') =>
+      $api(`/api/chat/conversations/${id}`, { method: 'DELETE', body: { scope } }),
 
     addParticipants: (id: number, userIds: number[]): Promise<ResourceResponse<ChatPerson[]>> =>
       $api<ResourceResponse<ChatPerson[]>>(`/api/chat/conversations/${id}/participants`, {

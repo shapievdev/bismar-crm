@@ -48,6 +48,10 @@ final readonly class Unread
     private function query(User $reader): Builder
     {
         return DB::table('messages')
+            // Запрос идёт мимо модели, а значит и мимо мягкого удаления:
+            // убранная реплика оставляла за собой непрочитанное, которое в
+            // ленте уже нечем показать.
+            ->whereNull('messages.deleted_at')
             ->join('conversation_participants', function ($join) use ($reader): void {
                 $join->on('conversation_participants.conversation_id', '=', 'messages.conversation_id')
                     ->where('conversation_participants.user_id', '=', $reader->getKey());
@@ -62,6 +66,12 @@ final readonly class Unread
             ->where(function ($query): void {
                 $query->whereNull('conversation_participants.last_read_at')
                     ->orWhereColumn('messages.created_at', '>', 'conversation_participants.last_read_at');
+            })
+            // Удалённое у себя не считается непрочитанным: этой переписки для
+            // человека больше нет, и висящая над ней цифра вела бы в пустое.
+            ->where(function ($query): void {
+                $query->whereNull('conversation_participants.cleared_at')
+                    ->orWhereColumn('messages.created_at', '>', 'conversation_participants.cleared_at');
             });
     }
 }

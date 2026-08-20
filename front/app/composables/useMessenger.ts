@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatPerson, Conversation } from '~/types/chat'
+import type { ChatMessage, ChatPerson, Conversation, DeletionScope } from '~/types/chat'
 
 /**
  * Живое состояние мессенджера — одно на всё приложение.
@@ -65,6 +65,11 @@ export function useMessenger() {
       })
       .listen('.message.deleted', (event: { conversation_id: number, message_id: number }) => {
         forget(event.conversation_id, event.message_id)
+      })
+      // Переписку удалили — у всех или нами же во второй вкладке. Приходит
+      // только сюда: канала самой переписки к этому времени может уже не быть.
+      .listen('.conversation.removed', (event: { conversation_id: number }) => {
+        dismiss(event.conversation_id)
       })
 
     $echo.join('presence.employees')
@@ -181,6 +186,40 @@ export function useMessenger() {
     if (conversation?.last_message?.id === messageId) {
       void refreshConversations()
     }
+  }
+
+  /**
+   * Убирает переписку из списка — удалили её у всех или только у нас.
+   *
+   * Открытую при этом закрываем: держать на экране ленту разговора, которого
+   * больше нет, значит показывать сообщения, которых никто не увидит. Куда
+   * после этого деться со страницы, решает она сама — по пропаже из списка.
+   */
+  function dismiss(conversationId: number): void {
+    const conversation = conversations.value.find(one => one.id === conversationId)
+
+    if (conversation) {
+      unreadTotal.value = Math.max(0, unreadTotal.value - conversation.unread_count)
+      conversations.value = conversations.value.filter(one => one.id !== conversationId)
+    }
+
+    // Закрываем и тогда, когда в списке её уже не было: открыть переписку можно
+    // и прямо адресом, минуя список.
+    if (activeId.value === conversationId) {
+      closeThread()
+    }
+  }
+
+  /**
+   * Удаляет переписку: у себя либо у всех.
+   *
+   * Из списка она уходит сразу, не дожидаясь эха от сокета: нажавший «удалить»
+   * должен увидеть, что она удалена, даже когда сокет-сервер не поднят.
+   */
+  async function erase(conversationId: number, scope: DeletionScope): Promise<void> {
+    await api.deleteConversation(conversationId, scope)
+
+    dismiss(conversationId)
   }
 
   /* ---------- Открытая переписка ---------- */
@@ -376,6 +415,8 @@ export function useMessenger() {
     refreshConversations,
     open,
     closeThread,
+    dismiss,
+    erase,
     loadOlder,
     send,
     edit,

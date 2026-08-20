@@ -44,4 +44,25 @@ class ConversationPolicy
     {
         return $conversation->isGroup() && $conversation->includes($user);
     }
+
+    /** Убрать у себя можно всякую свою переписку — и личную, и группу. */
+    public function clear(User $user, Conversation $conversation): bool
+    {
+        return $conversation->includes($user);
+    }
+
+    /**
+     * Удалить у всех.
+     *
+     * У личной переписки — любой из двоих: разговор принадлежит обоим поровну,
+     * и права здесь у них одинаковые. У группы — только тот, кто её завёл: она
+     * пережила бы уход любого другого, и стирать сказанное десятком людей
+     * одному из них не по чину. Остальным — выход.
+     */
+    public function deleteForEveryone(User $user, Conversation $conversation): bool
+    {
+        return $conversation->isGroup()
+            ? $this->manage($user, $conversation)
+            : $conversation->includes($user);
+    }
 }
