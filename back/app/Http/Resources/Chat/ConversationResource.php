@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Resources\Chat;
 
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Resources\MissingValue;
 
 /**
  * Переписка в списке и в заголовке ленты.
@@ -48,7 +50,7 @@ final class ConversationResource extends JsonResource
             'participants' => PersonResource::collection($this->whenLoaded('activeParticipants')),
             'participants_count' => $this->whenCounted('activeParticipants'),
 
-            'last_message' => MessageResource::make($this->whenLoaded('lastMessage')),
+            'last_message' => MessageResource::make($this->lastMessageShown()),
             'last_message_at' => $this->last_message_at?->toIso8601String(),
 
             // Сколько сообщений человек ещё не прочёл. Считается одним запросом
@@ -58,6 +60,27 @@ final class ConversationResource extends JsonResource
             // Группу переименовывает и правит состав тот, кто её завёл.
             'is_owner' => $reader !== null && $this->created_by_id === $reader->getKey(),
         ];
+    }
+
+    /**
+     * Последнее сказанное — но только сказанное после того, как читатель убрал
+     * переписку у себя.
+     *
+     * Обычно одно другому не мешает: убранная переписка возвращается в список
+     * лишь с новым сообщением, а оно и есть последнее. Расходятся они, когда это
+     * новое успели удалить: последним снова становится давнее, которого для
+     * читателя больше нет, — и оно всплыло бы строчкой в списке.
+     */
+    private function lastMessageShown(): mixed
+    {
+        $last = $this->whenLoaded('lastMessage');
+        $clearedAt = $this->cleared_at;
+
+        if ($clearedAt === null || ! $last instanceof Message) {
+            return $last;
+        }
+
+        return $last->created_at?->greaterThan($clearedAt) === true ? $last : new MissingValue;
     }
 
     /**
