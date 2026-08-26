@@ -166,6 +166,8 @@ Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->a
 Route::middleware('auth:sanctum')->prefix('profile')->as('profile.')->group(function (): void {
     // Your own account: guarded by being signed in, nothing more.
     Route::put('/', [ProfileController::class, 'update'])->name('update');
+    // Knowing the current password is what stands in for a permission here.
+    Route::put('password', [ProfileController::class, 'updatePassword'])->name('password.update');
     Route::post('avatar', [ProfileController::class, 'storeAvatar'])->name('avatar.store');
     Route::delete('avatar', [ProfileController::class, 'destroyAvatar'])->name('avatar.destroy');
 });

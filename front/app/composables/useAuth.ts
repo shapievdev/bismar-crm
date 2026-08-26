@@ -106,6 +106,22 @@ export function useAuth() {
     return data
   }
 
+  /**
+   * Replaces the signed-in user's own password. Nothing about the account
+   * changes on screen, so there is no answer to keep — knowing the current
+   * password is what authorises it, and the API checks that.
+   */
+  async function changePassword(payload: {
+    current_password: string
+    password: string
+    password_confirmation: string
+  }): Promise<void> {
+    await $api('/api/profile/password', {
+      method: 'PUT',
+      body: payload,
+    }).catch(toValidationError)
+  }
+
   async function uploadAvatar(file: File): Promise<User> {
     const form = new FormData()
     form.append('avatar', file)
@@ -154,6 +170,7 @@ export function useAuth() {
     register,
     logout,
     updateProfile,
+    changePassword,
     uploadAvatar,
     removeAvatar,
   }
