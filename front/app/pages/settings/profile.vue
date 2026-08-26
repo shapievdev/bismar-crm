@@ -5,7 +5,7 @@ import type { ThemePreference } from '~/composables/useTheme'
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Профиль' })
 
-const { user, updateProfile, uploadAvatar, removeAvatar } = useAuth()
+const { user, updateProfile, changePassword, uploadAvatar, removeAvatar } = useAuth()
 const { preference, setTheme, options } = useTheme()
 
 const form = reactive({
@@ -46,6 +46,46 @@ async function save() {
   }
   finally {
     isSaving.value = false
+  }
+}
+
+const password = reactive({
+  current_password: '',
+  password: '',
+  password_confirmation: '',
+})
+
+const passwordErrors = ref<ValidationErrors>({})
+const passwordError = ref<string | null>(null)
+const isChangingPassword = ref(false)
+const passwordChangedAt = ref<string | null>(null)
+
+async function savePassword() {
+  isChangingPassword.value = true
+  passwordErrors.value = {}
+  passwordError.value = null
+  passwordChangedAt.value = null
+
+  try {
+    await changePassword({ ...password })
+
+    // Nothing typed here is worth keeping once it has been accepted.
+    password.current_password = ''
+    password.password = ''
+    password.password_confirmation = ''
+
+    passwordChangedAt.value = new Date().toLocaleTimeString('ru-RU')
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      passwordErrors.value = caught.errors
+    }
+    else {
+      passwordError.value = 'Не удалось сменить пароль.'
+    }
+  }
+  finally {
+    isChangingPassword.value = false
   }
 }
 
@@ -155,6 +195,81 @@ function choose(value: ThemePreference) {
           <p v-if="avatarError" class="alert alert--danger" role="alert">
             {{ avatarError }}
           </p>
+        </section>
+
+        <section class="card card--raised block">
+          <header class="block__head">
+            <h2 class="block__title">
+              Пароль
+            </h2>
+            <p class="block__hint">
+              Не короче восьми знаков. После смены войти останется только здесь — на остальных устройствах спросят заново.
+            </p>
+          </header>
+
+          <p v-if="passwordError" class="alert alert--danger" role="alert">
+            {{ passwordError }}
+          </p>
+
+          <form class="form" novalidate @submit.prevent="savePassword">
+            <!-- Не для чтения, а для менеджеров паролей: без имени учётной
+                 записи рядом они не понимают, чей пароль им предлагают заменить. -->
+            <input
+              :value="user?.email"
+              type="text"
+              class="visually-hidden"
+              autocomplete="username"
+              tabindex="-1"
+              aria-hidden="true"
+              readonly
+            >
+
+            <div class="field">
+              <label class="field-label" for="current-password">Текущий пароль</label>
+              <input
+                id="current-password"
+                v-model="password.current_password"
+                type="password"
+                class="input"
+                autocomplete="current-password"
+              >
+              <p v-if="passwordErrors.current_password?.length" class="field-error">
+                {{ passwordErrors.current_password[0] }}
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="new-password">Новый пароль</label>
+              <input
+                id="new-password"
+                v-model="password.password"
+                type="password"
+                class="input"
+                autocomplete="new-password"
+              >
+              <p v-if="passwordErrors.password?.length" class="field-error">
+                {{ passwordErrors.password[0] }}
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="field-label" for="repeat-password">Ещё раз</label>
+              <input
+                id="repeat-password"
+                v-model="password.password_confirmation"
+                type="password"
+                class="input"
+                autocomplete="new-password"
+              >
+            </div>
+
+            <div class="form__actions">
+              <button type="submit" class="button-primary" :disabled="isChangingPassword">
+                {{ isChangingPassword ? 'Меняем…' : 'Сменить пароль' }}
+              </button>
+              <span v-if="passwordChangedAt" class="faint">Изменён в {{ passwordChangedAt }}</span>
+            </div>
+          </form>
         </section>
 
         <section class="card card--raised block">
@@ -279,9 +394,9 @@ function choose(value: ThemePreference) {
  * at a reading measure left the content huddled against the left edge with the
  * header stretching past it, and made the heading jump when you switched tabs.
  *
- * One column until there is room for two. Above that the account form, the
- * tallest block by far, takes a column of its own and the two short blocks
- * stack beside it, which is what keeps the two sides close to the same height.
+ * One column until there is room for two. Above that the account form takes a
+ * column of its own and the rest stack beside it, which is what keeps the two
+ * sides close to the same height.
  */
 .blocks {
   display: grid;
@@ -290,11 +405,11 @@ function choose(value: ThemePreference) {
 }
 
 /*
- * The two short blocks are a column of their own rather than two rows of the
+ * The blocks beside the form are a column of their own rather than rows of the
  * page grid. As grid rows they would be pulled apart: the tall form spanning
- * both rows stretches them, and a gap opens between the photo and the theme.
- * Until there is a second column the wrapper is not a layout at all and its
- * cards simply join the single stack.
+ * all of them stretches each one, and gaps open between the photo, the password
+ * and the theme. Until there is a second column the wrapper is not a layout at
+ * all and its cards simply join the single stack.
  */
 .blocks__side {
   display: contents;
@@ -316,8 +431,8 @@ function choose(value: ThemePreference) {
 
 /*
  * Every block is the same shape — heading, one line of explanation, then the
- * controls — so the three cards line up down the page instead of each finding
- * its own rhythm.
+ * controls — so the cards line up down the page instead of each finding its
+ * own rhythm.
  */
 .block {
   display: flex;
