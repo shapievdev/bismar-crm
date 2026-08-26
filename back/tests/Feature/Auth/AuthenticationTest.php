@@ -77,6 +77,19 @@ final class AuthenticationTest extends TestCase
         $this->getJson(route('auth.user'))->assertUnauthorized();
     }
 
+    /**
+     * A guest request that does not ask for JSON used to be answered with a 500:
+     * the `auth` middleware built its redirect from the framework's default
+     * `route('login')`, and this application has no route by that name.
+     */
+    public function test_a_guest_request_that_does_not_ask_for_json_is_still_unauthorized(): void
+    {
+        $this->withHeader('Accept', 'text/html')
+            ->get(route('auth.user'))
+            ->assertUnauthorized()
+            ->assertJsonPath('message', 'Unauthenticated.');
+    }
+
     public function test_a_user_can_log_out(): void
     {
         $user = User::factory()->create();
