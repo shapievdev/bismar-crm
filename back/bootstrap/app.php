@@ -17,6 +17,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // Enables Sanctum's cookie-based SPA authentication: requests coming from a
         // domain listed in `sanctum.stateful` are authenticated via the session.
         $middleware->statefulApi();
+
+        // There is no login page to send a guest to — the sign-in form belongs to
+        // the Nuxt application. Without this, the `auth` middleware falls back to
+        // the framework default of `route('login')`, which is undefined here, and
+        // an unauthenticated request that does not ask for JSON dies with a 500
+        // instead of the 401 the handler below would have rendered.
+        $middleware->redirectGuestsTo(null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
