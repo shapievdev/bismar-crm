@@ -483,4 +483,39 @@ function dropRecipient(id: number) {
   margin-left: auto;
   color: var(--color-danger);
 }
+
+@media (max-width: 48rem) {
+  /* Заголовок и «посмотреть» перестают делить строку: на узком экране
+     название новости важнее кнопки и должно занимать всю ширину. */
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .head .button-secondary {
+    align-self: flex-start;
+  }
+
+  .panel {
+    padding: 1.15rem 1.15rem 1.25rem;
+  }
+}
+
+/*
+ * «Сохранить» и «удалить новость» разъезжались по краям экрана, и удаление
+ * оказывалось там, где большой палец держит телефон. Ниже 34rem удаление
+ * уходит на свою строку и прижимается к левому краю — до него надо
+ * дотянуться намеренно.
+ */
+@media (max-width: 34rem) {
+  .actions {
+    flex-wrap: wrap;
+  }
+
+  .actions__remove {
+    margin-left: 0;
+    padding-left: 0;
+  }
+}
 </style>

@@ -353,4 +353,30 @@ async function remove(attachment: LessonAttachment) {
   padding: 0;
   list-style: none;
 }
+
+/*
+ * На телефоне кнопки уходят под имя файла, а не встают рядом с ним: вдвоём
+ * они отбирали ровно ту ширину, ради которой имя и показывают, — от него
+ * оставалось «регламент-отгр…».
+ */
+@media (max-width: 34rem) {
+  .item,
+  .pending {
+    flex-wrap: wrap;
+  }
+
+  .item__actions,
+  .pending__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .item__edit {
+    flex-wrap: wrap;
+  }
+
+  .item__edit input {
+    flex: 1 1 100%;
+  }
+}
 </style>

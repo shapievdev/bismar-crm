@@ -161,4 +161,23 @@ async function save() {
 .form__actions a {
   text-decoration: none;
 }
+
+@media (max-width: 48rem) {
+  .form {
+    padding: 1.15rem 1.15rem 1.25rem;
+  }
+}
+
+/* На узком экране кнопки становятся в столбец во всю ширину: пара «создать —
+   отмена» вплотную у края слишком легко нажимается не та. */
+@media (max-width: 34rem) {
+  .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .form__actions a {
+    text-align: center;
+  }
+}
 </style>
