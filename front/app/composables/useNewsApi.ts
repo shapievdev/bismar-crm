@@ -1,3 +1,4 @@
+import { toValidationError } from '~/composables/useAuth'
 import type { UploadOptions } from '~/utils/upload'
 import type { ResourceResponse } from '~/types/auth'
 import type { LessonAttachment, PaginatedResponse, Quiz, QuizPayload } from '~/types/lms'
@@ -35,10 +36,12 @@ export function useNewsApi() {
       $api<ResourceResponse<News>>(`/api/news/${slug}`),
 
     createNews: (payload: NewsPayload): Promise<ResourceResponse<News>> =>
-      $api<ResourceResponse<News>>('/api/news', { method: 'POST', body: payload }),
+      $api<ResourceResponse<News>>('/api/news', { method: 'POST', body: payload })
+        .catch(toValidationError),
 
     updateNews: (slug: string, payload: NewsPayload): Promise<ResourceResponse<News>> =>
-      $api<ResourceResponse<News>>(`/api/news/${slug}`, { method: 'PUT', body: payload }),
+      $api<ResourceResponse<News>>(`/api/news/${slug}`, { method: 'PUT', body: payload })
+        .catch(toValidationError),
 
     deleteNews: (slug: string) =>
       $api(`/api/news/${slug}`, { method: 'DELETE' }),
@@ -87,7 +90,8 @@ export function useNewsApi() {
       $api(`/api/news/${slug}/attachments/${attachmentId}`, { method: 'DELETE' }),
 
     saveQuiz: (slug: string, body: QuizPayload): Promise<ResourceResponse<Quiz>> =>
-      $api<ResourceResponse<Quiz>>(`/api/news/${slug}/quiz`, { method: 'PUT', body }),
+      $api<ResourceResponse<Quiz>>(`/api/news/${slug}/quiz`, { method: 'PUT', body })
+        .catch(toValidationError),
 
     deleteQuiz: (slug: string) =>
       $api(`/api/news/${slug}/quiz`, { method: 'DELETE' }),

@@ -19,7 +19,14 @@ export class ApiValidationError extends Error {
   }
 }
 
-function toValidationError(error: unknown): never {
+/**
+ * Превращает ответ 422 в ошибку с разбором по полям.
+ *
+ * Вынесено наружу, чтобы каждый набор запросов не заводил свою копию: без
+ * этого шага подписи под полями до экрана не доходят и человек видит общее
+ * «не удалось» вместо того, что именно не так.
+ */
+export function toValidationError(error: unknown): never {
   const fetchError = error as FetchError<ValidationErrorResponse>
 
   if (fetchError.response?.status === 422 && fetchError.data) {

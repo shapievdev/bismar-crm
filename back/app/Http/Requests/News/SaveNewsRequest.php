@@ -37,18 +37,21 @@ final class SaveNewsRequest extends FormRequest
             'audience' => ['required', Rule::enum(NewsAudience::class)],
             'requires_acknowledgement' => ['sometimes', 'boolean'],
 
-            // Поимённый список нужен только адресной новости, и пустым он там
-            // быть не может: новость без единого адресата не увидит никто.
-            'recipients' => $this->isAddressed()
+            // Поимённый список нужен только адресной новости, и требуется он
+            // не раньше публикации: новость заводят с решения «это не всем», а
+            // кому именно — выясняют, пока она черновик. Пустым же список
+            // выйти не может — такую новость не увидит никто.
+            'recipients' => $this->needsRecipients()
                 ? ['required', 'array', 'min:1']
                 : ['sometimes', 'array'],
             'recipients.*' => ['integer', Rule::exists('users', 'id')],
         ];
     }
 
-    private function isAddressed(): bool
+    private function needsRecipients(): bool
     {
-        return $this->input('audience') === NewsAudience::Selected->value;
+        return $this->input('audience') === NewsAudience::Selected->value
+            && $this->input('status') === NewsStatus::Published->value;
     }
 
     /**
@@ -57,8 +60,8 @@ final class SaveNewsRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'recipients.required' => 'Выберите, кому адресована новость.',
-            'recipients.min' => 'Выберите хотя бы одного сотрудника.',
+            'recipients.required' => 'Прежде чем публиковать, выберите, кому адресована новость.',
+            'recipients.min' => 'Прежде чем публиковать, выберите хотя бы одного сотрудника.',
         ];
     }
 

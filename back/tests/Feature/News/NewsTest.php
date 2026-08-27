@@ -191,10 +191,39 @@ final class NewsTest extends TestCase
         $this->assertTrue($published->equalTo($news->refresh()->published_at));
     }
 
-    public function test_an_addressed_news_item_needs_somebody_to_address(): void
+    public function test_an_addressed_news_item_needs_somebody_to_address_before_it_goes_out(): void
     {
         $this->actingAs($this->editor())
             ->postJson(route('news.store'), $this->payload([
+                'audience' => NewsAudience::Selected->value,
+            ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('recipients');
+    }
+
+    /**
+     * Новость заводят с решения «это не всем», а кого именно назвать —
+     * выясняют, пока она черновик. Экран создания на это и рассчитан: людей
+     * там не выбирают, их выбирают в редакторе.
+     */
+    public function test_a_draft_may_be_addressed_before_anyone_is_named(): void
+    {
+        $editor = $this->editor();
+
+        $this->actingAs($editor)
+            ->postJson(route('news.store'), $this->payload([
+                'status' => NewsStatus::Draft->value,
+                'audience' => NewsAudience::Selected->value,
+            ]))
+            ->assertCreated()
+            ->assertJsonPath('data.audience', NewsAudience::Selected->value);
+
+        $news = News::query()->sole();
+
+        // А вот выпустить такую новость нельзя — её не увидит никто.
+        $this->actingAs($editor)
+            ->putJson(route('news.update', $news), $this->payload([
+                'status' => NewsStatus::Published->value,
                 'audience' => NewsAudience::Selected->value,
             ]))
             ->assertUnprocessable()
