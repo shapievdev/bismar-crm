@@ -3,7 +3,7 @@ import type { JSONContent } from '@tiptap/core'
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { UploadOptions } from '~/utils/upload'
 import type { QuizPayload } from '~/types/lms'
-import type { NewsAudienceKind, NewsPerson } from '~/types/news'
+import type { LinkedMaterialResult, NewsAudienceKind, NewsPerson } from '~/types/news'
 import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'news.manage' })
@@ -21,6 +21,7 @@ const {
   saveQuiz,
   deleteQuiz,
   searchPeople,
+  searchMaterial,
 } = useNewsApi()
 
 const router = useRouter()
@@ -52,6 +53,9 @@ const form = reactive({
 const document = ref<JSONContent | null>(null)
 const recipients = ref<NewsPerson[]>([])
 
+/** Куда сходить после новости. Порядок списка и есть порядок ссылок. */
+const links = ref<LinkedMaterialResult[]>([])
+
 watch(news, (value) => {
   if (!value) {
     return
@@ -68,6 +72,14 @@ watch(news, (value) => {
   // хранит номера, и адрес подставляется на пути к редактору.
   document.value = withResolvedMedia(value.content_json ?? null, value.attachments ?? [])
   recipients.value = value.recipients ?? []
+
+  links.value = (value.links ?? []).map(link => ({
+    kind: link.kind,
+    id: link.item_id,
+    title: link.title ?? '',
+    subtitle: link.subtitle,
+    url: link.url,
+  }))
 }, { immediate: true })
 
 const errors = ref<ValidationErrors>({})
@@ -91,6 +103,7 @@ async function save() {
       audience: form.audience,
       requires_acknowledgement: form.requires_acknowledgement,
       recipients: recipients.value.map(person => person.id),
+      links: links.value.map(link => ({ type: link.kind, id: link.id })),
     })
 
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
@@ -173,6 +186,29 @@ function addRecipient(person: NewsPerson) {
 
 function dropRecipient(id: number) {
   recipients.value = recipients.value.filter(person => person.id !== id)
+}
+
+/* ---------- Куда сходить после новости ---------- */
+
+const material = useDebouncedSearch<LinkedMaterialResult>(
+  async term => (await searchMaterial(term)).data,
+)
+
+/** Ключ — вид и номер вместе: курс №3 и урок №3 разные вещи. */
+function keyOf(link: { kind: string, id: number }): string {
+  return `${link.kind}:${link.id}`
+}
+
+function addLink(found: LinkedMaterialResult) {
+  material.clear()
+
+  if (!links.value.some(link => keyOf(link) === keyOf(found))) {
+    links.value = [...links.value, found]
+  }
+}
+
+function dropLink(found: LinkedMaterialResult) {
+  links.value = links.value.filter(link => keyOf(link) !== keyOf(found))
 }
 </script>
 
@@ -313,6 +349,67 @@ function dropRecipient(id: number) {
       </div>
     </section>
 
+    <section class="card panel">
+      <h2 class="panel__title">
+        Куда сходить после новости
+      </h2>
+      <p class="faint">
+        Курс, модуль, урок или регламент. Читателю ссылка покажется, только если он и сам может её открыть.
+      </p>
+
+      <ul v-if="links.length" class="chips">
+        <li v-for="link in links" :key="keyOf(link)" class="chip">
+          <span class="chip__kind">{{ link.kind === 'regulation' ? 'Регламент'
+            : link.kind === 'course' ? 'Курс'
+              : link.kind === 'module' ? 'Модуль' : 'Урок' }}</span>
+          {{ link.title }}
+          <button type="button" class="chip__drop" :aria-label="`Убрать ${link.title}`" @click="dropLink(link)">
+            ×
+          </button>
+        </li>
+      </ul>
+
+      <div class="field">
+        <label class="field-label" for="material-search">Найти материал</label>
+        <input
+          id="material-search"
+          v-model="material.query.value"
+          class="input"
+          type="search"
+          autocomplete="off"
+          placeholder="Название курса, урока или регламента"
+        >
+      </div>
+
+      <p v-if="material.isSearching.value" class="faint">
+        Ищем…
+      </p>
+      <p v-else-if="material.query.value.trim() && !material.results.value.length" class="faint">
+        Ничего не нашли.
+      </p>
+      <ul v-else-if="material.results.value.length" class="found">
+        <li v-for="found in material.results.value" :key="keyOf(found)">
+          <button
+            type="button"
+            class="found__item"
+            :disabled="links.some(link => keyOf(link) === keyOf(found))"
+            @click="addLink(found)"
+          >
+            <span class="found__body">
+              <span class="found__name">{{ found.title }}</span>
+              <span class="faint">
+                {{ found.kind === 'regulation' ? 'Регламент'
+                  : found.kind === 'course' ? 'Курс'
+                    : found.kind === 'module' ? 'Модуль' : 'Урок' }}<template
+                      v-if="found.subtitle"
+                    > · {{ found.subtitle }}</template>
+              </span>
+            </span>
+          </button>
+        </li>
+      </ul>
+    </section>
+
     <AttachmentManager
       :attachments="news.attachments ?? []"
       :upload-file="(file, description, options) => uploadAttachment(slug, file, description, options)"
@@ -424,6 +521,11 @@ function dropRecipient(id: number) {
   border-radius: var(--radius-pill);
   background: var(--color-surface-sunken);
   font-size: 0.85rem;
+}
+
+.chip__kind {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
 }
 
 .chip__drop {

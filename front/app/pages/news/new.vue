@@ -40,6 +40,8 @@ async function save() {
       audience: form.audience,
       requires_acknowledgement: form.requires_acknowledgement,
       recipients: [],
+      // Материал привязывают в редакторе — здесь ещё нечего связывать.
+      links: [],
     })
 
     await router.push(`/news/${data.slug}/edit`)

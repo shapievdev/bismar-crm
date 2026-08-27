@@ -210,6 +210,24 @@ async function loadReaders() {
 
     <EditorRichTextRenderer :content="article" />
 
+    <!-- Куда сходить после новости: правило поменялось — вот само правило. -->
+    <section v-if="news.links?.length" class="card links">
+      <h2 class="files__title">
+        Обязательно для просмотра
+      </h2>
+      <ul class="links__list">
+        <li v-for="link in news.links" :key="link.id">
+          <NuxtLink v-if="link.url" :to="link.url" class="link">
+            <span class="badge link__kind">{{ link.kind_label }}</span>
+            <span class="link__body">
+              <span class="link__title">{{ link.title }}</span>
+              <span v-if="link.subtitle" class="faint">{{ link.subtitle }}</span>
+            </span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
+
     <section v-if="documents.length" class="card files">
       <h2 class="files__title">
         Документы
@@ -405,9 +423,49 @@ async function loadReaders() {
 }
 
 .files,
+.links,
 .quiz,
 .confirm {
   padding: 1.25rem;
+}
+
+.links__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+}
+
+.link:hover {
+  background: var(--color-surface-sunken);
+}
+
+.link__kind {
+  flex-shrink: 0;
+}
+
+.link__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.link__title {
+  font-weight: 550;
 }
 
 .quiz__form {

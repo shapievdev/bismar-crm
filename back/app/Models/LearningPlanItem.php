@@ -8,16 +8,21 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
- * Один шаг в плане обучения сотрудника: курс и его место в очереди.
+ * Один шаг в плане обучения сотрудника: что пройти и в каком порядке.
+ *
+ * Шаг — курс или регламент (2026-08-27). Связь полиморфная, а не две колонки:
+ * держать под каждый вид свою значит спрашивать «а если завтра третий» на
+ * каждом запросе.
  *
  * Порядок здесь — совет, а не запрет: сотрудник волен открыть любой шаг, а
  * номер говорит, в каком порядке их задумывали (решение пользователя
- * 2026-08-27). Ничего похожего на блокировку в модели нет намеренно —
- * появись она потом, ей место в политике курса, а не здесь.
+ * 2026-08-27). Ничего похожего на блокировку в модели нет намеренно — появись
+ * она потом, ей место в политике курса, а не здесь.
  */
-#[Fillable(['user_id', 'course_id', 'position', 'assigned_by_id'])]
+#[Fillable(['user_id', 'plannable_type', 'plannable_id', 'position', 'assigned_by_id'])]
 class LearningPlanItem extends Model
 {
     /**
@@ -41,11 +46,13 @@ class LearningPlanItem extends Model
     }
 
     /**
-     * @return BelongsTo<Course, $this>
+     * Что назначено — курс или регламент.
+     *
+     * @return MorphTo<Model, $this>
      */
-    public function course(): BelongsTo
+    public function plannable(): MorphTo
     {
-        return $this->belongsTo(Course::class);
+        return $this->morphTo();
     }
 
     /**

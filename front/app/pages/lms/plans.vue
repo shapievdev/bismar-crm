@@ -1,11 +1,29 @@
 <script setup lang="ts">
 import { ApiValidationError } from '~/composables/useAuth'
-import type { Course, CoursePerson, LearningPlanItem } from '~/types/lms'
+import type { Course, CoursePerson, LearningPlanItem, PlannableKind, Regulation } from '~/types/lms'
+
+/**
+ * Шаг черновика: то немногое, что нужно, чтобы показать строку и отправить её.
+ *
+ * Курс и регламент приводятся к одному виду сразу — экран рисует список
+ * одинаковых строк, и разбирать в каждой, чем именно она оказалась, незачем.
+ */
+interface Step {
+  kind: PlannableKind
+  id: number
+  title: string
+  slug: string
+}
 
 definePageMeta({ middleware: 'auth', permission: 'enrollments.manage' })
 useHead({ title: 'Планы обучения' })
 
 const { fetchPlan, savePlan, searchPlanPeople, fetchCourses } = useLmsApi()
+const { fetchRegulations } = useRegulationsApi()
+
+function asStep(item: Course | Regulation, kind: PlannableKind): Step {
+  return { kind, id: item.id, title: item.title, slug: item.slug }
+}
 
 /* ---------- Кому составляем ---------- */
 
@@ -20,7 +38,7 @@ const learner = ref<CoursePerson | null>(null)
  * добавленного курса ещё нет, — прогресс сотрудника и отметку о том, увидит ли
  * он этот шаг у себя.
  */
-const draft = ref<Course[]>([])
+const draft = ref<Step[]>([])
 const saved = ref<LearningPlanItem[]>([])
 
 const isLoading = ref(false)
@@ -29,17 +47,22 @@ const loadError = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const savedAt = ref<string | null>(null)
 
-const plannedIds = computed(() => new Set(draft.value.map(course => course.id)))
+/** Ключ шага — вид и номер вместе: курс №3 и регламент №3 разные вещи. */
+function keyOf(step: { kind: string, id?: number, item_id?: number }): string {
+  return `${step.kind}:${step.id ?? step.item_id}`
+}
+
+const plannedKeys = computed(() => new Set(draft.value.map(keyOf)))
 
 const isDirty = computed(() => {
-  const before = saved.value.map(step => step.course.id)
-  const after = draft.value.map(course => course.id)
+  const before = saved.value.map(keyOf)
+  const after = draft.value.map(keyOf)
 
-  return before.length !== after.length || before.some((id, index) => id !== after[index])
+  return before.length !== after.length || before.some((key, index) => key !== after[index])
 })
 
-function stepFor(course: Course): LearningPlanItem | undefined {
-  return saved.value.find(step => step.course.id === course.id)
+function stepFor(step: Step): LearningPlanItem | undefined {
+  return saved.value.find(one => keyOf(one) === keyOf(step))
 }
 
 async function choose(person: CoursePerson) {
@@ -60,7 +83,12 @@ async function load() {
   try {
     const { data } = await fetchPlan(learner.value.id)
     saved.value = data
-    draft.value = data.map(step => step.course)
+    draft.value = data.map(step => ({
+      kind: step.kind,
+      id: step.item_id,
+      title: step.title ?? 'Материал удалён',
+      slug: step.slug ?? '',
+    }))
   }
   catch {
     loadError.value = 'Не удалось загрузить план.'
@@ -72,9 +100,9 @@ async function load() {
   }
 }
 
-function add(course: Course) {
-  if (!plannedIds.value.has(course.id)) {
-    draft.value = [...draft.value, course]
+function add(step: Step) {
+  if (!plannedKeys.value.has(keyOf(step))) {
+    draft.value = [...draft.value, step]
   }
 }
 
@@ -108,9 +136,18 @@ async function save() {
   savedAt.value = null
 
   try {
-    const { data } = await savePlan(learner.value.id, draft.value.map(course => course.id))
+    const { data } = await savePlan(
+      learner.value.id,
+      draft.value.map(step => ({ type: step.kind, id: step.id })),
+    )
+
     saved.value = data
-    draft.value = data.map(step => step.course)
+    draft.value = data.map(step => ({
+      kind: step.kind,
+      id: step.item_id,
+      title: step.title ?? 'Материал удалён',
+      slug: step.slug ?? '',
+    }))
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
   }
   catch (caught) {
@@ -129,18 +166,30 @@ const people = useDebouncedSearch<CoursePerson>(
   async term => (await searchPlanPeople(term)).data,
 )
 
-const courses = useDebouncedSearch<Course>(
-  async term => (await fetchCourses({ search: term })).data,
-)
+/**
+ * Поиск сразу по обоим видам: составителю всё равно, курс это или регламент, —
+ * ему нужно то, что называется так, как он набрал.
+ */
+const material = useDebouncedSearch<Step>(async (term) => {
+  const [courses, regulations] = await Promise.all([
+    fetchCourses({ search: term }),
+    fetchRegulations({ search: term }),
+  ])
+
+  return [
+    ...courses.data.map(course => asStep(course, 'course')),
+    ...regulations.data.map(regulation => asStep(regulation, 'regulation')),
+  ]
+})
 
 function pick(person: CoursePerson) {
   people.clear()
   void choose(person)
 }
 
-function plan(course: Course) {
-  courses.clear()
-  add(course)
+function plan(step: Step) {
+  material.clear()
+  add(step)
 }
 </script>
 
@@ -230,27 +279,35 @@ function plan(course: Course) {
         <div v-if="isLoading" class="skeleton skeleton-line" />
 
         <p v-else-if="!draft.length" class="faint">
-          План пуст. Найдите курс ниже и добавьте его первым шагом.
+          План пуст. Найдите курс или регламент ниже и добавьте его первым шагом.
         </p>
 
         <ol v-else class="steps">
-          <li v-for="(course, index) in draft" :key="course.id" class="step">
+          <li v-for="(step, index) in draft" :key="`${step.kind}:${step.id}`" class="step">
             <span class="step__number">{{ index + 1 }}</span>
 
             <span class="step__body">
-              <NuxtLink :to="`/lms/${course.slug}`" class="step__title">{{ course.title }}</NuxtLink>
+              <NuxtLink
+                :to="step.kind === 'regulation' ? `/lms/regulations/${step.slug}` : `/lms/${step.slug}`"
+                class="step__title"
+              >
+                {{ step.title }}
+              </NuxtLink>
 
               <span class="faint">
-                <template v-if="stepFor(course)?.is_completed">Пройден</template>
-                <template v-else-if="stepFor(course)?.is_started">Пройдено {{ stepFor(course)?.progress }}%</template>
-                <template v-else-if="stepFor(course)">Ещё не начат</template>
-                <template v-else>Новый шаг — сохраните, чтобы назначить</template>
+                <!-- Вид называем прямо: в одном списке курс и регламент, и по
+                     названию их не различить. -->
+                {{ step.kind === 'regulation' ? 'Регламент' : 'Курс' }} ·
+                <template v-if="stepFor(step)?.is_completed">пройден</template>
+                <template v-else-if="stepFor(step)?.is_started">пройдено {{ stepFor(step)?.progress }}%</template>
+                <template v-else-if="stepFor(step)">ещё не начат</template>
+                <template v-else>новый шаг, сохраните, чтобы назначить</template>
               </span>
 
-              <!-- Курс могли закрыть уже после назначения: у себя сотрудник
+              <!-- Материал могли закрыть уже после назначения: у себя сотрудник
                    такой шаг не увидит, и сказать об этом надо здесь. -->
-              <span v-if="stepFor(course)?.is_visible_to_learner === false" class="step__warning">
-                Сотрудник этот курс не видит — он закрыт от него
+              <span v-if="stepFor(step)?.is_visible_to_learner === false" class="step__warning">
+                Сотрудник это не видит — закрыто от него
               </span>
             </span>
 
@@ -259,7 +316,7 @@ function plan(course: Course) {
                 type="button"
                 class="button-ghost button-sm"
                 :disabled="index === 0"
-                :aria-label="`Выше: ${course.title}`"
+                :aria-label="`Выше: ${step.title}`"
                 @click="move(index, -1)"
               >
                 ↑
@@ -268,7 +325,7 @@ function plan(course: Course) {
                 type="button"
                 class="button-ghost button-sm"
                 :disabled="index === draft.length - 1"
-                :aria-label="`Ниже: ${course.title}`"
+                :aria-label="`Ниже: ${step.title}`"
                 @click="move(index, 1)"
               >
                 ↓
@@ -276,7 +333,7 @@ function plan(course: Course) {
               <button
                 type="button"
                 class="button-ghost button-sm"
-                :aria-label="`Убрать: ${course.title}`"
+                :aria-label="`Убрать: ${step.title}`"
                 @click="remove(index)"
               >
                 Убрать
@@ -286,36 +343,38 @@ function plan(course: Course) {
         </ol>
 
         <div class="field">
-          <label class="field-label" for="course-search">Добавить курс</label>
+          <label class="field-label" for="material-search">Добавить курс или регламент</label>
           <input
-            id="course-search"
-            v-model="courses.query.value"
+            id="material-search"
+            v-model="material.query.value"
             class="input"
             type="search"
             autocomplete="off"
-            placeholder="Название курса"
+            placeholder="Название"
           >
         </div>
 
-        <p v-if="courses.isSearching.value" class="faint">
+        <p v-if="material.isSearching.value" class="faint">
           Ищем…
         </p>
-        <p v-else-if="courses.query.value.trim() && !courses.results.value.length" class="faint">
+        <p v-else-if="material.query.value.trim() && !material.results.value.length" class="faint">
           Ничего не нашли.
         </p>
 
-        <ul v-else-if="courses.results.value.length" class="found">
-          <li v-for="course in courses.results.value" :key="course.id">
+        <ul v-else-if="material.results.value.length" class="found">
+          <li v-for="found in material.results.value" :key="`${found.kind}:${found.id}`">
             <button
               type="button"
               class="found__item"
-              :disabled="plannedIds.has(course.id)"
-              @click="plan(course)"
+              :disabled="plannedKeys.has(`${found.kind}:${found.id}`)"
+              @click="plan(found)"
             >
               <span class="found__body">
-                <span class="found__name">{{ course.title }}</span>
+                <span class="found__name">{{ found.title }}</span>
                 <span class="faint">
-                  {{ course.status_label }}<template v-if="plannedIds.has(course.id)"> — уже в плане</template>
+                  {{ found.kind === 'regulation' ? 'Регламент' : 'Курс' }}<template
+                    v-if="plannedKeys.has(`${found.kind}:${found.id}`)"
+                  > — уже в плане</template>
                 </span>
               </span>
             </button>

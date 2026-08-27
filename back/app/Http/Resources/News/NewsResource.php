@@ -48,6 +48,12 @@ final class NewsResource extends JsonResource
             'recipients' => NewsPersonResource::collection($this->whenLoaded('recipients')),
 
             'attachments' => NewsAttachmentResource::collection($this->whenLoaded('attachments')),
+
+            // Куда сходить после новости. Отбор по видимости делает контроллер:
+            // он один знает, кто спрашивает, а ссылка на закрытый курс — это
+            // название, которое читателю показывать нельзя.
+            'links' => NewsLinkResource::collection($this->whenLoaded('links')),
+
             'quiz' => NewsQuizResource::make($this->whenLoaded('quiz')),
 
             // Проставляет контроллер: он один знает, кто спрашивает.

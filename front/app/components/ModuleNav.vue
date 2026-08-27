@@ -22,12 +22,24 @@ const links = computed<NavLink[]>(() => {
   if (path.startsWith('/lms')) {
     return [
       { to: '/lms', label: 'Материалы', visible: true, matches: (p: string) => p === '/lms' },
+      // Рядом с материалами: по одному учатся, по другому работают.
+      {
+        to: '/lms/regulations',
+        label: 'Регламенты',
+        visible: true,
+        matches: (p: string) => p.startsWith('/lms/regulations') && p !== '/lms/regulations/categories',
+      },
       // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
       // сам. Первое идёт раньше: с него начинают.
       { to: '/lms/plan', label: 'Мой план', visible: true },
       { to: '/lms/my', label: 'Мои материалы', visible: true },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
       { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
+      {
+        to: '/lms/regulations/categories',
+        label: 'Категории регламентов',
+        visible: can('courses.update'),
+      },
       { to: '/lms/plans', label: 'Планы обучения', visible: can('enrollments.manage') },
     ].filter(link => link.visible)
   }

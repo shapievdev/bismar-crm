@@ -16,6 +16,34 @@ export interface NewsPerson {
   acknowledged_via?: string
 }
 
+/** Что бывает целью ссылки при новости. */
+export type LinkedKind = 'course' | 'module' | 'lesson' | 'regulation'
+
+/**
+ * Куда сходить после новости.
+ *
+ * Приходит готовой ссылкой, а не парой «вид и номер»: у модуля своей страницы
+ * нет и он ведёт на курс, у урока адрес складывается из курса и номера.
+ */
+export interface NewsLink {
+  id: number
+  kind: LinkedKind
+  kind_label: string
+  item_id: number
+  title: string | null
+  subtitle: string | null
+  url: string | null
+}
+
+/** Найденный материал — то же, но ещё не привязанное. */
+export interface LinkedMaterialResult {
+  kind: LinkedKind
+  id: number
+  title: string
+  subtitle: string | null
+  url: string | null
+}
+
 export interface News {
   id: number
   title: string
@@ -42,6 +70,9 @@ export interface News {
 
   attachments?: LessonAttachment[]
 
+  /** Куда сходить после новости: курс, модуль, урок или регламент. */
+  links?: NewsLink[]
+
   /**
    * Проверка при новости. По устройству совпадает с тестом урока, поэтому и
    * тип тот же: разметка редактора у них общая.
@@ -65,6 +96,7 @@ export interface NewsPayload {
   audience: NewsAudienceKind
   requires_acknowledgement: boolean
   recipients: number[]
+  links: { type: LinkedKind, id: number }[]
 }
 
 /** Кто ознакомился, а кто ещё нет. */

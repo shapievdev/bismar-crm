@@ -28,6 +28,11 @@ use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\LessonTranscriptController;
 use App\Http\Controllers\Api\Lms\QuizController;
+use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
+use App\Http\Controllers\Api\Lms\RegulationAttachmentController;
+use App\Http\Controllers\Api\Lms\RegulationCategoryController;
+use App\Http\Controllers\Api\Lms\RegulationController;
+use App\Http\Controllers\Api\Lms\RegulationPeopleController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
 use App\Http\Controllers\Api\News\NewsController;
@@ -79,6 +84,62 @@ Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->a
 
     Route::get('statuses', [CourseController::class, 'statuses'])->middleware($view)->name('statuses');
     Route::get('categories', [CategoryController::class, 'index'])->middleware($view)->name('categories.index');
+
+    /*
+     * Регламенты — правила, по которым работают, рядом с материалами, по
+     * которым учатся. Права те же, что у курсов (решение пользователя
+     * 2026-08-27): кто ведёт материалы, ведёт и правила.
+     *
+     * Закрытость проверяет RegulationPolicy, а не EnsureCourseAccess: у
+     * регламента нет частей, за которые пришлось бы отвечать на входе, — есть
+     * он сам, и его политика спрашивается прямо в контроллере.
+     */
+    Route::prefix('regulations')->as('regulations.')->group(function () use ($view, $create, $update, $delete): void {
+        // Раньше `{regulation}`, иначе «categories» уедет в подстановку адреса.
+        Route::get('categories', [RegulationCategoryController::class, 'index'])->middleware($view)->name('categories.index');
+
+        Route::middleware($update)->group(function (): void {
+            Route::post('categories', [RegulationCategoryController::class, 'store'])->name('categories.store');
+            Route::put('categories/{category}', [RegulationCategoryController::class, 'update'])->name('categories.update');
+            Route::delete('categories/{category}', [RegulationCategoryController::class, 'destroy'])->name('categories.destroy');
+        });
+
+        Route::get('/', [RegulationController::class, 'index'])->middleware($view)->name('index');
+        Route::post('/', [RegulationController::class, 'store'])->middleware($create)->name('store');
+
+        Route::get('{regulation}', [RegulationController::class, 'show'])->middleware($view)->name('show');
+        Route::put('{regulation}', [RegulationController::class, 'update'])->middleware($update)->name('update');
+        Route::delete('{regulation}', [RegulationController::class, 'destroy'])->middleware($delete)->name('destroy');
+
+        // Прочитал — весь прогресс, какой у регламента бывает.
+        Route::middleware($view)->group(function (): void {
+            Route::post('{regulation}/acknowledge', [RegulationAcknowledgementController::class, 'store'])
+                ->name('acknowledge');
+        });
+        Route::get('{regulation}/acknowledgements', [RegulationAcknowledgementController::class, 'index'])
+            ->middleware($update)
+            ->name('acknowledgements');
+
+        // Кого пускать в закрытый регламент. Права на курсы здесь ни при чём:
+        // список ведёт автор — см. RegulationPolicy::manageAccess.
+        Route::get('{regulation}/access', [RegulationPeopleController::class, 'members'])->name('access.show');
+        Route::put('{regulation}/access', [RegulationPeopleController::class, 'updateMembers'])->name('access.update');
+        Route::get('{regulation}/access/candidates', [RegulationPeopleController::class, 'memberCandidates'])
+            ->name('access.candidates');
+
+        // Кто отвечает за регламент — право редакторское: назначить
+        // ответственного значит сказать, к кому идти с вопросом.
+        Route::middleware($update)->group(function (): void {
+            Route::get('{regulation}/experts', [RegulationPeopleController::class, 'experts'])->name('experts.show');
+            Route::put('{regulation}/experts', [RegulationPeopleController::class, 'updateExperts'])->name('experts.update');
+            Route::get('{regulation}/experts/candidates', [RegulationPeopleController::class, 'expertCandidates'])
+                ->name('experts.candidates');
+
+            Route::post('{regulation}/attachments', [RegulationAttachmentController::class, 'store'])->name('attachments.store');
+            Route::put('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'update'])->name('attachments.update');
+            Route::delete('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'destroy'])->name('attachments.destroy');
+        });
+    });
 
     // Learning. Per-course visibility is decided by the policy, which also has
     // to hide unpublished courses — a route-level check cannot express that.
@@ -192,6 +253,8 @@ Route::middleware('auth:sanctum')->prefix('news')->as('news.')->group(function (
     Route::get('pending-count', [NewsController::class, 'pendingCount'])->name('pending-count');
     Route::get('manage', [NewsController::class, 'manage'])->name('manage');
     Route::get('people', [NewsController::class, 'people'])->name('people');
+    // Что можно привязать к новости: курс, модуль, урок или регламент.
+    Route::get('material', [NewsController::class, 'material'])->name('material');
 
     Route::get('/', [NewsController::class, 'index'])->name('index');
     Route::post('/', [NewsController::class, 'store'])->name('store');

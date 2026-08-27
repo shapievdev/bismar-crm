@@ -6,9 +6,13 @@ namespace App\Providers;
 
 use Anthropic\Client;
 use App\Models\Course;
+use App\Models\CourseModule;
+use App\Models\Lesson;
+use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Ai\Embedder;
 use App\Support\Ai\ModelSettings;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -38,7 +42,30 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->registerMorphMap();
         $this->registerAdministratorBypass();
+    }
+
+    /**
+     * Короткие имена для полиморфных связей.
+     *
+     * В базе и в ответах API стоит «course» и «regulation», а не полное имя
+     * класса: перенос класса в другое пространство имён иначе означал бы
+     * миграцию данных, а клиент получал бы в поле вида шага строку с обратными
+     * слэшами.
+     *
+     * Карта необязывающая (`morphMap`, а не `enforceMorphMap`) намеренно:
+     * spatie/laravel-permission держит в `model_has_roles.model_type` полное
+     * имя класса User, и обязывающая карта уронила бы любую проверку прав.
+     */
+    private function registerMorphMap(): void
+    {
+        Relation::morphMap([
+            'course' => Course::class,
+            'module' => CourseModule::class,
+            'lesson' => Lesson::class,
+            'regulation' => Regulation::class,
+        ]);
     }
 
     /**
@@ -66,17 +93,23 @@ class AppServiceProvider extends ServiceProvider
                 return null;
             }
 
-            return $this->concernsACourse($arguments) ? null : true;
+            return $this->concernsClosableMaterial($arguments) ? null : true;
         });
     }
 
     /**
+     * Разбирает ли проверка конкретный курс или регламент.
+     *
+     * Оба умеют быть закрытыми, и у обоих закрытость должна держать
+     * администратора — поэтому для них пропуск снимается и решение остаётся за
+     * политикой. См. CourseAccess и RegulationAccess.
+     *
      * @param  array<int, mixed>  $arguments
      */
-    private function concernsACourse(array $arguments): bool
+    private function concernsClosableMaterial(array $arguments): bool
     {
         foreach ($arguments as $argument) {
-            if ($argument instanceof Course) {
+            if ($argument instanceof Course || $argument instanceof Regulation) {
                 return true;
             }
         }

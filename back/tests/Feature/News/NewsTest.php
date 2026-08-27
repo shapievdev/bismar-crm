@@ -7,7 +7,9 @@ namespace Tests\Feature\News;
 use App\Enums\NewsAudience;
 use App\Enums\NewsStatus;
 use App\Enums\Permission;
+use App\Models\Course;
 use App\Models\News;
+use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -263,6 +265,147 @@ final class NewsTest extends TestCase
             ->getJson(route('news.manage'))
             ->assertOk()
             ->assertJsonCount(2, 'data');
+    }
+
+    /* ---------- Куда сходить после новости ---------- */
+
+    public function test_a_news_item_links_to_material_of_every_kind(): void
+    {
+        $course = Course::factory()->withLessons(2)->create(['title' => 'Работа с клиентом']);
+        $lesson = $course->lessons()->first();
+        $module = $course->modules()->first();
+        $regulation = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+
+        $this->actingAs($this->editor())
+            ->postJson(route('news.store'), $this->payload([
+                'links' => [
+                    ['type' => 'regulation', 'id' => $regulation->id],
+                    ['type' => 'course', 'id' => $course->id],
+                    ['type' => 'module', 'id' => $module->id],
+                    ['type' => 'lesson', 'id' => $lesson->id],
+                ],
+            ]))
+            ->assertCreated()
+            ->assertJsonCount(4, 'data.links')
+            // Порядок присланного и есть порядок ссылок.
+            ->assertJsonPath('data.links.0.kind', 'regulation')
+            ->assertJsonPath('data.links.0.kind_label', 'Регламент')
+            ->assertJsonPath('data.links.0.url', '/lms/regulations/'.$regulation->slug)
+            ->assertJsonPath('data.links.1.url', '/lms/'.$course->slug)
+            // У модуля своей страницы нет — он ведёт на курс, где виден целиком.
+            ->assertJsonPath('data.links.2.kind_label', 'Модуль')
+            ->assertJsonPath('data.links.2.url', '/lms/'.$course->slug)
+            ->assertJsonPath('data.links.2.subtitle', 'Курс «Работа с клиентом»')
+            ->assertJsonPath('data.links.3.url', '/lms/'.$course->slug.'/lessons/'.$lesson->id);
+    }
+
+    public function test_a_reader_sees_the_links_on_the_news_card(): void
+    {
+        $regulation = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        $news = News::factory()->published()->create();
+        $news->links()->create(['linkable_type' => 'regulation', 'linkable_id' => $regulation->id, 'position' => 0]);
+
+        $this->actingAs($this->learner())
+            ->getJson(route('news.show', $news))
+            ->assertOk()
+            ->assertJsonPath('data.links.0.title', 'Кассовая дисциплина')
+            ->assertJsonPath('data.links.0.url', '/lms/regulations/'.$regulation->slug);
+    }
+
+    /**
+     * Ссылка на закрытый курс — это его название, а название закрытого курса
+     * читателю показывать нельзя.
+     */
+    public function test_a_link_the_reader_cannot_follow_is_left_out(): void
+    {
+        $open = Regulation::factory()->published()->create();
+        $closed = Regulation::factory()->published()->closed()->create();
+
+        $news = News::factory()->published()->create();
+        $news->links()->createMany([
+            ['linkable_type' => 'regulation', 'linkable_id' => $open->id, 'position' => 0],
+            ['linkable_type' => 'regulation', 'linkable_id' => $closed->id, 'position' => 1],
+        ]);
+
+        $this->actingAs($this->learner())
+            ->getJson(route('news.show', $news))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.links')
+            ->assertJsonPath('data.links.0.item_id', $open->id);
+    }
+
+    public function test_material_the_editor_cannot_see_cannot_be_linked(): void
+    {
+        $closed = Regulation::factory()->published()->closed()->create();
+
+        $this->actingAs($this->editor())
+            ->postJson(route('news.store'), $this->payload([
+                'links' => [['type' => 'regulation', 'id' => $closed->id]],
+            ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('links.0.id');
+    }
+
+    public function test_the_same_material_cannot_be_linked_twice(): void
+    {
+        $regulation = Regulation::factory()->published()->create();
+
+        $this->actingAs($this->editor())
+            ->postJson(route('news.store'), $this->payload([
+                'links' => [
+                    ['type' => 'regulation', 'id' => $regulation->id],
+                    ['type' => 'regulation', 'id' => $regulation->id],
+                ],
+            ]))
+            ->assertCreated()
+            ->assertJsonCount(1, 'data.links');
+    }
+
+    public function test_saving_replaces_the_links_rather_than_adding_to_them(): void
+    {
+        $editor = $this->editor();
+        $first = Regulation::factory()->published()->create();
+        $second = Regulation::factory()->published()->create();
+
+        $this->actingAs($editor)->postJson(route('news.store'), $this->payload([
+            'links' => [['type' => 'regulation', 'id' => $first->id]],
+        ]))->assertCreated();
+
+        $news = News::query()->sole();
+
+        $this->actingAs($editor)
+            ->putJson(route('news.update', $news), $this->payload([
+                'links' => [['type' => 'regulation', 'id' => $second->id]],
+            ]))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.links')
+            ->assertJsonPath('data.links.0.item_id', $second->id);
+    }
+
+    public function test_material_can_be_searched_across_every_kind(): void
+    {
+        Course::factory()->published()->create(['title' => 'Кассовая работа']);
+        Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        Regulation::factory()->published()->create(['title' => 'Охрана труда']);
+
+        $response = $this->actingAs($this->editor())
+            ->getJson(route('news.material', ['search' => 'кассовая']))
+            ->assertOk();
+
+        // Кириллица ищется без учёта регистра только через ICU: базы собраны с
+        // C-сортировкой.
+        $this->assertCount(2, $response->json('data'));
+        $this->assertEqualsCanonicalizing(
+            ['course', 'regulation'],
+            array_column($response->json('data'), 'kind'),
+        );
+    }
+
+    public function test_an_ordinary_employee_cannot_search_material_for_news(): void
+    {
+        $this->actingAs($this->employee())
+            ->getJson(route('news.material', ['search' => 'что-нибудь']))
+            ->assertForbidden();
     }
 
     /* ---------- Ознакомление ---------- */

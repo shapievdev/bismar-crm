@@ -83,6 +83,16 @@ class News extends Model
     }
 
     /**
+     * Куда сходить после новости: курс, модуль, урок или регламент.
+     *
+     * @return HasMany<NewsLink, $this>
+     */
+    public function links(): HasMany
+    {
+        return $this->hasMany(NewsLink::class)->inOrder();
+    }
+
+    /**
      * @return HasOne<NewsQuiz, $this>
      */
     public function quiz(): HasOne

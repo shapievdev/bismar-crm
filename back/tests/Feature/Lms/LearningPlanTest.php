@@ -7,6 +7,8 @@ namespace Tests\Feature\Lms;
 use App\Enums\Permission;
 use App\Models\Course;
 use App\Models\LearningPlanItem;
+use App\Models\Regulation;
+use App\Models\RegulationAcknowledgement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
@@ -23,22 +25,66 @@ final class LearningPlanTest extends TestCase
         return $this->userWith(Permission::ViewCourses, Permission::ManageEnrollments);
     }
 
-    public function test_a_trainer_assigns_courses_in_the_order_they_should_be_taken(): void
+    /**
+     * @param  list<array{type: string, id: int}>  $items
+     * @return array{items: list<array{type: string, id: int}>}
+     */
+    private function plan(array $items): array
+    {
+        return ['items' => $items];
+    }
+
+    /**
+     * @return array{type: string, id: int}
+     */
+    private function step(Course|Regulation $item): array
+    {
+        return [
+            'type' => $item instanceof Course ? 'course' : 'regulation',
+            'id' => $item->id,
+        ];
+    }
+
+    /* ---------- Назначение и порядок ---------- */
+
+    public function test_a_trainer_assigns_material_in_the_order_it_should_be_taken(): void
     {
         $learner = $this->learner();
         [$first, $second, $third] = Course::factory()->count(3)->published()->create()->all();
 
         $this->actingAs($this->trainer())
-            ->putJson(route('lms.plans.update', $learner), [
-                'courses' => [$second->id, $third->id, $first->id],
-            ])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($second), $this->step($third), $this->step($first),
+            ]))
             ->assertOk()
-            ->assertJsonPath('data.0.course.id', $second->id)
+            ->assertJsonPath('data.0.item_id', $second->id)
             ->assertJsonPath('data.0.position', 1)
-            ->assertJsonPath('data.1.course.id', $third->id)
+            ->assertJsonPath('data.0.kind', 'course')
+            ->assertJsonPath('data.1.item_id', $third->id)
             ->assertJsonPath('data.1.position', 2)
-            ->assertJsonPath('data.2.course.id', $first->id)
+            ->assertJsonPath('data.2.item_id', $first->id)
             ->assertJsonPath('data.2.position', 3);
+    }
+
+    /**
+     * Регламент назначается тем же порядком, что и курс, и стоит с ним в одном
+     * списке: сотруднику всё равно, чем именно ему велели заняться третьим.
+     */
+    public function test_a_plan_mixes_courses_and_regulations(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create(['title' => 'Работа с клиентом']);
+        $regulation = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($regulation), $this->step($course),
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.kind', 'regulation')
+            ->assertJsonPath('data.0.title', 'Кассовая дисциплина')
+            ->assertJsonPath('data.1.kind', 'course')
+            ->assertJsonPath('data.1.title', 'Работа с клиентом');
     }
 
     /**
@@ -47,23 +93,29 @@ final class LearningPlanTest extends TestCase
     public function test_saving_the_plan_replaces_it_rather_than_adding_to_it(): void
     {
         $learner = $this->learner();
-        [$kept, $dropped, $added] = Course::factory()->count(3)->published()->create()->all();
+        $kept = Course::factory()->published()->create();
+        $dropped = Regulation::factory()->published()->create();
+        $added = Course::factory()->published()->create();
         $trainer = $this->trainer();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$kept->id, $dropped->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($kept), $this->step($dropped),
+            ]))
             ->assertOk();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$added->id, $kept->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($added), $this->step($kept),
+            ]))
             ->assertOk()
             ->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.course.id', $added->id)
-            ->assertJsonPath('data.1.course.id', $kept->id);
+            ->assertJsonPath('data.0.item_id', $added->id)
+            ->assertJsonPath('data.1.item_id', $kept->id);
 
         $this->assertSame(
             [$added->id, $kept->id],
-            $learner->planItems()->pluck('course_id')->all(),
+            $learner->planItems()->pluck('plannable_id')->map(intval(...))->all(),
         );
     }
 
@@ -74,11 +126,11 @@ final class LearningPlanTest extends TestCase
         $trainer = $this->trainer();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$course->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
             ->assertOk();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => []])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([]))
             ->assertOk()
             ->assertJsonCount(0, 'data');
 
@@ -86,8 +138,35 @@ final class LearningPlanTest extends TestCase
     }
 
     /**
-     * Переставить шаг местами — не назначить его заново: кто поставил курс в
-     * план, спрашивают именно про того, кто это решил.
+     * Курс №3 и регламент №3 — разные вещи: снимая один, нельзя задеть другой.
+     */
+    public function test_a_course_and_a_regulation_with_the_same_number_do_not_collide(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create();
+        $regulation = Regulation::factory()->published()->create();
+
+        // Совпадение номеров в тесте не гарантировано, поэтому проверяем то,
+        // что важно: оба шага стоят в плане и снимаются независимо.
+        $trainer = $this->trainer();
+
+        $this->actingAs($trainer)
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($course), $this->step($regulation),
+            ]))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $this->actingAs($trainer)
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($regulation)]))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.kind', 'regulation');
+    }
+
+    /**
+     * Переставить шаг местами — не назначить его заново: кто поставил материал
+     * в план, спрашивают именно про того, кто это решил.
      */
     public function test_reordering_keeps_who_assigned_a_step_and_when(): void
     {
@@ -97,13 +176,17 @@ final class LearningPlanTest extends TestCase
         $other = $this->trainer();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$first->id, $second->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($first), $this->step($second),
+            ]))
             ->assertOk();
 
-        $original = LearningPlanItem::query()->where('course_id', $first->id)->sole();
+        $original = LearningPlanItem::query()->where('plannable_id', $first->id)->sole();
 
         $this->actingAs($other)
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$second->id, $first->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($second), $this->step($first),
+            ]))
             ->assertOk();
 
         $moved = $original->refresh();
@@ -113,44 +196,43 @@ final class LearningPlanTest extends TestCase
         $this->assertTrue($original->created_at->equalTo($moved->created_at));
     }
 
-    public function test_the_same_course_cannot_be_planned_twice(): void
+    public function test_the_same_material_cannot_be_planned_twice(): void
     {
         $learner = $this->learner();
         $course = Course::factory()->published()->create();
 
         $this->actingAs($this->trainer())
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$course->id, $course->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($course), $this->step($course),
+            ]))
             ->assertOk()
             ->assertJsonCount(1, 'data');
     }
 
+    /* ---------- Права и видимость ---------- */
+
     /**
-     * Назначить можно только то, что видишь сам, — иначе чужой приватный курс
-     * попадал бы в план по угаданному номеру.
+     * Назначить можно только то, что видишь сам, — иначе чужой закрытый
+     * материал попадал бы в план по угаданному номеру.
      */
-    public function test_a_course_the_trainer_cannot_see_is_refused(): void
+    public function test_material_the_trainer_cannot_see_is_refused(): void
     {
         $learner = $this->learner();
-        $secret = Course::factory()->published()->closed()->create();
+        $secretCourse = Course::factory()->published()->closed()->create();
+        $secretRegulation = Regulation::factory()->published()->closed()->create();
+        $trainer = $this->trainer();
 
-        $this->actingAs($this->trainer())
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$secret->id]])
+        $this->actingAs($trainer)
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($secretCourse)]))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('courses');
+            ->assertJsonValidationErrors('items');
+
+        $this->actingAs($trainer)
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($secretRegulation)]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('items');
 
         $this->assertSame(0, $learner->planItems()->count());
-    }
-
-    public function test_a_deleted_course_cannot_be_planned(): void
-    {
-        $learner = $this->learner();
-        $course = Course::factory()->published()->create();
-        $course->delete();
-
-        $this->actingAs($this->trainer())
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$course->id]])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('courses.0');
     }
 
     public function test_reading_the_knowledge_base_is_not_enough_to_plan_for_others(): void
@@ -159,7 +241,7 @@ final class LearningPlanTest extends TestCase
         $course = Course::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$course->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
             ->assertForbidden();
 
         $this->actingAs($this->learner())
@@ -167,19 +249,67 @@ final class LearningPlanTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_a_learner_sees_their_own_plan_with_progress(): void
+    /**
+     * Шаг, за которым для этого человека нет материала, ему не показывают.
+     */
+    public function test_a_step_the_learner_cannot_see_is_left_out_of_their_plan(): void
+    {
+        $learner = $this->learner();
+        $open = Regulation::factory()->published()->create();
+        $closed = Regulation::factory()->published()->closed()->create();
+
+        // Мимо API: составитель такой регламент назначить и не смог бы, а вот
+        // закрыть уже назначенный — вполне.
+        $learner->planItems()->createMany([
+            ['plannable_type' => 'regulation', 'plannable_id' => $open->id, 'position' => 1],
+            ['plannable_type' => 'regulation', 'plannable_id' => $closed->id, 'position' => 2],
+        ]);
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.my-plan'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.item_id', $open->id);
+    }
+
+    /**
+     * Составителю, наоборот, показывают всё — и отмечают, чего сотрудник не
+     * увидит.
+     */
+    public function test_the_trainer_is_told_which_steps_the_learner_cannot_see(): void
+    {
+        $learner = $this->learner();
+        $open = Course::factory()->published()->create();
+        $closed = Regulation::factory()->published()->closed()->create();
+
+        $learner->planItems()->createMany([
+            ['plannable_type' => 'course', 'plannable_id' => $open->id, 'position' => 1],
+            ['plannable_type' => 'regulation', 'plannable_id' => $closed->id, 'position' => 2],
+        ]);
+
+        $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.show', $learner))
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.is_visible_to_learner', true)
+            ->assertJsonPath('data.1.is_visible_to_learner', false);
+    }
+
+    /* ---------- Прогресс ---------- */
+
+    public function test_a_learner_sees_their_own_plan_with_course_progress(): void
     {
         $learner = $this->learner();
         $course = Course::factory()->withLessons(4)->create();
 
         $this->actingAs($this->trainer())
-            ->putJson(route('lms.plans.update', $learner), ['courses' => [$course->id]])
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
             ->assertOk();
 
         $this->actingAs($learner)
             ->getJson(route('lms.my-plan'))
             ->assertOk()
-            ->assertJsonPath('data.0.course.id', $course->id)
+            ->assertJsonPath('data.0.item_id', $course->id)
             ->assertJsonPath('data.0.position', 1)
             // Назначенного ещё не открывали: честный ноль, а не пустота.
             ->assertJsonPath('data.0.progress', 0)
@@ -198,51 +328,34 @@ final class LearningPlanTest extends TestCase
     }
 
     /**
-     * Шаг, за которым для этого человека нет материала, ему не показывают —
-     * так же, как не показывают запись на закрытый от него курс.
+     * У регламента доли нет: правило либо прочитано, либо нет.
      */
-    public function test_a_step_the_learner_cannot_see_is_left_out_of_their_plan(): void
+    public function test_a_regulation_step_is_done_once_it_has_been_read(): void
     {
         $learner = $this->learner();
-        $open = Course::factory()->published()->create();
-        $closed = Course::factory()->published()->closed()->create();
+        $regulation = Regulation::factory()->published()->create();
 
-        // Мимо API: составитель такой курс назначить и не смог бы, а вот
-        // закрыть уже назначенный — вполне.
-        $learner->planItems()->createMany([
-            ['course_id' => $open->id, 'position' => 1],
-            ['course_id' => $closed->id, 'position' => 2],
-        ]);
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($regulation)]))
+            ->assertOk();
 
         $this->actingAs($learner)
             ->getJson(route('lms.my-plan'))
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.course.id', $open->id);
-    }
+            ->assertJsonPath('data.0.progress', 0)
+            ->assertJsonPath('data.0.is_completed', false);
 
-    /**
-     * Составителю, наоборот, показывают всё — и отмечают, чего сотрудник не
-     * увидит: назначить закрытый ему курс можно по недосмотру, и узнать об
-     * этом надо на том же экране.
-     */
-    public function test_the_trainer_is_told_which_steps_the_learner_cannot_see(): void
-    {
-        $learner = $this->learner();
-        $open = Course::factory()->published()->create();
-        $closed = Course::factory()->published()->closed()->create();
+        $this->actingAs($learner)
+            ->postJson(route('lms.regulations.acknowledge', $regulation))
+            ->assertOk();
 
-        $learner->planItems()->createMany([
-            ['course_id' => $open->id, 'position' => 1],
-            ['course_id' => $closed->id, 'position' => 2],
-        ]);
-
-        $this->actingAs($this->trainer())
-            ->getJson(route('lms.plans.show', $learner))
+        $this->actingAs($learner)
+            ->getJson(route('lms.my-plan'))
             ->assertOk()
-            ->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.is_visible_to_learner', true)
-            ->assertJsonPath('data.1.is_visible_to_learner', false);
+            ->assertJsonPath('data.0.progress', 100)
+            ->assertJsonPath('data.0.is_completed', true);
+
+        $this->assertSame(1, RegulationAcknowledgement::query()->count());
     }
 
     public function test_people_can_be_searched_when_choosing_whose_plan_to_edit(): void

@@ -7,6 +7,7 @@ namespace App\Actions\News;
 use App\Enums\NewsAudience;
 use App\Enums\NewsStatus;
 use App\Models\News;
+use App\Models\NewsLink;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -30,7 +31,8 @@ final readonly class SaveNews
      *     is_pinned?: bool,
      *     audience: string,
      *     requires_acknowledgement?: bool,
-     *     recipients?: list<int>
+     *     recipients?: list<int>,
+     *     links?: list<array{type: string, id: int}>
      * } $attributes
      */
     public function handle(array $attributes, User $author, ?News $news = null): News
@@ -60,9 +62,39 @@ final readonly class SaveNews
             $news->save();
 
             $this->syncRecipients($news, $audience, $attributes['recipients'] ?? []);
+            $this->syncLinks($news, $attributes['links'] ?? []);
 
-            return $news->load('author', 'recipients');
+            return $news->load('author', 'recipients', 'links.linkable');
         });
+    }
+
+    /**
+     * Куда сходить после новости. Список задаётся целиком, как и адресаты, а
+     * порядок присланного и есть порядок ссылок.
+     *
+     * @param  list<array{type: string, id: int}>  $links
+     */
+    private function syncLinks(News $news, array $links): void
+    {
+        $wanted = [];
+
+        foreach ($links as $link) {
+            $key = $link['type'].':'.$link['id'];
+
+            $wanted[$key] ??= ['type' => $link['type'], 'id' => (int) $link['id']];
+        }
+
+        // Через модель, а не через связь: у связи есть сортировка, а
+        // DELETE ... ORDER BY Postgres не понимает.
+        NewsLink::query()->where('news_id', $news->getKey())->delete();
+
+        foreach (array_values($wanted) as $position => $link) {
+            $news->links()->create([
+                'linkable_type' => $link['type'],
+                'linkable_id' => $link['id'],
+                'position' => $position,
+            ]);
+        }
     }
 
     /**

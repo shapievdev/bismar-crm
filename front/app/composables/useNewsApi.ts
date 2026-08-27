@@ -3,6 +3,7 @@ import type { UploadOptions } from '~/utils/upload'
 import type { ResourceResponse } from '~/types/auth'
 import type { LessonAttachment, PaginatedResponse, Quiz, QuizPayload } from '~/types/lms'
 import type {
+  LinkedMaterialResult,
   News,
   NewsAcknowledgements,
   NewsPayload,
@@ -45,6 +46,13 @@ export function useNewsApi() {
 
     deleteNews: (slug: string) =>
       $api(`/api/news/${slug}`, { method: 'DELETE' }),
+
+    /**
+     * Что можно привязать к новости — поиском сразу по курсам, модулям, урокам
+     * и регламентам.
+     */
+    searchMaterial: (search: string): Promise<{ data: LinkedMaterialResult[] }> =>
+      $api<{ data: LinkedMaterialResult[] }>('/api/news/material', { query: { search } }),
 
     /** Кого можно назвать адресатом — поиском. */
     searchPeople: (search: string): Promise<ResourceResponse<NewsPerson[]>> =>

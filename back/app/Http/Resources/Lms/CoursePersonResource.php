@@ -42,6 +42,14 @@ final class CoursePersonResource extends JsonResource
                 'course_experts',
                 fn (): ?string => $this->pivot->created_at?->toIso8601String(),
             ),
+
+            // Когда человек отметил, что прочитал регламент. Проставляет
+            // контроллер: у регламента это весь прогресс, какой бывает, и он
+            // приходит не из сводной таблицы, а из отдельной отметки.
+            'acknowledged_at' => $this->when(
+                $this->acknowledged_at !== null,
+                fn (): string => (string) $this->acknowledged_at,
+            ),
         ];
     }
 }

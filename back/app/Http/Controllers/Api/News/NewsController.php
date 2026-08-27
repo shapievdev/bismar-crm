@@ -11,7 +11,9 @@ use App\Http\Requests\News\SaveNewsRequest;
 use App\Http\Resources\News\NewsPersonResource;
 use App\Http\Resources\News\NewsResource;
 use App\Models\News;
+use App\Models\NewsLink;
 use App\Models\User;
+use App\Support\News\LinkedMaterial;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -100,7 +102,14 @@ final class NewsController extends Controller
         /** @var User $reader */
         $reader = $request->user();
 
-        $news->load('author', 'attachments', 'quiz.questions.options');
+        $news->load('author', 'attachments', 'quiz.questions.options', 'links.linkable');
+
+        // Ссылка на закрытый курс — это его название, а название закрытого
+        // курса читателю показывать нельзя. Отбор здесь, а не в ресурсе: ресурс
+        // не знает, кто спрашивает.
+        $news->setRelation('links', $news->links->filter(
+            fn (NewsLink $link): bool => LinkedMaterial::isVisibleTo($link->linkable, $reader),
+        )->values());
 
         // Составителю едет ещё и список адресатов — ему им управлять.
         if ($reader->can('update', $news)) {
@@ -154,6 +163,24 @@ final class NewsController extends Controller
     }
 
     /**
+     * Что можно привязать к новости — поиском сразу по курсам, модулям, урокам
+     * и регламентам: составителю всё равно, чем окажется найденное.
+     */
+    public function material(Request $request): JsonResponse
+    {
+        Gate::authorize('create', News::class);
+
+        /** @var User $actor */
+        $actor = $request->user();
+
+        $search = trim((string) $request->query('search'));
+
+        return response()->json([
+            'data' => $search === '' ? [] : LinkedMaterial::search($search, $actor),
+        ]);
+    }
+
+    /**
      * Кого можно назвать адресатом — поиском: сотрудников тысячи, нужен один.
      */
     public function people(Request $request): AnonymousResourceCollection
@@ -174,7 +201,7 @@ final class NewsController extends Controller
 
     private function forEditor(News $news): News
     {
-        $news->load('author', 'recipients', 'attachments', 'quiz.questions.options');
+        $news->load('author', 'recipients', 'attachments', 'quiz.questions.options', 'links.linkable');
         $news->loadCount('acknowledgements');
         $news->setAttribute('sends_content', true);
 

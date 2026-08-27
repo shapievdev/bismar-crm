@@ -1,3 +1,4 @@
+import { toValidationError } from '~/composables/useAuth'
 import type { ResourceResponse } from '~/types/auth'
 import type {
   AnswerSourceKind,
@@ -10,6 +11,7 @@ import type {
   CoursePerson,
   Enrollment,
   LearningPlanItem,
+  PlannableKind,
   LessonAnswer,
   LessonAnswerPayload,
   LessonAttachment,
@@ -105,12 +107,18 @@ export function useLmsApi() {
     /**
      * Задаёт план целиком, и порядок присланного и есть порядок шагов —
      * так же, как список допущенных к курсу.
+     *
+     * Шаг приходит парой «вид и номер»: номер сам по себе ничего не значит,
+     * курс №3 и регламент №3 — разные вещи.
      */
-    savePlan: (userId: number, courses: number[]): Promise<ResourceResponse<LearningPlanItem[]>> =>
+    savePlan: (
+      userId: number,
+      items: { type: PlannableKind, id: number }[],
+    ): Promise<ResourceResponse<LearningPlanItem[]>> =>
       $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`, {
         method: 'PUT',
-        body: { courses },
-      }),
+        body: { items },
+      }).catch(toValidationError),
 
     /** Кому назначить план — поиском: сотрудников тысячи, нужен один. */
     searchPlanPeople: (search: string): Promise<ResourceResponse<CoursePerson[]>> =>

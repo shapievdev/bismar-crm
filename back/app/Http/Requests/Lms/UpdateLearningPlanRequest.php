@@ -5,16 +5,27 @@ declare(strict_types=1);
 namespace App\Http\Requests\Lms;
 
 use App\Models\Course;
+use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
  * План сотрудника целиком: порядок присланного и есть порядок шагов.
+ *
+ * Шаг — курс или регламент, поэтому приходит парой «вид и номер»: номер сам по
+ * себе ничего не значит, курс №3 и регламент №3 — разные вещи.
  */
 final class UpdateLearningPlanRequest extends FormRequest
 {
+    /** Что вообще бывает шагом плана. Совпадает с картой в AppServiceProvider. */
+    private const KINDS = [
+        'course' => Course::class,
+        'regulation' => Regulation::class,
+    ];
+
     /**
      * @return array<string, array<int, mixed>>
      */
@@ -23,8 +34,9 @@ final class UpdateLearningPlanRequest extends FormRequest
         return [
             // Присутствует всегда: пустой список — это «убрать весь план», и
             // отличить его от «поле не прислали» иначе нечем.
-            'courses' => ['present', 'array'],
-            'courses.*' => ['integer', Rule::exists('courses', 'id')->whereNull('deleted_at')],
+            'items' => ['present', 'array'],
+            'items.*.type' => ['required', 'string', Rule::in(array_keys(self::KINDS))],
+            'items.*.id' => ['required', 'integer', 'min:1'],
         ];
     }
 
@@ -41,7 +53,7 @@ final class UpdateLearningPlanRequest extends FormRequest
                     return;
                 }
 
-                $wanted = $this->courses();
+                $wanted = $this->items();
 
                 if ($wanted === []) {
                     return;
@@ -50,26 +62,49 @@ final class UpdateLearningPlanRequest extends FormRequest
                 /** @var User $actor */
                 $actor = $this->user();
 
-                $visible = Course::query()->visibleTo($actor)->whereKey($wanted)->pluck('id')->all();
+                foreach (self::KINDS as $kind => $model) {
+                    $ids = array_values(array_map(
+                        static fn (array $item): int => $item['id'],
+                        array_filter($wanted, static fn (array $item): bool => $item['type'] === $kind),
+                    ));
 
-                // Назначить можно только то, что видишь сам. Иначе чужой
-                // приватный курс попадал бы в план по угаданному номеру — и
-                // сотрудник увидел бы в плане название, которое ему закрыто.
-                if (array_diff($wanted, array_map(intval(...), $visible)) !== []) {
-                    $validator->errors()->add('courses', 'В плане есть курс, которого вы не видите.');
+                    if ($ids === []) {
+                        continue;
+                    }
+
+                    /** @var Builder<Course|Regulation> $query */
+                    $query = $model::query();
+
+                    $found = $query->visibleTo($actor)->whereKey($ids)->pluck('id')
+                        ->map(intval(...))->all();
+
+                    // Назначить можно только то, что видишь сам. Иначе чужой
+                    // закрытый материал попадал бы в план по угаданному номеру
+                    // — и сотрудник увидел бы название, которое ему закрыто.
+                    if (array_diff($ids, $found) !== []) {
+                        $validator->errors()->add(
+                            'items',
+                            'В плане есть материал, которого вы не видите.',
+                        );
+
+                        return;
+                    }
                 }
             },
         ];
     }
 
     /**
-     * @return list<int>
+     * @return list<array{type: string, id: int}>
      */
-    public function courses(): array
+    public function items(): array
     {
-        /** @var list<int> $courses */
-        $courses = $this->validated('courses', []);
+        /** @var list<array{type: string, id: int|string}> $items */
+        $items = $this->validated('items', []);
 
-        return array_values(array_unique(array_map(intval(...), $courses)));
+        return array_values(array_map(
+            static fn (array $item): array => ['type' => (string) $item['type'], 'id' => (int) $item['id']],
+            $items,
+        ));
     }
 }

@@ -4,6 +4,13 @@ useHead({ title: 'Мой план' })
 
 const { myPlan } = useLmsApi()
 
+/** Куда ведёт шаг: у курса и регламента разные адреса. */
+function href(step: { kind: string, slug: string | null }): string {
+  return step.kind === 'regulation'
+    ? `/lms/regulations/${step.slug}`
+    : `/lms/${step.slug}`
+}
+
 const { data, pending, error } = await useAsyncData('lms.my-plan', () => myPlan())
 
 const steps = computed(() => data.value?.data ?? [])
@@ -26,7 +33,7 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
           Мой план
         </h1>
         <p class="page-subtitle">
-          Курсы, которые вам назначили, в том порядке, в каком их стоит пройти.
+          Курсы и регламенты, которые вам назначили, в том порядке, в каком их стоит пройти.
         </p>
       </div>
 
@@ -46,7 +53,7 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
     <UiEmptyState
       v-else-if="!steps.length"
       title="Плана пока нет"
-      description="Когда вам назначат курсы, они появятся здесь по порядку. Пока можно выбрать что-нибудь самому."
+      description="Когда вам что-нибудь назначат, оно появится здесь по порядку. Пока можно выбрать материал самому."
     >
       <NuxtLink to="/lms" class="button-primary">
         Открыть каталог
@@ -56,7 +63,7 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
     <ol v-else class="stack plan">
       <li v-for="step in steps" :key="step.id">
         <NuxtLink
-          :to="`/lms/${step.course.slug}`"
+          :to="href(step)"
           class="card row"
           :class="{ 'row--done': step.is_completed }"
         >
@@ -81,18 +88,26 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
           </span>
 
           <div class="row__body">
-            <span class="row__title">{{ step.course.title }}</span>
+            <span class="row__title">{{ step.title }}</span>
             <span class="faint">
-              <template v-if="step.is_completed">Пройден</template>
+              <!-- У регламента доли нет: он либо прочитан, либо нет. -->
+              <template v-if="step.kind === 'regulation'">
+                Регламент — {{ step.is_completed ? 'ознакомлен' : 'нужно прочитать' }}
+              </template>
+              <template v-else-if="step.is_completed">Пройден</template>
               <template v-else-if="step.is_started">Пройдено {{ step.progress }}%</template>
               <template v-else>Ещё не начат</template>
             </span>
           </div>
 
-          <UiProgressRing v-if="step.is_started && !step.is_completed" :value="step.progress" :size="40" />
+          <UiProgressRing
+            v-if="step.kind === 'course' && step.is_started && !step.is_completed"
+            :value="step.progress"
+            :size="40"
+          />
 
           <span v-if="current && current.id === step.id" class="button-primary button-sm">
-            {{ step.is_started ? 'Продолжить' : 'Начать' }}
+            {{ step.kind === 'regulation' ? 'Прочитать' : (step.is_started ? 'Продолжить' : 'Начать') }}
           </span>
           <span v-else-if="!step.is_completed" class="button-secondary button-sm">Открыть</span>
         </NuxtLink>

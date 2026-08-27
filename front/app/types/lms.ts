@@ -1,3 +1,5 @@
+import type { JSONContent } from '@tiptap/core'
+
 export type CourseStatus = 'draft' | 'published' | 'archived'
 
 /**
@@ -147,26 +149,84 @@ export interface Enrollment {
   course?: Course
 }
 
-/**
- * Шаг плана обучения: курс и его место в очереди.
- *
- * Номер — совет, а не запрет: открыть можно любой шаг, порядок лишь говорит, в
- * каком их задумывали.
- */
+/** Что бывает шагом плана обучения. */
+export type PlannableKind = 'course' | 'regulation'
+
 export interface LearningPlanItem {
   id: number
   position: number
   assigned_at: string | null
   assigned_by?: { id: number, name: string } | null
-  course: Course
+
+  /**
+   * Шаг приходит плоско: вид, название и адрес. Двух вложенных объектов на
+   * выбор здесь нет намеренно — экран плана рисует список одинаковых строк.
+   */
+  kind: PlannableKind
+  item_id: number
+  title: string | null
+  slug: string | null
+  summary: string | null
+
   progress: number
   is_started: boolean
   is_completed: boolean
   /**
    * Увидит ли сотрудник этот шаг у себя. Приходит только тому, кто план
-   * составляет: курс могли закрыть уже после назначения.
+   * составляет: материал могли закрыть уже после назначения.
    */
   is_visible_to_learner?: boolean
+}
+
+/** Категория регламентов. Своё дерево, не общее с учебными категориями. */
+export interface RegulationCategory {
+  id: number
+  name: string
+  slug: string
+  description: string | null
+  position: number
+  parent_id: number | null
+  children?: RegulationCategory[]
+  regulations_count?: number
+}
+
+/**
+ * Правило, по которому работают. Сам себе урок: ни модулей, ни частей —
+ * статья, файлы и отметка «ознакомлен».
+ */
+export interface Regulation {
+  id: number
+  title: string
+  slug: string
+  summary: string | null
+  /** Едет только с карточкой одного регламента — в каталоге её нет. */
+  content_json?: JSONContent | null
+  status: CourseStatus
+  status_label: string
+  is_published: boolean
+  published_at: string | null
+  visibility: CourseVisibility
+  visibility_label: string
+  is_private: boolean
+  can_manage_access: boolean
+  members_count?: number
+  category: RegulationCategory | null
+  author?: { id: number, name: string } | null
+  experts?: CoursePerson[]
+  attachments?: LessonAttachment[]
+  /** Весь прогресс, какой у регламента бывает. */
+  is_acknowledged: boolean
+  acknowledged_at: string | null
+  acknowledged_count?: number
+}
+
+export interface RegulationPayload {
+  title: string
+  summary: string | null
+  content_json: JSONContent | null
+  status: CourseStatus
+  visibility: CourseVisibility
+  category_id: number | null
 }
 
 export interface QuizAttempt {
@@ -247,6 +307,11 @@ export interface CoursePerson {
   granted_at?: string | null
   /** Когда назначили ответственным. То же самое со стороны ответственных. */
   appointed_at?: string | null
+  /**
+   * Когда человек отметил, что прочитал регламент. Есть только в списке
+   * ознакомившихся: у регламента это весь прогресс, какой бывает.
+   */
+  acknowledged_at?: string | null
 }
 
 export interface ModulePayload {

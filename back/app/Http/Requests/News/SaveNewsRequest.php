@@ -6,6 +6,9 @@ namespace App\Http\Requests\News;
 
 use App\Enums\NewsAudience;
 use App\Enums\NewsStatus;
+use App\Models\User;
+use App\Support\News\LinkedMaterial;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -45,7 +48,66 @@ final class SaveNewsRequest extends FormRequest
                 ? ['required', 'array', 'min:1']
                 : ['sometimes', 'array'],
             'recipients.*' => ['integer', Rule::exists('users', 'id')],
+
+            // Куда сходить после новости: курс, модуль, урок или регламент.
+            // Приходит парой «вид и номер» — номер сам по себе ничего не
+            // значит, курс №3 и урок №3 разные вещи.
+            'links' => ['sometimes', 'array'],
+            'links.*.type' => ['required', 'string', Rule::in(LinkedMaterial::kinds())],
+            'links.*.id' => ['required', 'integer', 'min:1'],
         ];
+    }
+
+    /**
+     * @return array<int, callable>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                // Сначала об ошибках: `validated()` на провалившемся разборе
+                // бросает исключение, а не отдаёт то, что уцелело.
+                if ($validator->errors()->isNotEmpty()) {
+                    return;
+                }
+
+                /** @var User $actor */
+                $actor = $this->user();
+
+                foreach ($this->links() as $index => $link) {
+                    $model = LinkedMaterial::KINDS[$link['type']] ?? null;
+                    $material = $model === null ? null : $model::query()->find($link['id']);
+
+                    // Привязать можно только то, что не закрыто от тебя: иначе
+                    // чужой закрытый курс попал бы в новость по угаданному
+                    // номеру, и читатель увидел бы название, которое ему
+                    // закрыто. Право читать базу знаний здесь не спрашивают —
+                    // тот, кто ведёт новости, не обязан быть учеником.
+                    if (! LinkedMaterial::isLinkableBy($material, $actor)) {
+                        $validator->errors()->add(
+                            "links.{$index}.id",
+                            'Такого материала нет или он вам не виден.',
+                        );
+                    }
+                }
+            },
+        ];
+    }
+
+    /**
+     * Привязанный материал, в том порядке, в каком его перечислили.
+     *
+     * @return list<array{type: string, id: int}>
+     */
+    public function links(): array
+    {
+        /** @var list<array{type: string, id: int|string}> $links */
+        $links = $this->validated('links', []);
+
+        return array_values(array_map(
+            static fn (array $link): array => ['type' => (string) $link['type'], 'id' => (int) $link['id']],
+            $links,
+        ));
     }
 
     private function needsRecipients(): bool
@@ -74,7 +136,8 @@ final class SaveNewsRequest extends FormRequest
      *     is_pinned: bool,
      *     audience: string,
      *     requires_acknowledgement: bool,
-     *     recipients: list<int>
+     *     recipients: list<int>,
+     *     links: list<array{type: string, id: int}>
      * }
      */
     public function toAttributes(): array
@@ -91,6 +154,7 @@ final class SaveNewsRequest extends FormRequest
             'audience' => (string) $validated['audience'],
             'requires_acknowledgement' => (bool) ($validated['requires_acknowledgement'] ?? false),
             'recipients' => array_values(array_map(intval(...), $validated['recipients'] ?? [])),
+            'links' => $this->links(),
         ];
     }
 }
