@@ -35,6 +35,15 @@ enum Permission: string
     case PublishCourses = 'courses.publish';
     case ManageEnrollments = 'enrollments.manage';
 
+    /**
+     * Новости: писать, публиковать, решать кому видно и смотреть, кто
+     * ознакомился.
+     *
+     * Права на чтение нет намеренно: новости живут на главной странице, и
+     * человек, вошедший в систему, видит адресованное ему по определению.
+     */
+    case ManageNews = 'news.manage';
+
     case ViewUsers = 'users.view';
     case ManageUsers = 'users.manage';
 
@@ -71,6 +80,7 @@ enum Permission: string
             self::DeleteCourses => 'Удаление курсов',
             self::PublishCourses => 'Публикация курсов',
             self::ManageEnrollments => 'Управление записью на курсы',
+            self::ManageNews => 'Ведение новостей',
             self::ViewUsers => 'Просмотр пользователей',
             self::ManageUsers => 'Управление пользователями',
             self::ViewAnalytics => 'Просмотр аналитики',
@@ -95,6 +105,7 @@ enum Permission: string
             'deals' => 'Сделки',
             'courses' => 'База знаний',
             'enrollments' => 'Запись на курсы',
+            'news' => 'Новости',
             'users' => 'Пользователи',
             'analytics' => 'Аналитика',
             default => $this->group(),

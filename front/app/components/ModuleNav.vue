@@ -22,10 +22,23 @@ const links = computed<NavLink[]>(() => {
   if (path.startsWith('/lms')) {
     return [
       { to: '/lms', label: 'Материалы', visible: true, matches: (p: string) => p === '/lms' },
+      // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
+      // сам. Первое идёт раньше: с него начинают.
+      { to: '/lms/plan', label: 'Мой план', visible: true },
       { to: '/lms/my', label: 'Мои материалы', visible: true },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
       { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
+      { to: '/lms/plans', label: 'Планы обучения', visible: can('enrollments.manage') },
     ].filter(link => link.visible)
+  }
+
+  // Главная и новости — один модуль: рельса ведёт на «Панель», а лента на ней
+  // и есть первое, ради чего сюда заходят.
+  if (path === '/' || path.startsWith('/news')) {
+    return [
+      { to: '/', label: 'Главная', visible: true, matches: (p: string) => p === '/' },
+      { to: '/news', label: 'Новости', visible: true, matches: (p: string) => p.startsWith('/news') },
+    ]
   }
 
   if (path.startsWith('/analytics')) {

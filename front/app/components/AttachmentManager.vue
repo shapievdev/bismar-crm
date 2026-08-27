@@ -1,14 +1,22 @@
 <script setup lang="ts">
+import type { UploadOptions } from '~/utils/upload'
 import type { LessonAttachment } from '~/types/lms'
 
-defineProps<{
-  lessonId: number | string
+/**
+ * Список файлов при чём угодно: у урока и у новости он один и тот же.
+ *
+ * Куда ходить за данными, панель не знает — три действия приходят с вызова.
+ * Так она не зависит ни от базы знаний, ни от новостей, и вторая копия этой
+ * разметки не заводится ради того, что отличается только адресом запроса.
+ */
+const props = defineProps<{
   attachments: LessonAttachment[]
+  uploadFile: (file: File, description: string | null, options: UploadOptions) => Promise<unknown>
+  renameFile: (id: number, description: string | null) => Promise<unknown>
+  removeFile: (id: number) => Promise<unknown>
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
-
-const { uploadAttachment, updateAttachment, deleteAttachment } = useLmsApi()
 
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 const error = ref<string | null>(null)
@@ -36,7 +44,7 @@ function cancelPending() {
   pendingDescription.value = ''
 }
 
-async function send(lessonId: number | string) {
+async function send() {
   const file = pendingFile.value
 
   if (!file) {
@@ -47,7 +55,7 @@ async function send(lessonId: number | string) {
 
   try {
     await upload.track(file, options =>
-      uploadAttachment(lessonId, file, pendingDescription.value || null, options))
+      props.uploadFile(file, pendingDescription.value || null, options))
 
     cancelPending()
     emit('changed')
@@ -76,7 +84,7 @@ async function saveDescription(attachment: LessonAttachment) {
   error.value = null
 
   try {
-    await updateAttachment(attachment.id, editingDescription.value || null)
+    await props.renameFile(attachment.id, editingDescription.value || null)
     editingId.value = null
     emit('changed')
   }
@@ -89,7 +97,7 @@ async function remove(attachment: LessonAttachment) {
   error.value = null
 
   try {
-    await deleteAttachment(attachment.id)
+    await props.removeFile(attachment.id)
     emit('changed')
   }
   catch {
@@ -127,7 +135,7 @@ async function remove(attachment: LessonAttachment) {
       {{ error }}
     </p>
 
-    <form v-if="pendingFile" class="card pending" @submit.prevent="send(lessonId)">
+    <form v-if="pendingFile" class="card pending" @submit.prevent="send()">
       <UiFileIcon :name="pendingFile.name" :mime-type="pendingFile.type" />
 
       <div class="pending__body">

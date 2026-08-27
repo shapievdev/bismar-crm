@@ -13,6 +13,8 @@ const {
   saveQuiz,
   deleteQuiz,
   uploadAttachment,
+  updateAttachment,
+  deleteAttachment,
   saveAnswers,
   suggestAnswers,
 } = useLmsApi()
@@ -300,8 +302,10 @@ async function removeQuiz() {
         />
 
         <AttachmentManager
-          :lesson-id="lessonId"
           :attachments="lesson.attachments ?? []"
+          :upload-file="(file, description, options) => uploadAttachment(lessonId, file, description, options)"
+          :rename-file="updateAttachment"
+          :remove-file="deleteAttachment"
           @changed="refresh"
         />
 

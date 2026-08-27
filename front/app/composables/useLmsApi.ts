@@ -9,6 +9,7 @@ import type {
   CoursePayload,
   CoursePerson,
   Enrollment,
+  LearningPlanItem,
   LessonAnswer,
   LessonAnswerPayload,
   LessonAttachment,
@@ -92,6 +93,28 @@ export function useLmsApi() {
 
     myCourses: (): Promise<ResourceResponse<Enrollment[]>> =>
       $api<ResourceResponse<Enrollment[]>>('/api/lms/my-courses'),
+
+    /** Свой план обучения: что назначили пройти и в каком порядке. */
+    myPlan: (): Promise<ResourceResponse<LearningPlanItem[]>> =>
+      $api<ResourceResponse<LearningPlanItem[]>>('/api/lms/my-plan'),
+
+    /** План сотрудника — глазами того, кто его составляет. */
+    fetchPlan: (userId: number): Promise<ResourceResponse<LearningPlanItem[]>> =>
+      $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`),
+
+    /**
+     * Задаёт план целиком, и порядок присланного и есть порядок шагов —
+     * так же, как список допущенных к курсу.
+     */
+    savePlan: (userId: number, courses: number[]): Promise<ResourceResponse<LearningPlanItem[]>> =>
+      $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`, {
+        method: 'PUT',
+        body: { courses },
+      }),
+
+    /** Кому назначить план — поиском: сотрудников тысячи, нужен один. */
+    searchPlanPeople: (search: string): Promise<ResourceResponse<CoursePerson[]>> =>
+      $api<ResourceResponse<CoursePerson[]>>('/api/lms/plans/people', { query: { search } }),
 
     fetchLesson: (id: number | string): Promise<ResourceResponse<LessonSummary>> =>
       $api<ResourceResponse<LessonSummary>>(`/api/lms/lessons/${id}`),

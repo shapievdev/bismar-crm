@@ -147,6 +147,28 @@ export interface Enrollment {
   course?: Course
 }
 
+/**
+ * Шаг плана обучения: курс и его место в очереди.
+ *
+ * Номер — совет, а не запрет: открыть можно любой шаг, порядок лишь говорит, в
+ * каком их задумывали.
+ */
+export interface LearningPlanItem {
+  id: number
+  position: number
+  assigned_at: string | null
+  assigned_by?: { id: number, name: string } | null
+  course: Course
+  progress: number
+  is_started: boolean
+  is_completed: boolean
+  /**
+   * Увидит ли сотрудник этот шаг у себя. Приходит только тому, кто план
+   * составляет: курс могли закрыть уже после назначения.
+   */
+  is_visible_to_learner?: boolean
+}
+
 export interface QuizAttempt {
   id: number
   score: number

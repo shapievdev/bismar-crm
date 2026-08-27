@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
@@ -138,6 +139,16 @@ class User extends Authenticatable
     public function expertCourses(): BelongsToMany
     {
         return $this->belongsToMany(Course::class, 'course_experts')->withTimestamps();
+    }
+
+    /**
+     * План обучения: что этому человеку назначили пройти и в каком порядке.
+     *
+     * @return HasMany<LearningPlanItem, $this>
+     */
+    public function planItems(): HasMany
+    {
+        return $this->hasMany(LearningPlanItem::class)->inOrder();
     }
 
     /**

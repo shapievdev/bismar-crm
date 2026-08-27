@@ -23,10 +23,15 @@ use App\Http\Controllers\Api\Lms\CourseController;
 use App\Http\Controllers\Api\Lms\CourseExpertController;
 use App\Http\Controllers\Api\Lms\CourseStructureController;
 use App\Http\Controllers\Api\Lms\LearningController;
+use App\Http\Controllers\Api\Lms\LearningPlanController;
 use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\LessonTranscriptController;
 use App\Http\Controllers\Api\Lms\QuizController;
+use App\Http\Controllers\Api\News\NewsAcknowledgementController;
+use App\Http\Controllers\Api\News\NewsAttachmentController;
+use App\Http\Controllers\Api\News\NewsController;
+use App\Http\Controllers\Api\News\NewsQuizController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\UserController;
@@ -78,6 +83,20 @@ Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->a
     // Learning. Per-course visibility is decided by the policy, which also has
     // to hide unpublished courses — a route-level check cannot express that.
     Route::get('my-courses', [LearningController::class, 'myEnrollments'])->middleware($view)->name('my-courses');
+
+    // Свой план обучения — дело самого сотрудника, отдельного права на него
+    // нет: назначенное ему он и так вправе открыть.
+    Route::get('my-plan', [LearningPlanController::class, 'mine'])->middleware($view)->name('my-plan');
+
+    // Чужой план ведёт тот, кому доверено обучение. Право на курсы к этому не
+    // сводится: собрать материал и решать, кто его пройдёт, — разные решения,
+    // потому и право своё.
+    Route::middleware('can:'.Permission::ManageEnrollments->value)->group(function (): void {
+        // Раньше `plans/{user}`, иначе «people» уедет в подстановку сотрудника.
+        Route::get('plans/people', [LearningPlanController::class, 'people'])->name('plans.people');
+        Route::get('plans/{user}', [LearningPlanController::class, 'show'])->name('plans.show');
+        Route::put('plans/{user}', [LearningPlanController::class, 'update'])->name('plans.update');
+    });
     Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');
     Route::get('lessons/{lesson}', [LearningController::class, 'showLesson'])->middleware($view)->name('lessons.show');
     Route::post('lessons/{lesson}/complete', [LearningController::class, 'completeLesson'])->middleware($view)->name('lessons.complete');
@@ -161,6 +180,38 @@ Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->a
         Route::delete('modules/{module}', [CourseStructureController::class, 'destroyModule'])->name('modules.destroy');
         Route::delete('lessons/{lesson}', [CourseStructureController::class, 'destroyLesson'])->name('lessons.destroy');
     });
+});
+
+/*
+ * Новости. Читает всякий, кто вошёл: они живут на главной, и отдельного права
+ * на просмотр нет — кому какая новость видна, решает NewsPolicy по адресатам.
+ * Всё остальное — под `news.manage`.
+ */
+Route::middleware('auth:sanctum')->prefix('news')->as('news.')->group(function (): void {
+    // Раньше `{news}`, иначе эти слова уедут в подстановку адреса новости.
+    Route::get('pending-count', [NewsController::class, 'pendingCount'])->name('pending-count');
+    Route::get('manage', [NewsController::class, 'manage'])->name('manage');
+    Route::get('people', [NewsController::class, 'people'])->name('people');
+
+    Route::get('/', [NewsController::class, 'index'])->name('index');
+    Route::post('/', [NewsController::class, 'store'])->name('store');
+
+    Route::get('{news}', [NewsController::class, 'show'])->name('show');
+    Route::put('{news}', [NewsController::class, 'update'])->name('update');
+    Route::delete('{news}', [NewsController::class, 'destroy'])->name('destroy');
+
+    // Отметиться самому и посмотреть, кто ещё не отметился. Права у этих двух
+    // разные — своя отметка и чужой список, — и разводит их политика.
+    Route::post('{news}/acknowledge', [NewsAcknowledgementController::class, 'store'])->name('acknowledge');
+    Route::get('{news}/acknowledgements', [NewsAcknowledgementController::class, 'index'])->name('acknowledgements');
+
+    Route::post('{news}/attachments', [NewsAttachmentController::class, 'store'])->name('attachments.store');
+    Route::put('{news}/attachments/{attachment}', [NewsAttachmentController::class, 'update'])->name('attachments.update');
+    Route::delete('{news}/attachments/{attachment}', [NewsAttachmentController::class, 'destroy'])->name('attachments.destroy');
+
+    Route::put('{news}/quiz', [NewsQuizController::class, 'save'])->name('quiz.save');
+    Route::delete('{news}/quiz', [NewsQuizController::class, 'destroy'])->name('quiz.destroy');
+    Route::post('{news}/quiz/submit', [NewsQuizController::class, 'submit'])->name('quiz.submit');
 });
 
 Route::middleware('auth:sanctum')->prefix('profile')->as('profile.')->group(function (): void {
