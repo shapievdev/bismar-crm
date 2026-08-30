@@ -58,6 +58,10 @@ final class NewsResource extends JsonResource
 
             // Проставляет контроллер: он один знает, кто спрашивает.
             'is_acknowledged' => $this->is_acknowledged,
+
+            // Ждёт ли она ознакомления именно от смотрящего: у новичка
+            // старое, вышедшее до его прихода, ничего не ждёт.
+            'awaits_acknowledgement' => (bool) $this->awaits_acknowledgement,
             'acknowledged_at' => $this->acknowledged_at,
 
             // Сколько человек уже отметилось и сколько всего адресатов —

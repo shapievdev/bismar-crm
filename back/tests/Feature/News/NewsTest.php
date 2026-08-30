@@ -459,6 +459,64 @@ final class NewsTest extends TestCase
             ->assertJsonPath('data.count', 1);
     }
 
+    /**
+     * Новичка не встречают долгами: вышедшее до его прихода ознакомления от
+     * него не требует, а появившееся при нём — требует.
+     */
+    public function test_what_came_out_before_a_newcomer_arrived_does_not_await_them(): void
+    {
+        $old = News::factory()->published()->mustBeAcknowledged()->create([
+            'published_at' => now()->subMonth(),
+        ]);
+
+        $newcomer = $this->employee();
+
+        $fresh = News::factory()->published()->mustBeAcknowledged()->create();
+
+        $this->actingAs($newcomer)
+            ->getJson(route('news.pending-count'))
+            ->assertOk()
+            ->assertJsonPath('data.count', 1);
+
+        $feed = collect($this->actingAs($newcomer)->getJson(route('news.index'))->json('data'))
+            ->keyBy('id');
+
+        $this->assertFalse($feed[$old->id]['awaits_acknowledgement']);
+        $this->assertTrue($feed[$fresh->id]['awaits_acknowledgement']);
+
+        // И на самой новости — тот же ответ.
+        $this->actingAs($newcomer)
+            ->getJson(route('news.show', $old))
+            ->assertOk()
+            ->assertJsonPath('data.awaits_acknowledgement', false)
+            // Сама новость по-прежнему обязательная: это про неё, а не про него.
+            ->assertJsonPath('data.requires_acknowledgement', true);
+    }
+
+    /**
+     * Число, с которым автор сравнивает счётчик прочитавших, не растёт само от
+     * того, что компания набрала людей после выхода новости.
+     */
+    public function test_a_newcomer_does_not_swell_the_number_the_editor_compares_with(): void
+    {
+        $editor = $this->editor();
+        $news = News::factory()->published()->create(['published_at' => now()->subDay()]);
+
+        $before = $this->actingAs($editor)
+            ->getJson(route('news.show', $news))
+            ->assertOk()
+            ->json('data.audience_size');
+
+        User::factory()->create();
+
+        $after = $this->actingAs($editor)
+            ->getJson(route('news.show', $news))
+            ->assertOk()
+            ->json('data.audience_size');
+
+        $this->assertSame($before, $after);
+    }
+
     public function test_the_editor_sees_who_has_read_it_and_who_has_not(): void
     {
         $read = User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Вера']);

@@ -7,22 +7,36 @@
  * сработает вовсе, а Chrome за спонтанные запросы переводит сайт в «тихий
  * режим», после которого окно не покажется уже никогда.
  *
- * Полоса возвращается при каждом заходе, пока уведомления не включены: закрыть
- * её можно, но только до конца этого посещения — так и было задумано.
+ * «Не сейчас» откладывает разговор на сутки — и по-настоящему, а не до
+ * перезагрузки: отметка живёт в браузере. Полоса, всплывающая на каждой
+ * странице после отказа, раздражает сильнее, чем помогает, и её начинают
+ * закрывать не глядя — вместе с тем случаем, когда согласились бы.
  */
 const push = usePushNotifications()
 const { isAuthenticated } = useAuth()
 
-/** Скрыто «до следующего раза»: до перезагрузки приложения. */
-const hidden = ref(false)
+/** Где браузер помнит, до какого времени полосу не показывать. */
+const SNOOZED_UNTIL = 'push-prompt.snoozed-until'
+
+/** На сколько откладывает «Не сейчас». */
+const SNOOZE_MS = 24 * 60 * 60 * 1000
+
+const snoozedUntil = ref(0)
 
 onMounted(async () => {
+  snoozedUntil.value = Number(localStorage.getItem(SNOOZED_UNTIL) ?? 0)
+
   if (!isAuthenticated.value) {
     return
   }
 
   await push.refresh()
 })
+
+function snooze() {
+  snoozedUntil.value = Date.now() + SNOOZE_MS
+  localStorage.setItem(SNOOZED_UNTIL, String(snoozedUntil.value))
+}
 
 // Вошли уже после загрузки страницы — спрашиваем состояние заново.
 watch(isAuthenticated, (value) => {
@@ -33,7 +47,7 @@ watch(isAuthenticated, (value) => {
 
 /** Что показать: предложение, подсказку про домашний экран или запрет. */
 const shown = computed<'ask' | 'install' | 'denied' | null>(() => {
-  if (hidden.value || !isAuthenticated.value || !push.asked.value) {
+  if (!isAuthenticated.value || !push.asked.value || Date.now() < snoozedUntil.value) {
     return null
   }
 
@@ -85,7 +99,7 @@ const shown = computed<'ask' | 'install' | 'denied' | null>(() => {
         {{ push.isBusy.value ? 'Включаем…' : 'Включить' }}
       </button>
 
-      <button type="button" class="button-ghost button-sm" @click="hidden = true">
+      <button type="button" class="button-ghost button-sm" @click="snooze">
         {{ shown === 'ask' ? 'Не сейчас' : 'Понятно' }}
       </button>
     </div>

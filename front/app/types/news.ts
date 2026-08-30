@@ -82,6 +82,15 @@ export interface News {
   is_acknowledged: boolean
   acknowledged_at: string | null
 
+  /**
+   * Ждёт ли новость ознакомления именно от смотрящего.
+   *
+   * Не то же, что `requires_acknowledgement`: та говорит о самой новости, эта
+   * — о человеке. Вышедшее до его прихода в компанию его не обязывает, и
+   * встречать новичка десятком долгов незачем.
+   */
+  awaits_acknowledgement: boolean
+
   /** Для того, кто новость ведёт: сколько отметилось из скольких. */
   acknowledged_count?: number
   audience_size?: number

@@ -140,7 +140,7 @@ async function loadReaders() {
         <span v-if="!news.is_published" class="badge badge--warning">Черновик</span>
         <span v-if="news.is_pinned" class="badge">Закреплена</span>
         <span v-if="news.is_acknowledged" class="badge badge--success">Ознакомлен</span>
-        <span v-else-if="news.requires_acknowledgement" class="badge badge--warning">Нужно ознакомиться</span>
+        <span v-else-if="news.awaits_acknowledgement" class="badge badge--warning">Нужно ознакомиться</span>
       </div>
 
       <h1 class="page-title">
@@ -316,7 +316,7 @@ async function loadReaders() {
           {{ confirmError }}
         </p>
         <p class="faint">
-          {{ news.requires_acknowledgement
+          {{ news.awaits_acknowledgement
             ? 'С этой новостью нужно ознакомиться — отметьтесь, когда прочтёте.'
             : 'Можно отметить, что вы её прочитали.' }}
         </p>

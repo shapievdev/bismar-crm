@@ -150,6 +150,46 @@ class News extends Model
      *
      * @param  Builder<News>  $query
      */
+    /**
+     * Обязывает ли эта новость ознакомиться именно этого человека.
+     *
+     * Вышедшее до его прихода в компанию не обязывает: спрашивать с новичка за
+     * объявление, которого он не мог видеть, значит встречать его десятком
+     * долгов в первый же день. Прочитать старое он волен и сам — оно открыто,
+     * — но «нужно ознакомиться» относится к тому, что появилось при нём.
+     *
+     * Регламенты живут по другому правилу и намеренно: правила, по которым
+     * работают, читает и новичок, когда бы они ни были написаны.
+     */
+    public function obligesReader(User $reader): bool
+    {
+        if (! $this->requires_acknowledgement || $this->published_at === null) {
+            return false;
+        }
+
+        $arrived = $reader->created_at;
+
+        return $arrived === null || ! $this->published_at->lessThan($arrived);
+    }
+
+    /**
+     * Новости, которые ждут ознакомления этого человека.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeAwaitingAcknowledgementBy(Builder $query, User $reader): void
+    {
+        $query->where('requires_acknowledgement', true)
+            ->when(
+                $reader->created_at !== null,
+                fn (Builder $query) => $query->where('published_at', '>=', $reader->created_at),
+            )
+            ->whereDoesntHave(
+                'acknowledgements',
+                fn (Builder $query) => $query->where('user_id', $reader->getKey()),
+            );
+    }
+
     public function scopeInFeedOrder(Builder $query): void
     {
         $query

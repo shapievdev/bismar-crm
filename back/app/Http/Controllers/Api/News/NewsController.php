@@ -52,7 +52,23 @@ final class NewsController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        $news->getCollection()->each(fn (News $item) => $this->attachDuty($item, $reader));
+
         return NewsResource::collection($news);
+    }
+
+    /**
+     * Ждёт ли новость ознакомления именно этого читателя.
+     *
+     * Считается здесь, а не в ресурсе: ресурс не знает, кто спрашивает, а
+     * ответ у каждого свой — вышедшее до прихода человека его не обязывает.
+     */
+    private function attachDuty(News $news, User $reader): News
+    {
+        return $news->setAttribute(
+            'awaits_acknowledgement',
+            $news->obligesReader($reader) && ! $news->is_acknowledged,
+        );
     }
 
     /**
@@ -68,9 +84,7 @@ final class NewsController extends Controller
 
         $count = News::query()
             ->readableBy($reader)
-            ->where('requires_acknowledgement', true)
-            ->whereDoesntHave('acknowledgements', fn (Builder $query) => $query
-                ->where('user_id', $reader->getKey()))
+            ->awaitingAcknowledgementBy($reader)
             ->count();
 
         return response()->json(['data' => ['count' => $count]]);
@@ -123,6 +137,7 @@ final class NewsController extends Controller
         $news->setAttribute('sends_content', true);
         $news->setAttribute('is_acknowledged', $acknowledgement !== null);
         $news->setAttribute('acknowledged_at', $acknowledgement?->acknowledged_at?->toIso8601String());
+        $this->attachDuty($news, $reader);
 
         return NewsResource::make($news);
     }
@@ -218,8 +233,17 @@ final class NewsController extends Controller
      */
     private function attachAudienceSize(News $news): News
     {
+        // Пришедшие после выхода новости в знаменатель не идут: их она не
+        // обязывает, и «3 из 20» превращалось бы в «3 из 40» само собой, стоит
+        // компании набрать людей.
         $size = $news->audience === NewsAudience::Everyone
-            ? User::query()->employed()->count()
+            ? User::query()
+                ->employed()
+                ->when(
+                    $news->published_at !== null,
+                    fn (Builder $query) => $query->where('users.created_at', '<=', $news->published_at),
+                )
+                ->count()
             : $news->recipients()->count();
 
         return $news->setAttribute('audience_size', $size);

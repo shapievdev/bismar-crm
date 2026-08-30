@@ -125,6 +125,7 @@ function onPersonDragStart(event: DragEvent, person: DepartmentPerson) {
 <template>
   <article
     class="card dept"
+    :data-department="node.id"
     :class="{
       'dept--own': isOwn,
       'dept--selected': isSelected,
@@ -297,7 +298,12 @@ function onPersonDragStart(event: DragEvent, person: DepartmentPerson) {
   padding: 0.75rem 0.85rem 0;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+}
+
+.dept:active {
+  /* Едва заметно проседает под нажатием — движение, за которым глаз следит. */
+  transform: scale(0.995);
 }
 
 .dept:hover {

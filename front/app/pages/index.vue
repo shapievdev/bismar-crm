@@ -2,7 +2,7 @@
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Главная' })
 
-const { user, can } = useAuth()
+const { can } = useAuth()
 const { fetchFeed } = useNewsApi()
 
 const { data, pending, error } = await useAsyncData('news.feed', () => fetchFeed())
@@ -15,7 +15,7 @@ const news = computed(() => data.value?.data ?? [])
  * Считается по загруженной странице, а не запросом: значок на рельсе спрашивает
  * число у сервера, а здесь речь о том, что человек видит прямо сейчас.
  */
-const pending_ = computed(() => news.value.filter(item => item.requires_acknowledgement && !item.is_acknowledged))
+const pending_ = computed(() => news.value.filter(item => item.awaits_acknowledgement))
 
 function day(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''
@@ -26,18 +26,14 @@ function day(value: string | null): string {
   <section>
     <header class="head">
       <div>
-        <!-- По имени: приветствие, начатое с фамилии, читается как вызов. -->
         <h1 class="page-title">
-          Здравствуйте, {{ user?.first_name }}
+          Новости компании
         </h1>
         <p class="page-subtitle">
           <template v-if="pending_.length">
             Ждут ознакомления: {{ pending_.length }}.
           </template>
-          <template v-else-if="news.length">
-            Новости компании.
-          </template>
-          <template v-else>
+          <template v-else-if="!news.length">
             Здесь появляются новости компании.
           </template>
         </p>
@@ -70,11 +66,11 @@ function day(value: string | null): string {
         :key="item.id"
         :to="`/news/${item.slug}`"
         class="card item"
-        :class="{ 'item--unread': item.requires_acknowledgement && !item.is_acknowledged }"
+        :class="{ 'item--unread': item.awaits_acknowledgement }"
       >
         <div class="item__head">
           <span v-if="item.is_pinned" class="badge" title="Закреплена">Закреплена</span>
-          <span v-if="item.requires_acknowledgement && !item.is_acknowledged" class="badge badge--warning">
+          <span v-if="item.awaits_acknowledgement" class="badge badge--warning">
             Нужно ознакомиться
           </span>
           <span v-else-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
