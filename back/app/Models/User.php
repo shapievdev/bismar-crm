@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -18,7 +19,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['last_name', 'first_name', 'middle_name', 'email', 'password', 'avatar_path'])]
+#[Fillable(['last_name', 'first_name', 'middle_name', 'email', 'phone', 'job_title', 'password', 'avatar_path'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -49,6 +50,42 @@ class User extends Authenticatable
         }
 
         return AccessLevel::User;
+    }
+
+    /**
+     * Уволен ли человек: работает — или числится, но платформой не пользуется.
+     *
+     * Проверяется на каждом запросе (EnsureEmployed) и при входе, потому и
+     * живёт на модели, а не в условии запроса на месте.
+     */
+    public function isDismissed(): bool
+    {
+        return $this->dismissed_at !== null;
+    }
+
+    /**
+     * Кто уволил. Пусто у работающих — и у тех, кого уволил человек, чью
+     * запись с тех пор удалили.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function dismissedBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'dismissed_by_id');
+    }
+
+    /**
+     * Работающие сотрудники — те, кого предлагают выбрать.
+     *
+     * Уволенного не с чем позвать в переписку, некому назначить план и незачем
+     * ставить ответственным за курс: войти он всё равно не сможет. В списке
+     * пользователей он остаётся — там его и возвращают в строй.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeEmployed(Builder $query): void
+    {
+        $query->whereNull('dismissed_at');
     }
 
     /**
@@ -132,6 +169,21 @@ class User extends Authenticatable
     }
 
     /**
+     * Отделы, в которых человек числится, — с ролью в каждом.
+     *
+     * Их бывает несколько: начальник направления нередко и в шапке компании, и
+     * во главе своего отдела.
+     *
+     * @return BelongsToMany<Department, $this>
+     */
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'department_members')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    /**
      * Курсы, за которые этот человек отвечает.
      *
      * @return BelongsToMany<Course, $this>
@@ -139,6 +191,17 @@ class User extends Authenticatable
     public function expertCourses(): BelongsToMany
     {
         return $this->belongsToMany(Course::class, 'course_experts')->withTimestamps();
+    }
+
+    /**
+     * Устройства, подписанные на уведомления. Их бывает несколько: телефон,
+     * рабочий компьютер, домашний.
+     *
+     * @return HasMany<PushSubscription, $this>
+     */
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
     }
 
     /**
@@ -201,6 +264,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'dismissed_at' => 'datetime',
             'password' => 'hashed',
         ];
     }

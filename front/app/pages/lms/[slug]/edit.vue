@@ -7,6 +7,7 @@ definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 const route = useRoute()
 const router = useRouter()
 const { fetchCourse, updateCourse, deleteCourse, fetchStatuses, fetchCategories } = useLmsApi()
+const { confirm } = useAppDialog()
 const { can } = useAuth()
 
 const slug = computed(() => String(route.params.slug))
@@ -93,7 +94,14 @@ const isDeleting = ref(false)
 async function remove() {
   const title = data.value?.course.title ?? ''
 
-  if (!window.confirm(`Удалить материал «${title}» со всеми уроками?`)) {
+  const confirmed = await confirm({
+    title: `Удалить «${title}»?`,
+    message: 'Материал уйдёт со всеми уроками и приложенными файлами.',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 
@@ -133,6 +141,7 @@ async function remove() {
       :errors="errors"
       :is-submitting="isSubmitting"
       :can-manage-access="canManageAccess"
+      :saved-status="data.course.status"
       submit-label="Сохранить"
       @submit="submit"
     >
@@ -196,9 +205,10 @@ async function remove() {
 }
 
 /* Подальше от «Сохранить»: соседство с кнопкой, которую жмут постоянно, — не
-   то место для той, которую жмут раз в жизни. */
+   то место для той, которую жмут раз в жизни. В колонке это отступ сверху, а
+   не в сторону. */
 .course-delete {
-  margin-left: auto;
+  margin-top: 0.6rem;
 }
 
 .visually-hidden {

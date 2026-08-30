@@ -137,6 +137,9 @@ final class RegulationPeopleController extends Controller
                 ->select('user_id')
                 ->from($pivot)
                 ->where('regulation_id', $regulation->getKey()))
+            // Уволенных не предлагают: платформа для них закрыта, и допуск
+            // ничего бы им не открыл.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')

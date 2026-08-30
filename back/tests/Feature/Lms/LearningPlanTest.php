@@ -19,8 +19,17 @@ final class LearningPlanTest extends TestCase
 {
     use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
-    /** Тот, кому доверено вести обучение. */
+    /**
+     * Тот, кто ведёт обучение: план назначает должность, а не отмеченное право
+     * — см. UpdateLearningPlanRequest::authorize().
+     */
     private function trainer(): User
+    {
+        return $this->administrator();
+    }
+
+    /** Тот, кому доверено смотреть за обучением, но не распоряжаться им. */
+    private function observer(): User
     {
         return $this->userWith(Permission::ViewCourses, Permission::ManageEnrollments);
     }
@@ -233,6 +242,38 @@ final class LearningPlanTest extends TestCase
             ->assertJsonValidationErrors('items');
 
         $this->assertSame(0, $learner->planItems()->count());
+    }
+
+    /**
+     * Право «вести обучение» открывает чужие планы, но не даёт их менять:
+     * смотреть, как идут дела, доверяют шире, чем решать, что кому проходить.
+     */
+    public function test_the_right_to_manage_enrollments_reads_a_plan_but_does_not_change_it(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create();
+        $observer = $this->observer();
+
+        $this->actingAs($observer)
+            ->getJson(route('lms.plans.show', $learner))
+            ->assertOk();
+
+        $this->actingAs($observer)
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
+            ->assertForbidden();
+
+        $this->assertSame(0, $learner->planItems()->count());
+    }
+
+    public function test_a_superadministrator_changes_a_plan(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create();
+
+        $this->actingAs($this->superAdministrator())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
+            ->assertOk()
+            ->assertJsonPath('data.0.item_id', $course->id);
     }
 
     public function test_reading_the_knowledge_base_is_not_enough_to_plan_for_others(): void

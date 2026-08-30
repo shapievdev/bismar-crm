@@ -65,6 +65,9 @@ final class CourseExpertController extends Controller
 
         $people = User::query()
             ->whereDoesntHave('expertCourses', fn (Builder $query) => $query->whereKey($course->getKey()))
+            // Уволенного ответственным не ставят: к нему и пошли бы с вопросом,
+            // на который он уже не ответит.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')

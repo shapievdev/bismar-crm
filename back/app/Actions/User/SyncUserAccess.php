@@ -29,7 +29,7 @@ final readonly class SyncUserAccess
     {
         $current = $user->accessLevel();
 
-        $this->ensureOnlySuperAdminChangesStanding($current, $level, $actor);
+        $this->ensureStandingIsChangedBySomeoneWhoMay($current, $level, $actor);
         $this->ensureActorKeepsTheirOwn($user, $level, $actor);
         $this->ensureASuperAdminRemains($user, $current, $level);
 
@@ -43,20 +43,39 @@ final readonly class SyncUserAccess
     }
 
     /**
-     * Administrator and superadmin are appointed by a superadmin alone.
+     * Who may move someone between standings.
+     *
+     * An administrator appoints and removes administrators; superadmin standing
+     * is a superadmin's alone to grant, and an administrator cannot take it
+     * away either. Below administrator nobody moves anyone: the right to edit
+     * access lets an ordinary person tick permissions, and if it also let them
+     * appoint an administrator, a colleague could be handed everything by
+     * someone who does not hold it themselves.
      *
      * @throws ConflictException
      */
-    private function ensureOnlySuperAdminChangesStanding(
+    private function ensureStandingIsChangedBySomeoneWhoMay(
         AccessLevel $current,
         AccessLevel $next,
         User $actor,
     ): void {
-        if ($current === $next || $actor->accessLevel() === AccessLevel::SuperAdmin) {
+        if ($current === $next) {
             return;
         }
 
-        throw new ConflictException('Назначать и снимать администраторов может только суперадминистратор.');
+        $actorLevel = $actor->accessLevel();
+
+        if ($actorLevel === AccessLevel::SuperAdmin) {
+            return;
+        }
+
+        if ($actorLevel !== AccessLevel::Admin) {
+            throw new ConflictException('Менять уровень доступа может только администратор.');
+        }
+
+        if ($current === AccessLevel::SuperAdmin || $next === AccessLevel::SuperAdmin) {
+            throw new ConflictException('Назначать и снимать суперадминистраторов может только суперадминистратор.');
+        }
     }
 
     /**
@@ -77,8 +96,9 @@ final readonly class SyncUserAccess
     }
 
     /**
-     * Keeps at least one superadmin: without one, nobody could ever appoint an
-     * administrator again.
+     * Keeps at least one superadmin: without one, nobody could ever appoint a
+     * superadmin again, and what only they may reach — the consultant's
+     * settings among it — would be shut for good.
      *
      * @throws ConflictException
      */

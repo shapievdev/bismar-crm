@@ -65,6 +65,9 @@ final class CourseAccessController extends Controller
         $people = User::query()
             ->whereKeyNot($course->author_id ?? 0)
             ->whereDoesntHave('admittedCourses', fn (Builder $query) => $query->whereKey($course->getKey()))
+            // Уволенных не предлагают: платформа для них закрыта, и допуск
+            // ничего бы им не открыл.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')

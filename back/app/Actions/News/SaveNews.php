@@ -6,9 +6,11 @@ namespace App\Actions\News;
 
 use App\Enums\NewsAudience;
 use App\Enums\NewsStatus;
+use App\Jobs\SendPush;
 use App\Models\News;
 use App\Models\NewsLink;
 use App\Models\User;
+use App\Support\Push\PushMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -37,7 +39,11 @@ final readonly class SaveNews
      */
     public function handle(array $attributes, User $author, ?News $news = null): News
     {
-        return DB::transaction(function () use ($attributes, $author, $news): News {
+        // Вышла ли новость к людям **сейчас**: правка уже опубликованной не
+        // повод будить всю компанию во второй раз.
+        $wasVisible = $news !== null && $news->exists && $news->status->isVisibleToReaders();
+
+        $saved = DB::transaction(function () use ($attributes, $author, $news): News {
             $status = NewsStatus::from($attributes['status']);
             $audience = NewsAudience::from($attributes['audience']);
 
@@ -66,6 +72,40 @@ final readonly class SaveNews
 
             return $news->load('author', 'recipients', 'links.linkable');
         });
+
+        if (! $wasVisible && $saved->status->isVisibleToReaders()) {
+            $this->notify($saved, $author);
+        }
+
+        return $saved;
+    }
+
+    /**
+     * Уведомление о вышедшей новости.
+     *
+     * Автору не шлём: он знает, что нажал «опубликовать». Адресаты — те же, кто
+     * увидит новость в ленте: либо названные поимённо, либо вся компания.
+     */
+    private function notify(News $news, User $author): void
+    {
+        $recipients = $news->audience === NewsAudience::Everyone
+            ? User::query()->employed()->pluck('id')
+            : $news->recipients()->pluck('users.id');
+
+        $people = $recipients
+            ->map(intval(...))
+            ->reject(fn (int $id): bool => $id === (int) $author->getKey())
+            ->values()
+            ->all();
+
+        SendPush::dispatch($people, new PushMessage(
+            title: $news->requires_acknowledgement ? 'Новость: нужно ознакомиться' : 'Новость компании',
+            body: PushMessage::shorten($news->title),
+            url: '/news/'.$news->slug,
+            // Своё имя у каждой новости: две вышедшие подряд не должны
+            // заменять одна другую.
+            tag: 'news-'.$news->getKey(),
+        ));
     }
 
     /**

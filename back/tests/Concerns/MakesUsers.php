@@ -34,6 +34,20 @@ trait MakesUsers
         return $this->userWith(Permission::ViewCourses);
     }
 
+    /**
+     * Правит материалы, но не выпускает их к людям: публикация — отдельное
+     * право, и без него человек собирает материал, а показывает его компании
+     * кто-то другой.
+     */
+    protected function editor(): User
+    {
+        return $this->userWith(
+            Permission::ViewCourses,
+            Permission::CreateCourses,
+            Permission::UpdateCourses,
+        );
+    }
+
     /** Writes the knowledge base. */
     protected function author(): User
     {

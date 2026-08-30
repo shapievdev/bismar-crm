@@ -106,11 +106,73 @@ final class UserAccessTest extends TestCase
         $this->assertSame(0, $user->fresh()?->permissions()->count());
     }
 
-    public function test_an_administrator_cannot_appoint_another_administrator(): void
+    public function test_an_administrator_can_appoint_another_administrator(): void
     {
         $user = User::factory()->create();
 
         $this->actingAs($this->administrator())
+            ->putJson(route('users.access.update', $user), [
+                'level' => AccessLevel::Admin->value,
+                'permissions' => [],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.level', AccessLevel::Admin->value);
+
+        $this->assertSame(AccessLevel::Admin, $user->fresh()?->accessLevel());
+    }
+
+    public function test_an_administrator_can_remove_another_administrator(): void
+    {
+        $peer = $this->administrator();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.access.update', $peer), [
+                'level' => AccessLevel::User->value,
+                'permissions' => [],
+            ])
+            ->assertOk();
+
+        $this->assertSame(AccessLevel::User, $peer->fresh()?->accessLevel());
+    }
+
+    public function test_an_administrator_cannot_appoint_a_superadmin(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.access.update', $user), [
+                'level' => AccessLevel::SuperAdmin->value,
+                'permissions' => [],
+            ])
+            ->assertConflict();
+
+        $this->assertSame(AccessLevel::User, $user->fresh()?->accessLevel());
+    }
+
+    public function test_an_administrator_cannot_remove_a_superadmin(): void
+    {
+        $superAdministrator = $this->superAdministrator();
+        $this->superAdministrator();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.access.update', $superAdministrator), [
+                'level' => AccessLevel::Admin->value,
+                'permissions' => [],
+            ])
+            ->assertConflict();
+
+        $this->assertSame(AccessLevel::SuperAdmin, $superAdministrator->fresh()?->accessLevel());
+    }
+
+    /**
+     * The right to edit access tickets permissions; handing someone everything
+     * by standing takes standing of your own.
+     */
+    public function test_an_ordinary_person_who_may_edit_access_cannot_appoint_an_administrator(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($this->userWith(Permission::ManageUsers))
             ->putJson(route('users.access.update', $user), [
                 'level' => AccessLevel::Admin->value,
                 'permissions' => [],

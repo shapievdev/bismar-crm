@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { ThemePreference } from '~/composables/useTheme'
+import { applyMask } from '~/utils/maskedInput'
+import { maskPhone, phoneForApi } from '~/utils/phone'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Профиль' })
@@ -8,12 +10,28 @@ useHead({ title: 'Профиль' })
 const { user, updateProfile, changePassword, uploadAvatar, removeAvatar } = useAuth()
 const { preference, setTheme, options } = useTheme()
 
+/*
+ * Уведомления — настройка этого устройства, а не учётной записи: подписка
+ * живёт в браузере, и на телефоне её включают отдельно от рабочего компьютера.
+ */
+const push = usePushNotifications()
+
+onMounted(() => void push.refresh())
+
 const form = reactive({
   last_name: user.value?.last_name ?? '',
   first_name: user.value?.first_name ?? '',
   middle_name: user.value?.middle_name ?? '',
   email: user.value?.email ?? '',
+  // Хранится «+79990009977», а правится в том же виде, в каком набирается.
+  phone: maskPhone(user.value?.phone ?? ''),
+  job_title: user.value?.job_title ?? '',
 })
+
+/** Телефон набирается под маской — тем же правилом, что и в других формах. */
+function onPhoneInput(event: Event) {
+  form.phone = applyMask(event.target as HTMLInputElement, maskPhone)
+}
 
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
@@ -33,6 +51,9 @@ async function save() {
       // An empty box means "no patronymic", not an empty string.
       middle_name: form.middle_name || null,
       email: form.email,
+      // Скобки и дефисы — дело показа: на сервер уходит одно число.
+      phone: phoneForApi(form.phone),
+      job_title: form.job_title || null,
     })
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
   }
@@ -321,6 +342,65 @@ function choose(value: ThemePreference) {
             </button>
           </div>
         </section>
+
+        <section class="card card--raised block">
+          <header class="block__head">
+            <h2 class="block__title">
+              Уведомления
+            </h2>
+            <p class="block__hint">
+              Настройка этого устройства: на телефоне и на компьютере включается отдельно.
+            </p>
+          </header>
+
+          <p v-if="push.error.value" class="alert alert--danger" role="alert">
+            {{ push.error.value }}
+          </p>
+
+          <!-- На iPhone уведомления получает только приложение, добавленное на
+               домашний экран: в самом Safari их не бывает вовсе. Сказать об
+               этом честнее, чем «браузер не умеет». -->
+          <p v-if="push.needsInstall.value" class="faint">
+            Добавьте приложение на домашний экран — тогда уведомления можно будет включить.
+          </p>
+
+          <p v-else-if="!push.supported.value" class="faint">
+            Этот браузер не умеет присылать уведомления.
+          </p>
+
+          <p v-else-if="!push.configured.value" class="faint">
+            Уведомления пока не настроены на сервере.
+          </p>
+
+          <template v-else>
+            <p class="faint">
+              {{ push.enabled.value
+                ? 'Сообщения из мессенджера и новости компании приходят на это устройство.'
+                : 'Включите, чтобы сообщения из мессенджера и новости приходили, даже когда приложение закрыто.' }}
+            </p>
+
+            <div class="form__actions">
+              <button
+                v-if="push.enabled.value"
+                type="button"
+                class="button-secondary"
+                :disabled="push.isBusy.value"
+                @click="push.disable()"
+              >
+                {{ push.isBusy.value ? 'Выключаем…' : 'Выключить уведомления' }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="button-primary"
+                :disabled="push.isBusy.value || push.permission.value === 'denied'"
+                @click="push.enable()"
+              >
+                {{ push.isBusy.value ? 'Включаем…' : 'Присылать уведомления' }}
+              </button>
+            </div>
+          </template>
+        </section>
       </div>
 
       <section class="card card--raised block">
@@ -369,6 +449,35 @@ function choose(value: ThemePreference) {
             <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
             <p v-if="errors.email?.length" class="field-error">
               {{ errors.email[0] }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="phone">
+              Телефон <span class="field-optional">— если есть</span>
+            </label>
+            <input
+              id="phone"
+              :value="form.phone"
+              type="tel"
+              inputmode="tel"
+              class="input"
+              autocomplete="tel"
+              placeholder="+7 (999) 000-99-77"
+              @input="onPhoneInput"
+            >
+            <p v-if="errors.phone?.length" class="field-error">
+              {{ errors.phone[0] }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="job-title">
+              Должность <span class="field-optional">— если есть</span>
+            </label>
+            <input id="job-title" v-model.trim="form.job_title" class="input" autocomplete="organization-title">
+            <p v-if="errors.job_title?.length" class="field-error">
+              {{ errors.job_title[0] }}
             </p>
           </div>
 

@@ -20,8 +20,9 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(RolePermissionSeeder::class);
 
-        // The first account is a superadmin: it is the only role that can hand
-        // out administrator rights, so a system without one can never grow.
+        // The first account is a superadmin: administrators grow out of it, and
+        // it is the only standing that can appoint another of its own, so a
+        // system without one can never be handed over.
         User::firstOrCreate(
             ['email' => 'admin@bismar.test'],
             ['first_name' => 'Администратор', 'password' => 'password'],

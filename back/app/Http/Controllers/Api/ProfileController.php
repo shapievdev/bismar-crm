@@ -33,6 +33,8 @@ final class ProfileController extends Controller
             // Absent means cleared: the form always sends the whole record.
             'middle_name' => $request->validated('middle_name'),
             'email' => $request->validated('email'),
+            'phone' => $request->validated('phone'),
+            'job_title' => $request->validated('job_title'),
         ]);
 
         return UserResource::make($user->refresh());

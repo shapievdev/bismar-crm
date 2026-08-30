@@ -52,8 +52,8 @@ function day(value: string | null): string {
       Не удалось загрузить новости.
     </p>
 
-    <div v-else-if="pending" class="stack">
-      <div v-for="n in 2" :key="n" class="card item">
+    <div v-else-if="pending" class="tiles">
+      <div v-for="n in 3" :key="n" class="card item">
         <div class="skeleton skeleton-line" />
       </div>
     </div>
@@ -64,7 +64,7 @@ function day(value: string | null): string {
       description="Когда что-то важное появится, оно будет здесь."
     />
 
-    <div v-else class="stack">
+    <div v-else class="tiles">
       <NuxtLink
         v-for="item in news"
         :key="item.id"
@@ -89,7 +89,9 @@ function day(value: string | null): string {
           {{ item.excerpt }}
         </p>
 
-        <span v-if="item.author" class="faint">{{ item.author.name }}</span>
+        <!-- Автор прижат к низу плитки: в ряду разной высоты подписи иначе
+             оказываются на разных уровнях и ряд читается рвано. -->
+        <span v-if="item.author" class="faint item__author">{{ item.author.name }}</span>
       </NuxtLink>
     </div>
 
@@ -112,16 +114,23 @@ function day(value: string | null): string {
   text-decoration: none;
 }
 
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+/*
+ * Плиткой: новости просматривают выборочно — по заголовку, метке и дате, — а в
+ * один столбец их помещалось на экран три штуки. Колонок столько, сколько
+ * влезает по 18rem; на телефоне это одна, и лента там выглядит как раньше.
+ */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 0.9rem;
 }
 
 .item {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  /* Во всю высоту ячейки: соседи по ряду выравниваются друг по другу. */
+  height: 100%;
   padding: 1.1rem 1.25rem;
   color: inherit;
   text-decoration: none;
@@ -149,16 +158,36 @@ function day(value: string | null): string {
   font-size: 0.825rem;
 }
 
+/*
+ * Заголовок и выжимка обрезаются по строкам, а не по буквам: плитки в ряду
+ * равняются по самой высокой, и одна многословная новость иначе растягивала бы
+ * весь ряд.
+ */
 .item__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
 }
 
 .item__excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   margin: 0;
   color: var(--color-text-muted);
   font-size: 0.9rem;
+}
+
+.item__author {
+  margin-top: auto;
+  padding-top: 0.2rem;
 }
 
 .more {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage, ChatPerson, MessageAttachment } from '~/types/chat'
+import type { ChatMessage, ChatPerson, MessageAttachment, ThreadMessage } from '~/types/chat'
 
 // `fills`: страница занимает ровно экран и не растёт с содержимым — оболочка
 // объявляет себя в `100dvh` и снимает нижний отступ. См. «Высота» ниже.
@@ -7,6 +7,7 @@ definePageMeta({ middleware: 'auth', fills: true })
 useHead({ title: 'Сообщения' })
 
 const { user } = useAuth()
+const { confirm } = useAppDialog()
 const api = useChatApi()
 const messenger = useMessenger()
 const {
@@ -94,7 +95,22 @@ function select(id: number): void {
 const draft = ref('')
 const files = ref<File[]>([])
 const isSending = ref(false)
-const filePicker = useTemplateRef<HTMLInputElement>('filePicker')
+const attachOpen = ref(false)
+const attachError = ref<string | null>(null)
+
+/**
+ * Пределы — те же, что у сервера (SendMessageRequest): пять файлов, двадцать
+ * мегабайт на каждый.
+ *
+ * Проверяются здесь, а не только там: отправить видео с телефона и узнать через
+ * минуту загрузки, что оно вдвое тяжелее допустимого, — худшее из возможных
+ * сообщений об ошибке.
+ */
+const MAX_FILES = 5
+const MAX_FILE_BYTES = 20 * 1024 * 1024
+
+const mediaPicker = useTemplateRef<HTMLInputElement>('mediaPicker')
+const paperPicker = useTemplateRef<HTMLInputElement>('paperPicker')
 
 /* ---------- Ответ и правка ---------- */
 
@@ -137,11 +153,12 @@ function toggleMenu(message: ChatMessage, event: MouseEvent): void {
   menuFor.value = message.id
 }
 
-// Клик мимо закрывает меню — как всякое всплывающее. Нажатие на саму кнопку
-// до документа не доходит (`@click.stop`), иначе меню закрывалось бы тем же
-// щелчком, которым открылось.
+// Клик мимо закрывает всплывающее — и меню реплики, и выбор вложения. Нажатия
+// по самим кнопкам до документа не доходят (`@click.stop`), иначе меню
+// закрывалось бы тем же щелчком, которым открылось.
 function closeMenu(): void {
   menuFor.value = null
+  attachOpen.value = false
 }
 
 onMounted(() => document.addEventListener('click', closeMenu))
@@ -158,8 +175,90 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
  * одном сообщении, а во всей загруженной ленте.
  */
 function isViewable(file: MessageAttachment): boolean {
+  return isImage(file) || isVideo(file)
+}
+
+function isImage(file: MessageAttachment): boolean {
   return file.mime_type?.startsWith('image/') === true
-    || file.mime_type?.startsWith('video/') === true
+}
+
+function isVideo(file: MessageAttachment): boolean {
+  return file.mime_type?.startsWith('video/') === true
+}
+
+/* ---------- Снимки и записи в ленте ---------- */
+
+/** Снимки и записи одного сообщения — то, что уходит в сетку. */
+function mediaOf(message: ChatMessage): MessageAttachment[] {
+  return (message.attachments ?? []).filter(isViewable)
+}
+
+/** Всё остальное — документы, архивы: они остаются строкой с именем. */
+function papersOf(message: ChatMessage): MessageAttachment[] {
+  return (message.attachments ?? []).filter(file => !isViewable(file))
+}
+
+/**
+ * Сообщение из одних снимков и записей.
+ *
+ * Такой пузырь показывается без полей: снимок занимает его целиком, а время и
+ * галочки ложатся поверх снимка — иначе под ним остаётся полоса подложки,
+ * которой нечего обрамлять. Появились рядом слова, документ или цитата — полям
+ * снова есть что держать, и пузырь возвращается к обычному виду.
+ */
+function isMediaOnly(message: ChatMessage): boolean {
+  const files = message.attachments ?? []
+
+  return files.length > 0
+    && !message.body
+    && !message.reply_to
+    && files.every(isViewable)
+}
+
+/**
+ * Длительность записи — та, что подписана в углу кадра.
+ *
+ * Узнаётся в браузере, из самой записи: сервер её не хранит, и добавить это в
+ * ответ значит разбирать видео на стороне PHP. Браузер и так тянет заголовок
+ * файла, чтобы показать первый кадр (`preload="metadata"`), — длительность
+ * приходит вместе с ним, бесплатно. Пока заголовок не пришёл, подписи нет: врать
+ * про «0:00» хуже, чем промолчать полсекунды.
+ */
+const durations = ref<Record<number, number>>({})
+
+function noteDuration(file: MessageAttachment, event: Event): void {
+  const seconds = (event.target as HTMLVideoElement).duration
+
+  // У потоковой записи длительность бывает бесконечной, у битой — NaN.
+  if (Number.isFinite(seconds) && seconds > 0) {
+    durations.value = { ...durations.value, [file.id]: seconds }
+  }
+}
+
+/** «0:53», «12:07», «1:04:30» — как на плеере. */
+function clock(seconds: number): string {
+  const total = Math.round(seconds)
+  const parts = [Math.floor(total / 60) % 60, total % 60]
+
+  if (total >= 3600) {
+    parts.unshift(Math.floor(total / 3600))
+  }
+
+  return parts
+    .map((part, at) => (at === 0 ? String(part) : String(part).padStart(2, '0')))
+    .join(':')
+}
+
+/**
+ * Раскладка сетки — по числу снимков, как в мессенджерах.
+ *
+ * Один — во всю ширину и без обрезки: вертикальный кадр телефона на квадратной
+ * плитке потерял бы половину. Дальше плитки: два в ряд, три и четыре — большой
+ * слева и остальные столбиком справа, пять — три сверху, два снизу. Сервер
+ * больше пяти файлов не берёт, поэтому раскладок ровно столько.
+ */
+function albumShape(message: ChatMessage): string {
+  return String(Math.min(mediaOf(message).length, 5))
 }
 
 const viewable = computed(() => messages.value.flatMap(one => one.attachments ?? []).filter(isViewable))
@@ -287,30 +386,43 @@ async function submit(): Promise<void> {
     return
   }
 
-  isSending.value = true
+  if (editing.value) {
+    isSending.value = true
 
-  try {
-    if (editing.value) {
+    try {
       await messenger.edit(editing.value.id, draft.value.trim())
       editing.value = null
       draft.value = ''
     }
-    else {
-      await messenger.send(draft.value.trim(), files.value, replyTo.value?.id ?? null)
-      replyTo.value = null
-      draft.value = ''
-      files.value = []
-
-      if (filePicker.value) {
-        filePicker.value.value = ''
-      }
-
-      await scrollToEnd()
+    finally {
+      isSending.value = false
     }
+
+    return
   }
-  finally {
-    isSending.value = false
-  }
+
+  const body = draft.value.trim()
+  const chosen = files.value
+  const answering = replyTo.value?.id ?? null
+
+  /*
+   * Поле освобождается сразу, до отправки, и это главное здесь.
+   *
+   * Реплика уже встала в ленту и сама показывает, сколько байт ушло, — а
+   * двадцатимегабайтное видео едет минуту. Прежде страница ждала ответа с
+   * заблокированной формой, и это выглядело как «всё зависло».
+   */
+  draft.value = ''
+  files.value = []
+  replyTo.value = null
+  attachError.value = null
+  void nextTick(fitField)
+
+  // Ошибку отправки показывает сама реплика, вместе с «повторить», поэтому
+  // ждать здесь нечего: send не отказывает.
+  void messenger.send(body, chosen, answering)
+
+  await scrollToEnd()
 }
 
 /**
@@ -332,14 +444,58 @@ function fitField(): void {
 
 watch(draft, () => nextTick(fitField))
 
+/**
+ * Добавляет выбранное к тому, что уже приложено.
+ *
+ * Добавляет, а не подменяет: снимки выбирают из галереи, документ — из файлов, и
+ * это два разных выбора в одном сообщении. Поле выбора после этого очищается,
+ * иначе второй раз тот же файл не выбрать — событие change не наступит.
+ */
 function pickFiles(event: Event): void {
-  const chosen = (event.target as HTMLInputElement).files
+  const input = event.target as HTMLInputElement
+  const chosen = input.files ? [...input.files] : []
 
-  files.value = chosen ? [...chosen] : []
+  input.value = ''
+  attachOpen.value = false
+  attachError.value = null
+
+  const heavy = chosen.find(file => file.size > MAX_FILE_BYTES)
+
+  if (heavy) {
+    attachError.value = `«${heavy.name}» тяжелее ${MAX_FILE_BYTES / 1024 / 1024} МБ — такое кладут в материалы урока.`
+
+    return
+  }
+
+  const room = MAX_FILES - files.value.length
+
+  if (chosen.length > room) {
+    attachError.value = `За раз уходит не больше ${MAX_FILES} файлов.`
+  }
+
+  files.value = [...files.value, ...chosen.slice(0, Math.max(0, room))]
 }
 
 function dropFile(index: number): void {
   files.value = files.value.filter((_, at) => at !== index)
+  attachError.value = null
+}
+
+/**
+ * Что написано на уходящей реплике.
+ *
+ * Сто процентов — не «готово»: байты ушли, а сервер ещё раскладывает их по
+ * хранилищу, и для крупного файла это отдельное ожидание. Поэтому на этом месте
+ * не «100 %», а прямая речь о том, что происходит.
+ */
+function sendingLabel(message: ThreadMessage): string {
+  if (!message.files?.length) {
+    return 'Отправляется…'
+  }
+
+  const percent = Math.round(message.progress ?? 0)
+
+  return percent >= 100 ? 'Сохраняем…' : `Отправляется… ${percent} %`
 }
 
 /**
@@ -581,7 +737,18 @@ async function rename(): Promise<void> {
 }
 
 async function leave(): Promise<void> {
-  if (!activeId.value || !window.confirm('Выйти из группы? Переписка останется у остальных.')) {
+  if (!activeId.value) {
+    return
+  }
+
+  const confirmed = await confirm({
+    title: 'Выйти из группы?',
+    message: 'Переписка останется у остальных, а ваши сообщения — в ленте.',
+    confirmLabel: 'Выйти',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 
@@ -633,7 +800,14 @@ async function eraseForMe(): Promise<void> {
 
   const what = active.value.is_group ? 'группу' : 'переписку'
 
-  if (!window.confirm(`Удалить ${what} у себя? У остальных она останется, к вам вернётся с новым сообщением — но уже без прошлого.`)) {
+  const confirmed = await confirm({
+    title: `Удалить ${what} у себя?`,
+    message: 'У остальных она останется, к вам вернётся с новым сообщением — но уже без прошлого.',
+    confirmLabel: 'Удалить у себя',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 
@@ -649,11 +823,14 @@ async function eraseForEveryone(): Promise<void> {
     return
   }
 
-  const question = active.value.is_group
-    ? 'Удалить группу у всех? Сообщения и файлы исчезнут навсегда.'
-    : 'Удалить переписку у обоих? Сообщения и файлы исчезнут навсегда.'
+  const confirmed = await confirm({
+    title: active.value.is_group ? 'Удалить группу у всех?' : 'Удалить переписку у обоих?',
+    message: 'Сообщения и приложенные файлы исчезнут навсегда — отменить это будет нельзя.',
+    confirmLabel: 'Удалить у всех',
+    danger: true,
+  })
 
-  if (!window.confirm(question)) {
+  if (!confirmed) {
     return
   }
 
@@ -871,7 +1048,7 @@ const typingLabel = computed(() => {
             class="pane__avatar"
             :name="active.title"
             :src="active.companion?.avatar_url ?? null"
-            :size="36"
+            :size="40"
           />
         </header>
 
@@ -934,7 +1111,14 @@ const typingLabel = computed(() => {
             <div
               v-else
               class="bubble"
-              :class="{ 'bubble--mine': isMine(message), 'bubble--found': highlighted === message.id }"
+              :class="{
+                'bubble--mine': isMine(message),
+                'bubble--found': highlighted === message.id,
+                'bubble--photo': isMediaOnly(message),
+                'bubble--album': isMediaOnly(message) && mediaOf(message).length > 1,
+                'bubble--sending': message.sending && !message.error,
+                'bubble--failed': Boolean(message.error),
+              }"
               :data-message="message.id"
             >
               <span v-if="active.is_group && !isMine(message)" class="bubble__author">
@@ -962,8 +1146,48 @@ const typingLabel = computed(() => {
                 {{ message.body }}
               </p>
 
+              <!--
+                Снимки и записи — сеткой, как в мессенджерах: три кадра в одном
+                сообщении читаются как одно целое, а не как три сообщения подряд.
+                Раскладку задаёт число кадров, см. albumShape().
+              -->
+              <div
+                v-if="mediaOf(message).length"
+                class="album"
+                :class="`album--${albumShape(message)}`"
+              >
+                <a
+                  v-for="file in mediaOf(message)"
+                  :key="file.id"
+                  :href="file.url ?? '#'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="album__cell"
+                  @click="openAttachment(file, $event)"
+                >
+                  <img v-if="isImage(file)" :src="file.url ?? ''" :alt="file.name" class="album__media">
+
+                  <!-- У записи кадр берётся из неё самой: своих обложек сервер
+                       не делает, а имя файла в сетке ничего не показывает. -->
+                  <template v-else>
+                    <video
+                      class="album__media"
+                      :src="file.url ?? ''"
+                      preload="metadata"
+                      muted
+                      playsinline
+                      @loadedmetadata="noteDuration(file, $event)"
+                    />
+                    <span class="album__play" aria-hidden="true">▶</span>
+                    <span v-if="durations[file.id]" class="album__clock">
+                      {{ clock(durations[file.id]!) }}
+                    </span>
+                  </template>
+                </a>
+              </div>
+
               <a
-                v-for="file in message.attachments"
+                v-for="file in papersOf(message)"
                 :key="file.id"
                 :href="file.url ?? '#'"
                 target="_blank"
@@ -971,17 +1195,34 @@ const typingLabel = computed(() => {
                 class="file"
                 @click="openAttachment(file, $event)"
               >
-                <img v-if="file.mime_type?.startsWith('image/')" :src="file.url ?? ''" :alt="file.name" class="file__image">
-                <span v-else-if="file.mime_type?.startsWith('video/')" class="file__video">
-                  ▶ {{ file.name }}
-                </span>
-                <template v-else>
-                  <span class="file__name">{{ file.name }}</span>
-                  <span class="faint file__size">{{ sizeOf(file.size) }}</span>
-                </template>
+                <span class="file__name">{{ file.name }}</span>
+                <span class="faint file__size">{{ sizeOf(file.size) }}</span>
               </a>
 
-              <span class="bubble__meta">
+              <!--
+                Пока реплика уходит, на месте времени — сколько байт ушло, и
+                кнопка «отменить»: время у неё пока и не наступило. Сорвалась —
+                причина и «повторить» тем же составом.
+              -->
+              <span v-if="message.sending" class="bubble__meta bubble__await">
+                <template v-if="message.error">
+                  <span class="bubble__why">{{ message.error }}</span>
+                  <button type="button" class="bubble__retry" @click="messenger.resend(message.id)">
+                    Повторить
+                  </button>
+                  <button type="button" class="bubble__retry" @click="messenger.cancelSending(message.id)">
+                    Убрать
+                  </button>
+                </template>
+                <template v-else>
+                  {{ sendingLabel(message) }}
+                  <button type="button" class="bubble__retry" @click="messenger.cancelSending(message.id)">
+                    Отменить
+                  </button>
+                </template>
+              </span>
+
+              <span v-else class="bubble__meta">
                 <!-- «изменено» стоит раньше времени: время относится к тому,
                      когда сказали, а правка — к тому, что теперь написано. -->
                 <span v-if="message.edited_at" :title="`Изменено ${time(message.edited_at)}`">изменено</span>
@@ -1022,10 +1263,22 @@ const typingLabel = computed(() => {
                 </svg>
               </span>
 
+              <!-- Полоса ухода байтов. Только у того, где есть что грузить: у
+                   текста она мигнула бы и исчезла. -->
+              <span
+                v-if="message.sending && !message.error && message.files?.length"
+                class="bubble__progress"
+                :style="{ '--sent': `${message.progress ?? 0}%` }"
+              />
+
               <!-- Действия над репликой. Кнопкой, а не долгим нажатием: долгое
                    нажатие на телефоне уже занято выделением текста, и отнимать
-                   его у того, кто хочет скопировать сообщение, нельзя. -->
+                   его у того, кто хочет скопировать сообщение, нельзя.
+
+                   У ещё не отправленной их нет: отвечать, править и удалять
+                   можно то, что на сервере уже есть. -->
               <button
+                v-if="!message.sending"
                 type="button"
                 class="bubble__more"
                 :aria-label="`Действия с сообщением от ${time(message.created_at)}`"
@@ -1073,10 +1326,15 @@ const typingLabel = computed(() => {
             </button>
           </div>
 
+          <p v-if="attachError" class="composer__warning">
+            {{ attachError }}
+          </p>
+
           <ul v-if="files.length" class="composer__files">
             <li v-for="(file, index) in files" :key="`${file.name}-${index}`">
-              {{ file.name }}
-              <button type="button" @click="dropFile(index)">
+              <span class="composer__file-name">{{ file.name }}</span>
+              <span class="faint">{{ sizeOf(file.size) }}</span>
+              <button type="button" :aria-label="`Убрать ${file.name}`" @click="dropFile(index)">
                 ✕
               </button>
             </li>
@@ -1085,18 +1343,46 @@ const typingLabel = computed(() => {
           <div class="composer__row">
             <!-- При правке скрепка убрана: правка меняет слова, а приложить
                  файл задним числом — это новое сообщение. -->
-            <label v-if="!editing" class="composer__clip" title="Приложить файл">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M15.1715 6.99992L8.58553 13.5859C8.39451 13.7704 8.24215 13.9911 8.13733 14.2351C8.03251 14.4791 7.97734 14.7416 7.97503 15.0071C7.97272 15.2727 8.02333 15.536 8.12389 15.7818C8.22445 16.0276 8.37296 16.2509 8.56074 16.4387C8.74853 16.6265 8.97183 16.775 9.21762 16.8756C9.46342 16.9761 9.72678 17.0267 9.99233 17.0244C10.2579 17.0221 10.5203 16.9669 10.7643 16.8621C11.0083 16.7573 11.229 16.6049 11.4135 16.4139L17.8275 9.82792C18.5562 9.07351 18.9593 8.0631 18.9502 7.01431C18.9411 5.96553 18.5204 4.96228 17.7788 4.22065C17.0372 3.47901 16.0339 3.05834 14.9851 3.04922C13.9363 3.04011 12.9259 3.44329 12.1715 4.17192L5.75653 10.7569C4.63122 11.8822 3.99902 13.4085 3.99902 14.9999C3.99902 16.5914 4.63122 18.1176 5.75653 19.2429C6.88184 20.3682 8.4081 21.0004 9.99953 21.0004C11.591 21.0004 13.1172 20.3682 14.2425 19.2429L20.4995 12.9999"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <input ref="filePicker" type="file" multiple hidden @change="pickFiles">
-            </label>
+            <div v-if="!editing" class="composer__attach">
+              <button
+                type="button"
+                class="composer__clip"
+                :aria-expanded="attachOpen"
+                aria-label="Приложить"
+                @click.stop="attachOpen = !attachOpen"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M15.1715 6.99992L8.58553 13.5859C8.39451 13.7704 8.24215 13.9911 8.13733 14.2351C8.03251 14.4791 7.97734 14.7416 7.97503 15.0071C7.97272 15.2727 8.02333 15.536 8.12389 15.7818C8.22445 16.0276 8.37296 16.2509 8.56074 16.4387C8.74853 16.6265 8.97183 16.775 9.21762 16.8756C9.46342 16.9761 9.72678 17.0267 9.99233 17.0244C10.2579 17.0221 10.5203 16.9669 10.7643 16.8621C11.0083 16.7573 11.229 16.6049 11.4135 16.4139L17.8275 9.82792C18.5562 9.07351 18.9593 8.0631 18.9502 7.01431C18.9411 5.96553 18.5204 4.96228 17.7788 4.22065C17.0372 3.47901 16.0339 3.05834 14.9851 3.04922C13.9363 3.04011 12.9259 3.44329 12.1715 4.17192L5.75653 10.7569C4.63122 11.8822 3.99902 13.4085 3.99902 14.9999C3.99902 16.5914 4.63122 18.1176 5.75653 19.2429C6.88184 20.3682 8.4081 21.0004 9.99953 21.0004C11.591 21.0004 13.1172 20.3682 14.2425 19.2429L20.4995 12.9999"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+
+              <!--
+                Два входа, а не один общий выбор файлов: на телефоне «фото или
+                видео» открывает галерею и камеру, а «файл» — хранилище, и это
+                разные места. Одна кнопка со всеми типами вела бы в файлы, где
+                снимок ещё надо найти.
+              -->
+              <div v-if="attachOpen" class="attach" @click.stop>
+                <button type="button" class="attach__option" @click="mediaPicker?.click()">
+                  Фото или видео
+                </button>
+                <button type="button" class="attach__option" @click="paperPicker?.click()">
+                  Файл
+                </button>
+              </div>
+
+              <!-- Пункты меню — кнопки, а сами поля выбора спрятаны здесь: до
+                   подписи над скрытым полем с клавиатуры не добраться, а до
+                   кнопки добраться. -->
+              <input ref="mediaPicker" type="file" accept="image/*,video/*" multiple hidden @change="pickFiles">
+              <input ref="paperPicker" type="file" multiple hidden @change="pickFiles">
+            </div>
 
             <textarea
               ref="field"
@@ -1259,12 +1545,15 @@ const typingLabel = computed(() => {
   padding-right: 0.25rem;
 }
 
+/* Заголовок и пустая строка отбиты так же, как строки списка: иначе «Сообщения»
+   висит левее имён, под которыми оно стоит. */
 .list__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.35rem;
+  padding: 0 0.6rem;
 }
 
 .list__title {
@@ -1273,6 +1562,7 @@ const typingLabel = computed(() => {
 }
 
 .list__empty {
+  padding: 0 0.6rem;
   font-size: 0.88rem;
   line-height: 1.5;
 }
@@ -1363,7 +1653,17 @@ const typingLabel = computed(() => {
   text-align: center;
 }
 
+/*
+ * Поля всех полос переписки — одной величиной.
+ *
+ * Шапка, состав, лента и поле ввода лежат друг под другом, и стоило им разойтись
+ * на десятую рема, как имя собеседника, край пузыря и край поля ввода перестали
+ * попадать на одну вертикаль. Здесь одно значение на всех, и правится оно в
+ * одном месте.
+ */
 .pane {
+  --pane-pad: 0.9rem;
+
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1383,7 +1683,7 @@ const typingLabel = computed(() => {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.7rem var(--pane-pad);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1443,7 +1743,7 @@ const typingLabel = computed(() => {
   gap: 0.4rem;
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 0.9rem var(--pane-pad);
 }
 
 .thread__older,
@@ -1479,6 +1779,274 @@ const typingLabel = computed(() => {
      текстом, а не обрамляет его. */
   border-radius: var(--radius-sm);
   background: var(--color-surface-sunken);
+}
+
+/*
+ * Пузырь из одних снимков: полей нет, снимок занимает его целиком.
+ *
+ * Ширину по-прежнему задаёт снимок: маленький не растягивается, большой упирается
+ * в предел пузыря. Подложка под снимком остаётся — сквозь прозрачные края PNG
+ * иначе просвечивала бы лента.
+ *
+ * Углы скругляет сам снимок, тем же радиусом, а не `overflow: hidden` у пузыря:
+ * внутри пузыря лежит ещё и всплывающее меню действий, и обрезка срезала бы его.
+ */
+.bubble--photo {
+  gap: 0;
+  padding: 0;
+}
+
+/* Имя в группе — единственное, что здесь ещё нуждается в полях. */
+.bubble--photo .bubble__author {
+  padding: 0.4rem 0.7rem 0.3rem;
+}
+
+/*
+ * Сетка из нескольких кадров всегда одной ширины: плитки должны быть одного
+ * размера у всех сообщений, а не подстраиваться под первый снимок.
+ *
+ * Ширина — своя, меньше дозволенной пузырю: реплика из слов и реплика из
+ * снимков живут в одной ленте, и снимок на всю её ширину съедает экран, ради
+ * которого лента и открыта. Столько же занимает медиа в мессенджерах, откуда
+ * взята и сама сетка. Предел пузыря (78 %) на телефоне всё равно перебивает эту
+ * ширину — там она уже больше, чем дают.
+ */
+.bubble--album {
+  width: min(24rem, 76vw);
+}
+
+/* ---------- Сетка снимков и записей ---------- */
+
+/*
+ * Раскладки — по числу кадров, как в мессенджерах. Пропорции целого задаются
+ * здесь, а кадры внутри обрезаются по центру: собрать сетку из настоящих
+ * пропорций каждого снимка нельзя, их никто не присылает заранее.
+ */
+.album {
+  display: grid;
+  gap: 2px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+/* Один — как есть, без обрезки: вертикальный кадр телефона на квадратной плитке
+   потерял бы половину. */
+.album--1 {
+  gap: 0;
+}
+
+.album--2 {
+  grid-template-columns: 1fr 1fr;
+  aspect-ratio: 2 / 1;
+}
+
+.album--3 {
+  grid-template-columns: 1.5fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  aspect-ratio: 1.15 / 1;
+}
+
+.album--4 {
+  grid-template-columns: 1.5fr 1fr;
+  grid-template-rows: repeat(3, 1fr);
+  aspect-ratio: 1 / 1.05;
+}
+
+/* Первый кадр — большой: он и есть то, что показывают, остальное при нём. */
+.album--3 > :first-child,
+.album--4 > :first-child {
+  grid-row: 1 / -1;
+}
+
+/* Пять: три сверху, два снизу. Шести не бывает — сервер берёт не больше пяти. */
+.album--5 {
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: 1fr 1fr;
+  aspect-ratio: 1.35 / 1;
+}
+
+.album--5 > :nth-child(-n+3) {
+  grid-column: span 2;
+}
+
+.album--5 > :nth-child(n+4) {
+  grid-column: span 3;
+}
+
+.album__cell {
+  position: relative;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  background: rgb(0 0 0 / 20%);
+}
+
+.album__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * Одиночный кадр не обрезается и не растягивается — его показывают как есть,
+ * вписывая в рамку.
+ *
+ * Ограничены обе стороны, и высота здесь важнее ширины: вертикальный кадр
+ * телефона при одной только ширине вырастает на два экрана, и разговор
+ * приходится прокручивать мимо одного снимка. Пропорции при двух пределах
+ * браузер сохраняет сам — это замещаемый элемент.
+ */
+.album--1 .album__media {
+  width: auto;
+  max-width: min(22rem, 72vw);
+  height: auto;
+  max-height: 24rem;
+}
+
+/* Длительность — в углу кадра, той же пилюлей, что и время сообщения. */
+.album__clock {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* Знак записи: кадр из неё виден, но нажимают на него ради воспроизведения. */
+.album__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
+  font-size: 0.9rem;
+  /* Треугольник в круге стоит ровно по центру только со сдвигом: у знака есть
+     собственный правый воздух. */
+  padding-left: 0.15rem;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/*
+ * Время и галочки — поверх снимка, в его углу.
+ *
+ * Подложка обязательна: угол снимка бывает и белым, и чёрным, и пёстрым, а знак
+ * прочтения должен читаться на любом. Она же делает знак белым независимо от
+ * того, свой пузырь или чужой.
+ */
+.bubble--photo .bubble__meta {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
+  opacity: 1;
+}
+
+/* ---------- Пока реплика уходит ---------- */
+
+/*
+ * Уходящее видно, но пригашено: оно уже сказано, но ещё не сказано никому.
+ */
+.bubble--sending .album,
+.bubble--sending .bubble__text,
+.bubble--sending .file {
+  opacity: 0.65;
+}
+
+.bubble--failed {
+  outline: 1px solid var(--color-danger);
+}
+
+.bubble__await {
+  flex-wrap: wrap;
+  align-self: flex-end;
+  opacity: 1;
+}
+
+.bubble__why {
+  color: var(--color-danger);
+}
+
+/* Своё сообщение — на почти чёрном, и красный на нём не читается. */
+.bubble--mine .bubble__why {
+  color: var(--color-danger-soft);
+}
+
+.bubble__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/*
+ * Полоса ухода байтов — по нижнему краю пузыря.
+ *
+ * Полоса, а не круг с процентом: она читается краем глаза и не требует места,
+ * которого у реплики нет.
+ */
+.bubble__progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: color-mix(in srgb, currentcolor 20%, transparent);
+  overflow: hidden;
+}
+
+.bubble__progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--sent, 0%);
+  background: currentcolor;
+  transition: width 0.2s ease;
+}
+
+/* На снимке метка отправки — такой же пилюлей, как время. */
+.bubble--photo .bubble__await {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.4rem;
+  max-width: calc(100% - 0.8rem);
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.bubble--photo .bubble__why {
+  color: #ffb3ad;
+}
+
+/* Кнопка действий тоже лежит на снимке, и ей нужна та же подложка. */
+.bubble--photo .bubble__more {
+  top: 0.35rem;
+  right: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
 }
 
 /* Куда перенесло по нажатию на цитату. Гаснет само — см. jumpTo(). */
@@ -1708,17 +2276,29 @@ const typingLabel = computed(() => {
   background: rgb(255 255 255 / 26%);
 }
 
+/*
+ * Все три кнопки — на одном расстоянии от краёв, и это расстояние учитывает
+ * вырезы экрана: у телефона в ландшафте боковая безопасная зона не нулевая, и
+ * кнопка у самого края наполовину уходила под скругление корпуса.
+ */
 .viewer__close {
   top: max(1rem, env(safe-area-inset-top));
-  right: 1rem;
+  right: max(1rem, env(safe-area-inset-right));
+}
+
+/* Вертикаль задана явно: без `top` кнопка встаёт туда, куда её поставит
+   выравнивание сетки, и это зависит от того, что сейчас в ней лежит. */
+.viewer__step {
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .viewer__step--back {
-  left: 0.75rem;
+  left: max(1rem, env(safe-area-inset-left));
 }
 
 .viewer__step--next {
-  right: 0.75rem;
+  right: max(1rem, env(safe-area-inset-right));
 }
 
 .viewer__name {
@@ -1737,12 +2317,6 @@ const typingLabel = computed(() => {
 .viewer__name:hover {
   opacity: 1;
   text-decoration: underline;
-}
-
-/* Запись в ленте — строкой с треугольником, а не пустым прямоугольником:
-   кадр из видео взять неоткуда, а имя файла говорит больше. */
-.file__video {
-  font-size: 0.85rem;
 }
 
 /* ---------- Полоса «отвечаем / изменяем» ---------- */
@@ -1798,16 +2372,11 @@ const typingLabel = computed(() => {
   font-size: 0.85rem;
 }
 
-.file__image {
-  max-width: 100%;
-  border-radius: var(--radius);
-}
-
 .composer {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.7rem var(--pane-pad);
   border-top: 1px solid var(--color-border);
 }
 
@@ -1850,9 +2419,62 @@ const typingLabel = computed(() => {
   flex-shrink: 0;
   width: 2.5rem;
   height: 2.5rem;
+  border: 0;
   border-radius: var(--radius);
+  background: none;
   cursor: pointer;
   color: var(--color-text-muted);
+}
+
+/* Скрепка держит выбор вложения: он раскрывается ровно над ней. */
+.composer__attach {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.attach {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 11rem;
+  padding: 0.3rem;
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.attach__option {
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attach__option:hover {
+  background: var(--color-surface-sunken);
+}
+
+/* Отказ на выбранном: слишком тяжёлое или слишком много. Красным, но строкой, а
+   не окном — исправляется это тем же нажатием, что и вызвало. */
+.composer__warning {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+.composer__file-name {
+  overflow: hidden;
+  max-width: 12rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer__clip svg {
@@ -1878,7 +2500,7 @@ const typingLabel = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  padding: 0.85rem 0.9rem;
+  padding: 0.8rem var(--pane-pad);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-sunken);
 }
@@ -2077,10 +2699,18 @@ const typingLabel = computed(() => {
     padding-top: calc(3.9rem + max(0.75rem, env(safe-area-inset-top)));
   }
 
-  /* Плашки под кнопками: своё скругление и размытие у каждой. */
+  /*
+   * Плашки под кнопками: своё скругление и размытие у каждой — и одна высота на
+   * всех.
+   *
+   * Высота была у каждой своя: «назад» 36 точек, имя 44, «⋯» 28. Три плашки
+   * трёх размеров в одной строке и есть тот перекос, который видно, даже не
+   * присматриваясь. Аватар той же величины — см. `size` в разметке.
+   */
   .messenger--open .pane__back,
   .messenger--open .pane__who,
   .messenger--open .pane__more {
+    height: 2.5rem;
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--color-surface) 78%, transparent);
     backdrop-filter: blur(14px);
@@ -2089,20 +2719,34 @@ const typingLabel = computed(() => {
   /* «⋯» лежит поверх сообщений, и без собственной плашки знак терялся бы в
      них — как и «назад» на другом краю. */
   .messenger--open .pane__more {
-    padding: 0.15rem 0.6rem;
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    padding: 0;
     color: var(--color-text);
   }
 
   /*
-   * Плашка имени по ширине надписи, а не во всю строку: `margin: auto`
-   * прижимает её к середине между «назад» и аватаром — как в образце.
+   * Плашка имени — по ширине надписи и по середине экрана.
+   *
+   * Не `margin: auto`: слева от неё одна кнопка, справа две, и середина
+   * свободного места приходится левее настоящей середины — надпись выглядела
+   * сдвинутой. Поэтому она выведена из строки и центрируется по самой шапке, а
+   * не по тому, что от неё осталось.
    */
   .messenger--open .pane__who {
-    flex: 0 1 auto;
-    min-width: 0;
-    margin: 0 auto;
-    padding: 0.25rem 1rem;
+    position: absolute;
+    left: 50%;
+    max-width: 52%;
+    justify-content: center;
+    padding: 0.1rem 1rem;
     text-align: center;
+    transform: translateX(-50%);
+  }
+
+  /* Кнопки разъезжаются по краям: между ними больше нет плашки имени. */
+  .messenger--open .pane__menu {
+    margin-left: auto;
   }
 
   /* Аватар справа: на столе его держит перед именем `order: -1`. */
@@ -2126,15 +2770,30 @@ const typingLabel = computed(() => {
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
   }
 
-  /* Поле — такая же полупрозрачная плашка с размытием, как плашки шапки. */
-  .messenger--open .composer__field {
+  /*
+   * Нижняя строка — из частей одной высоты и одной формы.
+   *
+   * Скрепка, поле и кнопка отправки стояли по 2.5, 2.6 и 2.75 рема, да ещё поле
+   * со скруглением в 16 точек между двумя кругами: три почти одинаковых размера
+   * рядом читаются как перекос, а не как замысел. Здесь одна величина на всех.
+   */
+  .messenger--open .composer__field,
+  .messenger--open .composer__clip {
     background: color-mix(in srgb, var(--color-surface) 78%, transparent);
     backdrop-filter: blur(14px);
   }
 
+  .messenger--open .composer__field {
+    min-height: 2.75rem;
+    /* Плашка-таблетка: у пустого поля она круглится в те же круги, что соседи, а
+       разросшись на несколько строк — остаётся плашкой. */
+    padding: 0.65rem 1rem;
+    border-radius: var(--radius-pill);
+  }
+
   .messenger--open .composer__clip {
-    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
-    backdrop-filter: blur(14px);
+    width: 2.75rem;
+    height: 2.75rem;
     border-radius: 50%;
   }
 
@@ -2152,9 +2811,8 @@ const typingLabel = computed(() => {
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 2.25rem;
-    height: 2.25rem;
-    margin-left: -0.3rem;
+    width: 2.5rem;
+    height: 2.5rem;
     border-radius: var(--radius);
   }
 
@@ -2163,7 +2821,7 @@ const typingLabel = computed(() => {
   }
 
   .thread {
-    padding: 0.75rem;
+    padding: 0.75rem var(--pane-pad);
   }
 
   /* Пузырь на телефоне шире: 78% от 390 точек — это обрывок строки. */

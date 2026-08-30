@@ -22,6 +22,8 @@ final readonly class CreateUser
             'first_name' => $data->firstName,
             'middle_name' => $data->middleName,
             'email' => $data->email,
+            'phone' => $data->phone,
+            'job_title' => $data->jobTitle,
             'password' => $data->password,
         ]);
     }

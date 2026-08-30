@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Auth;
 
 use App\Data\Auth\LoginData;
+use App\Models\User;
+use App\Support\Authorization;
 use Illuminate\Auth\Events\Lockout;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -31,7 +34,7 @@ final readonly class AttemptLogin
 
         $this->ensureIsNotRateLimited($throttleKey, $data->email);
 
-        if (! Auth::attempt($data->credentials(), $data->remember)) {
+        if (! $this->guard()->attempt($data->credentials(), $data->remember)) {
             RateLimiter::hit($throttleKey, self::DECAY_SECONDS);
 
             throw ValidationException::withMessages([
@@ -40,6 +43,48 @@ final readonly class AttemptLogin
         }
 
         RateLimiter::clear($throttleKey);
+
+        $this->ensureStillEmployed();
+    }
+
+    /**
+     * Уволенного дальше двери не пускают.
+     *
+     * Проверка стоит после `Auth::attempt`, а не до него, намеренно: узнать,
+     * что учётная запись закрыта, должен только тот, кто и так знает пароль, —
+     * иначе форма входа отвечала бы посторонним, кто в компании работает, а
+     * кто нет.
+     *
+     * Сессию, которую attempt только что открыл, приходится закрывать руками:
+     * иначе увольнение было бы слышно лишь на следующем запросе.
+     *
+     * @throws ValidationException
+     */
+    private function ensureStillEmployed(): void
+    {
+        $user = $this->guard()->user();
+
+        if (! $user instanceof User || ! $user->isDismissed()) {
+            return;
+        }
+
+        $this->guard()->logout();
+
+        throw ValidationException::withMessages([
+            'email' => 'Доступ к платформе закрыт: вы больше не числитесь сотрудником.',
+        ]);
+    }
+
+    /**
+     * Вход открывает сессию — и именно сессионный страж, названный по имени.
+     *
+     * Гвардом по умолчанию тут не обойтись: `auth:sanctum` переписывает его на
+     * «sanctum» на весь запрос, и у того же `attempt` попросту нет — см.
+     * App\Support\Authorization.
+     */
+    private function guard(): StatefulGuard
+    {
+        return Auth::guard(Authorization::GUARD);
     }
 
     /**

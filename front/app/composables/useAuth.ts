@@ -52,11 +52,15 @@ export function useAuth() {
   }
 
   /**
-   * Standing rather than permission: a superadmin is the only one who may
-   * appoint administrators, so some controls are shown only to them.
+   * Standing rather than permission: appointing someone goes by standing, not
+   * by a ticked right, so the controls that do it are shown by these.
+   *
+   * An administrator appoints administrators; superadmin standing is granted
+   * by a superadmin alone.
    */
   const level = computed(() => user.value?.level ?? 'user')
   const isSuperAdmin = computed(() => level.value === 'super-admin')
+  const isAdmin = computed(() => level.value !== 'user')
 
   /**
    * Restores the session after a page load. A 401 simply means "not logged in",
@@ -96,12 +100,18 @@ export function useAuth() {
     return data
   }
 
-  /** Saves the signed-in user's own name and address. */
+  /**
+   * Своё: имя, почта, телефон и должность. Телефон и должность человек ведёт
+   * сам — за такой правкой к администратору не ходят.
+   */
   async function updateProfile(payload: {
     last_name: string
     first_name: string
     middle_name: string | null
     email: string
+    /** «+79990009977» или ничего: своё поле, и человек ведёт его сам. */
+    phone: string | null
+    job_title: string | null
   }): Promise<User> {
     const { data } = await $api<ResourceResponse<User>>('/api/profile', {
       method: 'PUT',
@@ -172,6 +182,7 @@ export function useAuth() {
     can,
     level,
     isSuperAdmin,
+    isAdmin,
     fetchUser,
     login,
     register,

@@ -7,6 +7,7 @@ namespace App\Http\Requests\Lms;
 use App\Models\Course;
 use App\Models\Regulation;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
@@ -25,6 +26,34 @@ final class UpdateLearningPlanRequest extends FormRequest
         'course' => Course::class,
         'regulation' => Regulation::class,
     ];
+
+    /**
+     * Менять чужой план — дело должности, а не отмеченного права.
+     *
+     * Читать планы по-прежнему позволяет `enrollments.manage`: посмотреть, как
+     * идут дела у сотрудников, доверяют шире, чем решать, что им проходить.
+     * Само же решение принимает администратор или суперадминистратор — так
+     * распорядился пользователь (2026-08-30).
+     *
+     * Проверка стоит здесь, а не в политике: политика ответила бы то же самое,
+     * но заводить её ради одного правила о должности — лишний слой между
+     * запросом и ответом.
+     */
+    public function authorize(): bool
+    {
+        /** @var User|null $actor */
+        $actor = $this->user();
+
+        return $actor?->accessLevel()->grantsEverything() ?? false;
+    }
+
+    /**
+     * @throws AuthorizationException
+     */
+    protected function failedAuthorization(): never
+    {
+        throw new AuthorizationException('Менять план обучения может только администратор.');
+    }
 
     /**
      * @return array<string, array<int, mixed>>

@@ -42,6 +42,29 @@ final class UserManagementTest extends TestCase
         $this->assertSame($response->json('data.id'), $created->id);
     }
 
+    /**
+     * Карточку человека открывает тот же, кто читает список: это одно и то же
+     * чтение, только об одном.
+     */
+    public function test_a_profile_is_opened_by_whoever_may_read_the_staff_list(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977', 'job_title' => 'Кладовщик']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.show', $user))
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->getKey())
+            ->assertJsonPath('data.phone', '+79990009977')
+            ->assertJsonPath('data.job_title', 'Кладовщик');
+    }
+
+    public function test_a_profile_is_closed_to_someone_without_that_right(): void
+    {
+        $this->actingAs($this->userWith(Permission::ViewCourses))
+            ->getJson(route('users.show', User::factory()->create()))
+            ->assertForbidden();
+    }
+
     public function test_a_duplicate_address_is_refused(): void
     {
         User::factory()->create(['email' => 'taken@bismar.test']);
@@ -100,6 +123,92 @@ final class UserManagementTest extends TestCase
             ->assertOk();
 
         $this->assertSame($before, $user->refresh()->password);
+    }
+
+    /**
+     * Номер приходит набранным как угодно, а ложится в базу одним видом.
+     */
+    public function test_a_phone_number_is_stored_in_one_shape(): void
+    {
+        foreach (['8 (999) 000-99-77', '+7 999 000 99 77', '9990009977', '+79990009977'] as $index => $typed) {
+            $this->actingAs($this->administrator())
+                ->postJson(route('users.store'), [
+                    'last_name' => 'Лавлейс',
+                    'first_name' => 'Ада',
+                    'email' => "ada{$index}@bismar.test",
+                    'phone' => $typed,
+                    'job_title' => 'Программист',
+                    'password' => 'correct-horse-battery-staple',
+                ])
+                ->assertCreated()
+                ->assertJsonPath('data.phone', '+79990009977')
+                ->assertJsonPath('data.job_title', 'Программист');
+        }
+    }
+
+    public function test_a_number_that_is_not_a_number_is_refused(): void
+    {
+        $this->actingAs($this->administrator())
+            ->postJson(route('users.store'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => 'ada@bismar.test',
+                'phone' => '12-34',
+                'password' => 'correct-horse-battery-staple',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+    }
+
+    /**
+     * Оба поля необязательны: без них сотрудник заводится и живёт.
+     */
+    public function test_a_colleague_is_created_without_a_phone_or_a_job_title(): void
+    {
+        $this->actingAs($this->administrator())
+            ->postJson(route('users.store'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => 'ada@bismar.test',
+                'password' => 'correct-horse-battery-staple',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.phone', null)
+            ->assertJsonPath('data.job_title', null);
+    }
+
+    public function test_a_phone_and_a_job_title_are_corrected_and_cleared(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977', 'job_title' => 'Стажёр']);
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.update', $user), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => 'ada@bismar.test',
+                'phone' => '8 (999) 111-22-33',
+                'job_title' => 'Ведущий разработчик',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.phone', '+79991112233')
+            ->assertJsonPath('data.job_title', 'Ведущий разработчик');
+
+        // Пустое поле — это «убрать», а не «оставить как было»: форма присылает
+        // запись целиком.
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.update', $user), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => 'ada@bismar.test',
+                'phone' => '',
+                'job_title' => null,
+            ])
+            ->assertOk();
+
+        $user->refresh();
+
+        $this->assertNull($user->phone);
+        $this->assertNull($user->job_title);
     }
 
     public function test_an_administrator_can_reset_a_password(): void

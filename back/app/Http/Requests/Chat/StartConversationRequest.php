@@ -22,10 +22,14 @@ final class StartConversationRequest extends FormRequest
             'kind' => ['required', Rule::enum(ConversationKind::class)],
 
             // Личная — ровно с одним собеседником.
+            //
+            // Уволенный собеседником не бывает: переписку с ним не начинают,
+            // потому что читать её будет некому. Заведённая раньше остаётся —
+            // написанное не пропадает оттого, что человек ушёл.
             'user_id' => [
                 Rule::requiredIf(fn (): bool => $this->input('kind') === ConversationKind::Direct->value),
                 'integer',
-                Rule::exists('users', 'id'),
+                Rule::exists('users', 'id')->whereNull('dismissed_at'),
                 Rule::notIn([$this->user()?->getKey()]),
             ],
 
@@ -36,7 +40,7 @@ final class StartConversationRequest extends FormRequest
                 'max:120',
             ],
             'user_ids' => ['array'],
-            'user_ids.*' => ['integer', Rule::exists('users', 'id')],
+            'user_ids.*' => ['integer', Rule::exists('users', 'id')->whereNull('dismissed_at')],
         ];
     }
 

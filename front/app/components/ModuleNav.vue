@@ -64,10 +64,28 @@ const links = computed<NavLink[]>(() => {
     ].filter(link => link.visible)
   }
 
+  if (path.startsWith('/staff')) {
+    return [
+      // Структура открыта всем, список людей — по праву: это разные вопросы,
+      // «как устроена компания» и «что можно с этим человеком сделать».
+      {
+        to: '/staff/structure',
+        label: 'Структура',
+        visible: true,
+        matches: (p: string) => p.startsWith('/staff/structure'),
+      },
+      {
+        to: '/staff',
+        label: 'Сотрудники',
+        visible: can('users.view'),
+        matches: (p: string) => p === '/staff' || /^\/staff\/(new|\d+)/.test(p),
+      },
+    ].filter(link => link.visible)
+  }
+
   if (path.startsWith('/settings')) {
     return [
       { to: '/settings/profile', label: 'Профиль', visible: true },
-      { to: '/settings/users', label: 'Пользователи', visible: can('users.view') },
       // Пробелы в базе закрывают авторы курсов — журнал открыт им.
       { to: '/settings/questions', label: 'Вопросы', visible: can('courses.update') },
       // Платёжный ключ и модель — только суперадминистратору.

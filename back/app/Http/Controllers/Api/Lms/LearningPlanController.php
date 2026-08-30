@@ -107,6 +107,8 @@ final class LearningPlanController extends Controller
         $search = trim((string) $request->query('search'));
 
         $people = User::query()
+            // Уволенным не назначают: пройти назначенное им уже негде.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')

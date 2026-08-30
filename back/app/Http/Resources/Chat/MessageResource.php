@@ -64,7 +64,11 @@ final class MessageResource extends JsonResource
         return [
             'id' => $original->getKey(),
             'deleted' => $original->trashed(),
-            'author' => PersonResource::make($original->relationLoaded('author') ? $original->author : null),
+            // Как и у самой реплики, подписи может не быть: у системной её
+            // нет вовсе, а автора обычной могли удалить из системы.
+            'author' => $original->relationLoaded('author') && $original->author !== null
+                ? PersonResource::make($original->author)
+                : null,
             'excerpt' => $original->trashed() ? null : $this->excerptOf($original),
         ];
     }

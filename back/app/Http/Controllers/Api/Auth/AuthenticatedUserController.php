@@ -16,6 +16,8 @@ final class AuthenticatedUserController extends Controller
      */
     public function show(Request $request): UserResource
     {
-        return UserResource::make($request->user());
+        // Со своими отделами: по ним структура метит «ваш отдел», и отдельный
+        // запрос ради одной метки был бы лишним.
+        return UserResource::make($request->user()?->load('departments'));
     }
 }

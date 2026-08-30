@@ -498,6 +498,9 @@ final readonly class AnswerFromKnowledgeBase
             ->join('course_experts', 'course_experts.course_id', '=', 'courses.id')
             ->join('users', 'users.id', '=', 'course_experts.user_id')
             ->whereIn('lessons.id', $lessonIds)
+            // Уволенного в ответе не называют: карточка «спросите
+            // ответственного» ведёт в мессенджер, а туда он уже не зайдёт.
+            ->whereNull('users.dismissed_at')
             ->select([
                 'lessons.id as lesson_id',
                 'users.id as user_id',

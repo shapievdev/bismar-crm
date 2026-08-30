@@ -4,11 +4,16 @@
  * Одна вариативная начертательная пара вместо восьми статических: диапазон
  * weight 400–700 покрывается обоими файлами, поэтому браузер грузит максимум
  * два запроса вместо восьми. Кириллица покрыта полностью.
+ *
+ * Файлы лежат в `public/`, а не в `assets/`, потому что тот же адрес нужен
+ * второму документу — HTML-блоку урока, который живёт в отдельном кадре и
+ * собирает своё оформление сам (см. utils/editor/htmlBlockDocument.ts). Хэша в
+ * имени поэтому нет: сменится шрифт — сменится и имя файла.
  */
 @font-face {
   font-family: 'Involve';
-  src: url('../fonts/involve-variable.woff2') format('woff2-variations'),
-       url('../fonts/involve-variable.woff2') format('woff2');
+  src: url('/fonts/involve-variable.woff2') format('woff2-variations'),
+       url('/fonts/involve-variable.woff2') format('woff2');
   font-weight: 400 700;
   font-style: normal;
   /* Текст показывается системным шрифтом сразу и переключается по загрузке,
@@ -18,8 +23,8 @@
 
 @font-face {
   font-family: 'Involve';
-  src: url('../fonts/involve-variable-italic.woff2') format('woff2-variations'),
-       url('../fonts/involve-variable-italic.woff2') format('woff2');
+  src: url('/fonts/involve-variable-italic.woff2') format('woff2-variations'),
+       url('/fonts/involve-variable-italic.woff2') format('woff2');
   font-weight: 400 700;
   font-style: italic;
   font-display: swap;

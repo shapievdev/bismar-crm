@@ -1,14 +1,37 @@
 <script setup lang="ts">
-defineProps<{
+import { applyMask } from '~/utils/maskedInput'
+
+const props = defineProps<{
   id: string
   label: string
   type?: string
   autocomplete?: string
+  inputmode?: 'text' | 'tel' | 'email' | 'numeric'
   placeholder?: string
   errors?: string[]
+  /**
+   * Маска: как показать набранное. Поле хранит уже приведённое значение, так
+   * что вставленное из буфера выглядит ровно так же, как набранное вручную.
+   */
+  format?: (value: string) => string
 }>()
 
 const model = defineModel<string>({ required: true })
+
+/**
+ * Ввод с маской. Поле без маски сюда не заходит — его ведёт v-model, и вместе
+ * с ним остаётся то, что он умеет: ввод через IME, диктовку, автозаполнение.
+ *
+ * Само наложение маски и возврат курсора — в утилите: тем же правилом живёт
+ * телефон на экране профиля, набранный своей разметкой.
+ */
+function onInput(event: Event) {
+  if (!props.format) {
+    return
+  }
+
+  model.value = applyMask(event.target as HTMLInputElement, props.format)
+}
 </script>
 
 <template>
@@ -20,9 +43,11 @@ const model = defineModel<string>({ required: true })
       v-model="model"
       :type="type ?? 'text'"
       :autocomplete="autocomplete"
+      :inputmode="inputmode"
       :placeholder="placeholder"
       :aria-invalid="Boolean(errors?.length)"
       :aria-describedby="errors?.length ? `${id}-error` : undefined"
+      @input="onInput"
     >
 
     <p v-if="errors?.length" :id="`${id}-error`" class="field__error">

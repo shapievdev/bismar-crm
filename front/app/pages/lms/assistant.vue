@@ -17,6 +17,7 @@ const {
   rateAnswer,
   requestFollowUp,
 } = useLmsApi()
+const { confirm } = useAppDialog()
 
 interface Exchange {
   id: number
@@ -201,7 +202,14 @@ async function scrollToEnd({ smooth = true } = {}): Promise<void> {
 const isClearing = ref(false)
 
 async function clearHistory(): Promise<void> {
-  if (!window.confirm('Очистить переписку с консультантом?')) {
+  const confirmed = await confirm({
+    title: 'Очистить переписку с консультантом?',
+    message: 'Вопросы и ответы исчезнут, и консультант перестанет помнить, о чём шла речь.',
+    confirmLabel: 'Очистить',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 

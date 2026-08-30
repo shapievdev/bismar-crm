@@ -43,6 +43,71 @@ final class ProfileTest extends TestCase
         $this->assertSame('Лавлейс Ада Августовна', $user->refresh()->name);
     }
 
+    /**
+     * Телефон и должность человек ведёт сам — за такой правкой к
+     * администратору не ходят.
+     */
+    public function test_a_user_sets_their_own_phone_and_job_title(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+                'phone' => '8 (999) 000-99-77',
+                'job_title' => 'Программист',
+            ])
+            ->assertOk()
+            // Набрано через восьмёрку, а хранится одним видом.
+            ->assertJsonPath('data.phone', '+79990009977')
+            ->assertJsonPath('data.job_title', 'Программист');
+
+        $user->refresh();
+
+        $this->assertSame('+79990009977', $user->phone);
+        $this->assertSame('Программист', $user->job_title);
+    }
+
+    public function test_a_wrong_number_is_refused_in_the_profile(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977']);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+                'phone' => '12-34',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+
+        $this->assertSame('+79990009977', $user->refresh()->phone);
+    }
+
+    /** Пустое поле — это «убрать», как и с отчеством. */
+    public function test_a_phone_and_a_job_title_are_cleared_from_the_profile(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977', 'job_title' => 'Стажёр']);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+                'phone' => '',
+                'job_title' => null,
+            ])
+            ->assertOk();
+
+        $user->refresh();
+
+        $this->assertNull($user->phone);
+        $this->assertNull($user->job_title);
+    }
+
     public function test_a_patronymic_is_optional_and_can_be_cleared(): void
     {
         $user = User::factory()->create([

@@ -8,8 +8,9 @@ namespace App\Enums;
  * What a person is in this system.
  *
  * There are no job titles here. A superadmin runs the place, an administrator
- * can do everything except appoint other administrators, and everyone else is
- * simply a user whose permissions are ticked one by one.
+ * can do everything except appoint or remove superadmins — other
+ * administrators they may appoint — and everyone else is simply a user whose
+ * permissions are ticked one by one.
  */
 enum AccessLevel: string
 {

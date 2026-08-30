@@ -27,6 +27,9 @@ final class ContactController extends Controller
 
         $people = User::query()
             ->whereKeyNot($request->user()?->getKey() ?? 0)
+            // Уволенных в списке нет: на платформу они больше не заходят,
+            // и написанное им осталось бы непрочитанным.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')

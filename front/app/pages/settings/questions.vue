@@ -6,6 +6,7 @@ definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 useHead({ title: 'Вопросы к консультанту' })
 
 const { fetchQuestions, resolveQuestion, deleteQuestion } = useAiApi()
+const { confirm } = useAppDialog()
 const { fetchCourses, fetchCourse } = useLmsApi()
 
 const outcome = ref<ConsultantOutcome | ''>('')
@@ -186,7 +187,14 @@ async function saveAnswer(item: ConsultantQuestion): Promise<void> {
  * вопрос пропадает из переписки того, кто его задал.
  */
 async function remove(item: ConsultantQuestion): Promise<void> {
-  if (!window.confirm('Удалить вопрос? Он пропадёт и из переписки сотрудника.')) {
+  const confirmed = await confirm({
+    title: 'Удалить вопрос?',
+    message: 'Строка одна на двоих: вопрос пропадёт и из переписки сотрудника.',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 

@@ -190,6 +190,8 @@ final class NewsController extends Controller
         $search = trim((string) $request->query('search'));
 
         $people = User::query()
+            // Уволенных в адресатах не называют: новость они не прочитают.
+            ->employed()
             ->when($search !== '', fn (Builder $query) => $query->matching($search))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
@@ -217,7 +219,7 @@ final class NewsController extends Controller
     private function attachAudienceSize(News $news): News
     {
         $size = $news->audience === NewsAudience::Everyone
-            ? User::query()->count()
+            ? User::query()->employed()->count()
             : $news->recipients()->count();
 
         return $news->setAttribute('audience_size', $size);

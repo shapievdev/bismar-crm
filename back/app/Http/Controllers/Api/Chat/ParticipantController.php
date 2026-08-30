@@ -31,7 +31,8 @@ final class ParticipantController extends Controller
 
         $validated = $request->validate([
             'user_ids' => ['required', 'array', 'min:1'],
-            'user_ids.*' => ['integer', Rule::exists('users', 'id')],
+            // В группу зовут работающих: уволенный её всё равно не откроет.
+            'user_ids.*' => ['integer', Rule::exists('users', 'id')->whereNull('dismissed_at')],
         ]);
 
         $participants->add($conversation, $validated['user_ids'], $actor);

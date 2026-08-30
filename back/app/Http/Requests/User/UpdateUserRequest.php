@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\User;
 
 use App\Models\User;
+use App\Support\Phone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -32,8 +33,32 @@ final class UpdateUserRequest extends FormRequest
                 // not collide with their own record.
                 Rule::unique(User::class, 'email')->ignore($this->route('user')?->getKey()),
             ],
+            // Необязательные — и остаются такими: пустое поле означает «убрать».
+            'phone' => ['nullable', 'string', 'regex:'.Phone::PATTERN],
+            'job_title' => ['nullable', 'string', 'max:255'],
+
             // Optional: sent only when the administrator is resetting it.
             'password' => ['nullable', 'string', Password::defaults()],
         ];
+    }
+
+    /**
+     * Сообщение о номере — своё, по той же причине, что и в StoreUserRequest.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'phone.regex' => 'Телефон должен быть российским номером: +7 и десять цифр.',
+        ];
+    }
+
+    /**
+     * Номер приводится к хранимому виду до проверки — см. App\Support\Phone.
+     */
+    protected function prepareForValidation(): void
+    {
+        $this->merge(['phone' => Phone::normalize($this->input('phone'))]);
     }
 }

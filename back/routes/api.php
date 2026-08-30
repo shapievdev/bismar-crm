@@ -39,8 +39,13 @@ use App\Http\Controllers\Api\News\NewsController;
 use App\Http\Controllers\Api\News\NewsQuizController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\PushSubscriptionController;
+use App\Http\Controllers\Api\Structure\DepartmentController;
+use App\Http\Controllers\Api\Structure\DepartmentMemberController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Middleware\EnsureAdministrator;
 use App\Http\Middleware\EnsureCourseAccess;
+use App\Http\Middleware\EnsureEmployed;
 use App\Support\Analytics\ProductReport;
 use App\Support\Analytics\SalesReport;
 use Illuminate\Support\Facades\Route;
@@ -49,7 +54,7 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
     Route::post('register', [RegisteredUserController::class, 'store'])->name('register');
     Route::post('login', [AuthenticatedSessionController::class, 'store'])->name('login');
 
-    Route::middleware('auth:sanctum')->group(function (): void {
+    Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
         Route::get('user', [AuthenticatedUserController::class, 'show'])->name('user');
         Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
     });
@@ -58,7 +63,7 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
 // EnsureCourseAccess закрывает всю группу разом: право на маршруте говорит,
 // что человек умеет делать, но не с каким курсом, — а приватный курс закрыт от
 // всех, кого в него не пускали, вплоть до администратора.
-Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->as('lms.')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::class])->prefix('lms')->as('lms.')->group(function (): void {
     $view = 'can:'.Permission::ViewCourses->value;
     $create = 'can:'.Permission::CreateCourses->value;
     $update = 'can:'.Permission::UpdateCourses->value;
@@ -248,7 +253,7 @@ Route::middleware(['auth:sanctum', EnsureCourseAccess::class])->prefix('lms')->a
  * на просмотр нет — кому какая новость видна, решает NewsPolicy по адресатам.
  * Всё остальное — под `news.manage`.
  */
-Route::middleware('auth:sanctum')->prefix('news')->as('news.')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('news')->as('news.')->group(function (): void {
     // Раньше `{news}`, иначе эти слова уедут в подстановку адреса новости.
     Route::get('pending-count', [NewsController::class, 'pendingCount'])->name('pending-count');
     Route::get('manage', [NewsController::class, 'manage'])->name('manage');
@@ -277,7 +282,7 @@ Route::middleware('auth:sanctum')->prefix('news')->as('news.')->group(function (
     Route::post('{news}/quiz/submit', [NewsQuizController::class, 'submit'])->name('quiz.submit');
 });
 
-Route::middleware('auth:sanctum')->prefix('profile')->as('profile.')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('profile')->as('profile.')->group(function (): void {
     // Your own account: guarded by being signed in, nothing more.
     Route::put('/', [ProfileController::class, 'update'])->name('update');
     // Knowing the current password is what stands in for a permission here.
@@ -286,7 +291,7 @@ Route::middleware('auth:sanctum')->prefix('profile')->as('profile.')->group(func
     Route::delete('avatar', [ProfileController::class, 'destroyAvatar'])->name('avatar.destroy');
 });
 
-Route::middleware('auth:sanctum')->prefix('ai')->as('ai.')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('ai')->as('ai.')->group(function (): void {
     // Кто может их менять, решает не маршрут: администраторы проходят
     // Gate::before, поэтому уровень проверяется в контроллере и действии.
     // Журнал — авторам материала: пробел в базе закрывают они.
@@ -312,7 +317,7 @@ Route::middleware('auth:sanctum')->prefix('ai')->as('ai.')->group(function (): v
 // Торговая аналитика. Читает ClickHouse, ничего не пишет, и потому вся группа
 // закрыта одним правом на просмотр: разделять «кто видит выручку» и «кто видит
 // её по менеджерам» нечем — это одна и та же цифра в двух разрезах.
-Route::middleware(['auth:sanctum', 'can:'.Permission::ViewAnalytics->value])
+Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::ViewAnalytics->value])
     ->prefix('analytics')
     ->as('analytics.')
     ->group(function (): void {
@@ -334,16 +339,20 @@ Route::middleware(['auth:sanctum', 'can:'.Permission::ViewAnalytics->value])
             ->name('products.breakdown');
     });
 
-Route::middleware('auth:sanctum')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
     // The catalogue the access editor ticks through, so it answers to the same
     // right as editing a person's access does.
     Route::get('permissions', [PermissionController::class, 'index'])
         ->middleware('can:'.Permission::ManageUsers->value)
         ->name('permissions.index');
 
-    Route::get('users', [UserController::class, 'index'])
-        ->middleware('can:'.Permission::ViewUsers->value)
-        ->name('users.index');
+    Route::middleware('can:'.Permission::ViewUsers->value)->group(function (): void {
+        Route::get('users', [UserController::class, 'index'])->name('users.index');
+
+        // Профиль сотрудника отвечает тому же праву, что и список: открыть
+        // карточку — то же чтение, только об одном человеке.
+        Route::get('users/{user}', [UserController::class, 'show'])->name('users.show');
+    });
 
     Route::middleware('can:'.Permission::ManageUsers->value)->group(function (): void {
         Route::post('users', [UserController::class, 'store'])->name('users.store');
@@ -352,6 +361,58 @@ Route::middleware('auth:sanctum')->group(function (): void {
         // Separate from the record itself: who may grant what is its own
         // question, answered in SyncUserAccess.
         Route::put('users/{user}/access', [UserController::class, 'updateAccess'])->name('users.access.update');
+
+        // Увольнение и возвращение в строй — не правка карточки, а решение о
+        // человеке: своим адресом и со своими правилами, см. ChangeEmployment.
+        Route::post('users/{user}/dismissal', [UserController::class, 'dismiss'])->name('users.dismiss');
+        Route::delete('users/{user}/dismissal', [UserController::class, 'reinstate'])->name('users.reinstate');
+
+        // Удаление насовсем. Право на маршруте то же, но пускает не оно:
+        // удаляет один суперадминистратор и только уволенного — DeleteUser.
+        Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+    });
+});
+
+/*
+ * Уведомления на устройство.
+ *
+ * Прав здесь нет: человек распоряжается своим телефоном. Чужую подписку не
+ * тронуть — и запись, и удаление идут по вошедшему.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('push')->as('push.')->group(function (): void {
+    Route::get('subscription', [PushSubscriptionController::class, 'show'])->name('show');
+    Route::post('subscription', [PushSubscriptionController::class, 'store'])->name('store');
+    Route::delete('subscription', [PushSubscriptionController::class, 'destroy'])->name('destroy');
+});
+
+/*
+ * Структура компании.
+ *
+ * Дерево отделов читает всякий, кто вошёл: узнать, кто чем занимается и к кому
+ * идти с вопросом, — не привилегия, и права здесь ни при чём (решение
+ * пользователя 2026-08-30). Рисуют структуру двое — администратор и
+ * суперадминистратор, и это про должность, а не про отмеченное право, потому
+ * EnsureAdministrator, а не `can:`.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('structure')->as('structure.')->group(function (): void {
+    Route::get('/', [DepartmentController::class, 'index'])->name('index');
+    Route::get('departments/{department}/people', [DepartmentMemberController::class, 'index'])->name('people.index');
+
+    Route::middleware(EnsureAdministrator::class)->group(function (): void {
+        // Раньше `departments/{department}`, иначе «people» уедет в подстановку.
+        Route::get('people', [DepartmentMemberController::class, 'candidates'])->name('people.candidates');
+
+        Route::post('departments', [DepartmentController::class, 'store'])->name('departments.store');
+        Route::put('departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
+
+        // Перетаскивание карточки — своё решение и свой адрес: переименование
+        // и перенос приходят с разных концов интерфейса.
+        Route::put('departments/{department}/position', [DepartmentController::class, 'move'])->name('departments.move');
+        Route::delete('departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
+
+        Route::post('departments/{department}/people', [DepartmentMemberController::class, 'store'])->name('people.store');
+        Route::put('departments/{department}/people/{user}', [DepartmentMemberController::class, 'update'])->name('people.update');
+        Route::delete('departments/{department}/people/{user}', [DepartmentMemberController::class, 'destroy'])->name('people.destroy');
     });
 });
 
@@ -362,7 +423,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
  * знаний, и права здесь ни при чём. Закрыта только чужая переписка, и закрыта
  * наглухо — политикой, а не маршрутом.
  */
-Route::middleware('auth:sanctum')->prefix('chat')->as('chat.')->group(function (): void {
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('chat')->as('chat.')->group(function (): void {
     Route::get('conversations', [ConversationController::class, 'index'])->name('conversations.index');
     Route::post('conversations', [ConversationController::class, 'store'])->name('conversations.store');
     Route::get('conversations/{conversation}', [ConversationController::class, 'show'])->name('conversations.show');

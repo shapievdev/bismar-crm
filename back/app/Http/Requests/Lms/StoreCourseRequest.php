@@ -31,21 +31,39 @@ class StoreCourseRequest extends FormRequest
         ];
     }
 
-    /**
-     * Publishing is a privilege of its own: an author may build a course
-     * without being able to release it to learners.
-     */
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
-            $wantsToPublish = $this->input('status') === CourseStatus::Published->value;
-
-            if ($wantsToPublish && $this->user()?->cannot(Permission::PublishCourses->value)) {
-                $validator->errors()->add('status', 'У вас нет права публиковать курсы.');
-            }
-
+            $this->checkWhoMayPublish($validator);
             $this->checkWhoMayCloseTheCourse($validator);
         });
+    }
+
+    /**
+     * Publishing is a privilege of its own: an author may build a course
+     * without being able to release it to learners.
+     *
+     * Право нужно на сам перевод в «опубликован», а не на то, чтобы курс там
+     * оставался. Иначе редактор без него не мог бы сохранить у опубликованного
+     * курса ни одной правки: статус уходит в каждом запросе, и проверка
+     * отклоняла бы неизменённое значение — а обойти её можно было бы только
+     * сняв курс с публикации.
+     */
+    private function checkWhoMayPublish(Validator $validator): void
+    {
+        if ($this->input('status') !== CourseStatus::Published->value) {
+            return;
+        }
+
+        $course = $this->route('course');
+
+        if ($course instanceof Course && $course->status === CourseStatus::Published) {
+            return;
+        }
+
+        if ($this->user()?->cannot(Permission::PublishCourses->value)) {
+            $validator->errors()->add('status', 'У вас нет права публиковать курсы.');
+        }
     }
 
     /**

@@ -1,8 +1,24 @@
 <script setup lang="ts">
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
-import { HTML_BLOCK_HEIGHT_MESSAGE, HTML_BLOCK_SCROLL_MESSAGE, htmlBlockRuntime } from '~/utils/editor/htmlBlockRuntime'
+import type { ThemePreference } from '~/composables/useTheme'
+import { htmlBlockDocument } from '~/utils/editor/htmlBlockDocument'
+import { HTML_BLOCK_HEIGHT_MESSAGE, HTML_BLOCK_SCROLL_MESSAGE } from '~/utils/editor/htmlBlockRuntime'
 
 const props = defineProps(nodeViewProps)
+
+/**
+ * Which theme the frame is dressed in. It cannot see the page's stylesheet, so
+ * the choice has to travel into the document it is handed.
+ *
+ * Read from the root element, where app.vue stamps an explicit choice and
+ * writes nothing at all for "system" — exactly the three cases the embedded
+ * stylesheet knows. Nothing here has to react: the theme is changed on the
+ * profile page and nowhere else, so coming back from it mounts the block anew,
+ * and "system" is left to a media query inside the frame, which the browser
+ * keeps up to date by itself.
+ */
+const chosenTheme = import.meta.client ? document.documentElement.dataset.theme : undefined
+const theme: ThemePreference = chosenTheme === 'light' || chosenTheme === 'dark' ? chosenTheme : 'system'
 
 const isEditing = ref(false)
 const draft = ref<string>(props.node.attrs.html ?? '')
@@ -51,8 +67,13 @@ const frame = useTemplateRef<HTMLIFrameElement>('frame')
 
 const effectiveHeight = computed(() => pinnedHeight.value ?? measuredHeight.value)
 
-/** The document handed to the frame: the author's markup plus our runtime. */
-const srcdoc = computed(() => (html.value ? html.value + htmlBlockRuntime(token) : ''))
+/**
+ * The document handed to the frame: the author's markup, the site's typography
+ * and our runtime.
+ */
+const srcdoc = computed(() => (html.value
+  ? htmlBlockDocument(html.value, { theme, token })
+  : ''))
 
 function onMessage(event: MessageEvent) {
   // Origin is "null" for a sandboxed frame, so identity is established by the
@@ -112,7 +133,7 @@ function scrollOuterPageTo(offset: number) {
 }
 
 // A new document has to be measured from scratch.
-watch(html, () => {
+watch(srcdoc, () => {
   clearTimeout(settleTimer)
   tallestReport = 0
   isSettled.value = false
@@ -266,11 +287,16 @@ function unpin() {
   margin-top: 0.5rem;
 }
 
+/*
+ * The frame carries the surface the block sits on, and the document inside it
+ * is transparent — so author markup that paints nothing still lands on the
+ * card's tone in both themes instead of on a white slab.
+ */
 .html-block__frame {
   display: block;
   width: 100%;
   border: 0;
-  background: #fff;
+  background: var(--color-surface-raised);
 }
 
 .html-block__empty {
