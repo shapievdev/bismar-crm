@@ -16,7 +16,13 @@ const { preference, setTheme, options } = useTheme()
  */
 const push = usePushNotifications()
 
-onMounted(() => void push.refresh())
+// Состояние общее с полосой-предложением; она спрашивает его при загрузке,
+// и второй раз ходить незачем.
+onMounted(() => {
+  if (!push.asked.value) {
+    void push.refresh()
+  }
+})
 
 const form = reactive({
   last_name: user.value?.last_name ?? '',

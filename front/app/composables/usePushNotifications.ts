@@ -20,10 +20,16 @@ interface PushState {
 export function usePushNotifications() {
   const { $api } = useNuxtApp()
 
-  const supported = ref(false)
-  const permission = ref<NotificationPermission>('default')
-  const enabled = ref(false)
-  const configured = ref(true)
+  /*
+   * Состояние общее на приложение: о нём спрашивают в двух местах разом —
+   * полоса с предложением включить и переключатель в профиле. Заведи каждое
+   * своё, и включённое в одном месте не дошло бы до другого.
+   */
+  const supported = useState('push.supported', () => false)
+  const permission = useState<NotificationPermission>('push.permission', () => 'default')
+  const enabled = useState('push.enabled', () => false)
+  const configured = useState('push.configured', () => true)
+  const asked = useState('push.asked', () => false)
   const isBusy = ref(false)
   const error = ref<string | null>(null)
 
@@ -68,6 +74,15 @@ export function usePushNotifications() {
     }
   }
 
+  /**
+   * Стоит ли предлагать включить их прямо сейчас.
+   *
+   * Предлагаем, пока не включено и пока не запрещено наглухо: запрет снимают в
+   * настройках браузера, и кнопка на него не влияет.
+   */
+  const worthAsking = computed(() =>
+    supported.value && configured.value && !enabled.value && permission.value !== 'denied')
+
   /** Что сейчас: умеет ли браузер, разрешено ли, подписаны ли мы. */
   async function refresh(): Promise<void> {
     supported.value = import.meta.client
@@ -88,6 +103,7 @@ export function usePushNotifications() {
     // Подписка считается включённой, только когда о ней знают обе стороны:
     // браузер мог сохранить её, а сервер — потерять при смене ключей.
     enabled.value = Boolean(subscription) && Boolean(state?.subscribed)
+    asked.value = true
   }
 
   async function enable(): Promise<void> {
@@ -176,7 +192,7 @@ export function usePushNotifications() {
     }
   }
 
-  return { supported, needsInstall, configured, permission, enabled, isBusy, error, refresh, enable, disable }
+  return { supported, needsInstall, configured, permission, enabled, asked, worthAsking, isBusy, error, refresh, enable, disable }
 }
 
 /**

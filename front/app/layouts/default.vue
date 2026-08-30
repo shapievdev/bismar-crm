@@ -39,6 +39,10 @@ const fills = computed(() => route.meta.fills === true)
       <SideRail v-if="isAuthenticated" />
 
       <main class="main">
+        <!-- Спрашиваем про уведомления на любом экране: это про приложение
+             целиком, а не про страницу, на которую человек зашёл. -->
+        <PushPrompt v-if="isAuthenticated" />
+
         <slot />
       </main>
     </div>
