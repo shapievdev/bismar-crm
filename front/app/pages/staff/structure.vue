@@ -878,11 +878,16 @@ provide(structureKey, structure)
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Ряды не центруются холстом: каждый встаёт под своего родителя сам. */
+  /* Ряды не центруются по отдельности: каждый встаёт под своего родителя сам. */
   align-items: flex-start;
   gap: 3.2rem;
-  width: fit-content;
-  min-width: 100%;
+  /*
+   * Ширина по содержимому и поля-автоматы: пока дерево уже холста, оно стоит
+   * посередине; стало шире — поля схлопываются, дерево прижимается к левому
+   * краю и дальше его возят прокруткой.
+   */
+  width: max-content;
+  margin: 0 auto;
   padding: 0 2rem 1rem;
 }
 
