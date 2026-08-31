@@ -6,6 +6,7 @@ import type {
   Directory,
   ProductBreakdownRow,
   ProductDimension,
+  LearningPayload,
   ProductsPayload,
   SalesDimension,
   SalesPayload,
@@ -70,6 +71,13 @@ export function useAnalyticsApi() {
 
     fetchCustomers: (filters: AnalyticsFilters): Promise<AnalyticsResponse<CustomersPayload>> =>
       $api<AnalyticsResponse<CustomersPayload>>('/api/analytics/customers', { query: query(filters) }),
+
+    /**
+     * Обучение: сводка и рейтинги. Фильтров по периоду здесь нет — прохождение
+     * копится с начала времён, и «курс за март» ничего не значит.
+     */
+    fetchLearning: (): Promise<AnalyticsResponse<LearningPayload>> =>
+      $api<AnalyticsResponse<LearningPayload>>('/api/analytics/learning'),
 
     fetchProducts: (filters: AnalyticsFilters): Promise<AnalyticsResponse<ProductsPayload>> =>
       $api<AnalyticsResponse<ProductsPayload>>('/api/analytics/products', { query: query(filters) }),

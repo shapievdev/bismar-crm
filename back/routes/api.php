@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Ai\QuestionLogController;
 use App\Http\Controllers\Api\Ai\SettingsController;
 use App\Http\Controllers\Api\Analytics\CustomerController as AnalyticsCustomerController;
 use App\Http\Controllers\Api\Analytics\DirectoryController as AnalyticsDirectoryController;
+use App\Http\Controllers\Api\Analytics\LearningController as AnalyticsLearningController;
 use App\Http\Controllers\Api\Analytics\ProductController as AnalyticsProductController;
 use App\Http\Controllers\Api\Analytics\SalesController as AnalyticsSalesController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
@@ -372,6 +373,19 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     });
 });
+
+/*
+ * Аналитика обучения — своя, отдельно от продажной.
+ *
+ * Право другое, и намеренно: продажи смотрит тот, кому доверены деньги, а
+ * прохождение курсов — тот, кому доверено обучение. И читает она свою базу, а
+ * не ClickHouse: витрина продаж об уроках ничего не знает.
+ */
+Route::middleware([
+    'auth:sanctum',
+    EnsureEmployed::class,
+    'can:'.Permission::ManageEnrollments->value,
+])->get('analytics/learning', AnalyticsLearningController::class)->name('analytics.learning');
 
 /*
  * Уведомления на устройство.

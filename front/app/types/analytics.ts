@@ -53,6 +53,56 @@ export interface Freshness {
   age_days: number
 }
 
+/**
+ * Аналитика обучения. Считается по нашей же базе, а не по витрине продаж:
+ * ClickHouse об уроках ничего не знает.
+ */
+export interface LearningSummary {
+  staff: number
+  courses: number
+  published_courses: number
+  regulations: number
+  published_regulations: number
+  lessons: number
+  enrollments: number
+  learners: number
+  completed: number
+  average_progress: number
+  quiz_attempts: number
+  quiz_passed: number
+  quiz_average_score: number
+  acknowledgements: number
+  acknowledged_by: number
+  plan_people: number
+  plan_steps: number
+  plan_done: number
+}
+
+export interface LearningCourseRow {
+  id: number
+  title: string
+  slug: string
+  is_published: boolean
+  lessons: number
+  enrolled: number
+  completed: number
+  average_progress: number
+}
+
+export interface LearningRegulationRow {
+  id: number
+  title: string
+  slug: string
+  is_published: boolean
+  acknowledged: number
+}
+
+export interface LearningPayload {
+  summary: LearningSummary
+  courses: LearningCourseRow[]
+  regulations: LearningRegulationRow[]
+}
+
 export interface Directory {
   channels: DirectoryValue[]
   warehouses: DirectoryValue[]

@@ -2,6 +2,34 @@
 const { user, isAuthenticated } = useAuth()
 
 /*
+ * Подключение к сокетам и счётчик новостей заводятся здесь, а не в рельсе:
+ * на телефоне рельсы нет вовсе, а знать о сообщении человек должен на любом
+ * экране.
+ */
+const messenger = useMessenger()
+const { refreshBadges } = useNavigation()
+
+onMounted(() => {
+  if (!isAuthenticated.value) {
+    return
+  }
+
+  messenger.connect()
+  void refreshBadges()
+  document.addEventListener('visibilitychange', onVisible)
+})
+
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisible))
+
+// Вернулись на вкладку — перечитываем счётчик: новостям ни опроса, ни сокетов
+// не нужно, а число к этому времени могло измениться.
+function onVisible() {
+  if (document.visibilityState === 'visible') {
+    void refreshBadges()
+  }
+}
+
+/*
  * Страница, которая меряет себя по экрану, а не растёт вместе с содержимым
  * (мессенджер). Нижний отступ оболочки под такой страницей снимается: всё,
  * что осталось ниже, делает документ длиннее экрана, а на телефоне это видно
@@ -15,6 +43,8 @@ const fills = computed(() => route.meta.fills === true)
   <div class="shell" :class="{ 'shell--fills': fills }">
     <header class="topbar">
       <div class="topbar__inner">
+        <!-- Логотип уходит на телефоне: полоса сверху нужна там под названия
+             страниц раздела, а не под знак, по которому никто не нажимает. -->
         <NuxtLink to="/" class="brand" aria-label="Bismar">
           <BrandMark :size="44" />
         </NuxtLink>
@@ -36,7 +66,13 @@ const fills = computed(() => route.meta.fills === true)
     </header>
 
     <div class="body" :class="{ 'body--railed': isAuthenticated, 'body--fills': fills }">
-      <SideRail v-if="isAuthenticated" />
+      <!--
+        Показывать рельсу или нет — решение оболочки, а не самой рельсы: она не
+        знает, есть ли на этом экране полоса внизу, а оболочка знает про обе.
+      -->
+      <div v-if="isAuthenticated" class="rail-slot">
+        <SideRail />
+      </div>
 
       <main class="main">
         <!-- Спрашиваем про уведомления на любом экране: это про приложение
@@ -46,6 +82,10 @@ const fills = computed(() => route.meta.fills === true)
         <slot />
       </main>
     </div>
+
+    <!-- Разделы на телефоне: плавающая полоса у нижнего края, где до них
+         дотягивается большой палец. -->
+    <MobileDock v-if="isAuthenticated" />
 
     <!-- Вопросы к человеку задаются здесь: одно окно на приложение, чтобы
          экранам не приходилось заводить своё и чтобы браузерных не осталось. -->
@@ -172,6 +212,11 @@ const fills = computed(() => route.meta.fills === true)
   grid-template-columns: 2.9rem minmax(0, 1fr);
 }
 
+/* Обёртка ничего не рисует — она лишь занимает колонку и умеет исчезнуть. */
+.rail-slot {
+  min-width: 0;
+}
+
 /*
  * См. комментарий у `fills` выше: под такой страницей не должно оставаться
  * ничего, иначе документ длиннее экрана и низ страницы недосягаем.
@@ -195,13 +240,54 @@ const fills = computed(() => route.meta.fills === true)
   .body--railed {
     grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
-    padding: 1rem 1rem 4rem;
+    /* Снизу — место плавающей полосе разделов: без него последняя карточка
+       страницы уходит под неё и до неё не дотянуться. */
+    padding: 1rem 1rem var(--dock-space);
   }
 
-  /* Здесь рельса разделов — не колонка слева, а строка сверху, и строк
-     становится две: ей по содержимому, странице всё остальное. */
-  .shell--fills .body--railed {
-    grid-template-rows: auto minmax(0, 1fr);
+  /*
+   * Страница ровно в экран (мессенджер, структура): документ не прокручивается,
+   * и отступ снизу ей не поставить — место доку отдаёт сама страница.
+   */
+  .body.body--fills {
+    padding-bottom: 0;
+  }
+
+  .shell--fills .main {
+    padding-bottom: var(--dock-space);
+  }
+
+  /* Рельсы на телефоне нет: разделы выбирают в полосе у нижнего края, и второй
+     ряд тех же значков сверху — просто шум. */
+  .rail-slot {
+    display: none;
+  }
+
+  /* Логотип и аватар сверху не нужны: раздел выбирают внизу, а лицо человека
+     уже стоит в полосе — второй раз оно ничего не сообщает. */
+  .brand,
+  .account {
+    display: none;
+  }
+
+  /*
+   * Высота — по содержимому. Без логотипа и аватара прежние 4,25 rem оставляли
+   * над вкладками пустую плиту, а на страницах без вкладок — просто полосу
+   * ниоткуда. Страницам «ровно в экран» это не мешает: там высоту делит flex,
+   * а не вычитание из «--header-height».
+   */
+  .topbar {
+    height: auto;
+  }
+
+  .topbar__inner {
+    height: auto;
+    padding: 0.5rem 1rem;
+  }
+
+  /* Пустой полосе неоткуда взяться высоте: страница начинается сразу. */
+  .topbar__inner:empty {
+    padding: 0;
   }
 }
 </style>

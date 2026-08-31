@@ -98,6 +98,13 @@
   --font-sans: 'Involve', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 
   --header-height: 4.25rem;
+
+  /*
+   * Сколько места оставляет странице плавающая полоса разделов на телефоне:
+   * её высота, отступ от края и безопасная зона снизу. Одно значение на всех,
+   * потому что отступ считают и обычные страницы, и те, что ровно в экран.
+   */
+  --dock-space: calc(5.25rem + env(safe-area-inset-bottom, 0px));
 }
 
 /*
