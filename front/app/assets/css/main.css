@@ -104,7 +104,7 @@
    * её высота, отступ от края и безопасная зона снизу. Одно значение на всех,
    * потому что отступ считают и обычные страницы, и те, что ровно в экран.
    */
-  --dock-space: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+  --dock-space: calc(5.9rem + env(safe-area-inset-bottom, 0px));
 }
 
 /*
