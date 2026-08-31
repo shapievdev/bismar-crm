@@ -150,8 +150,13 @@ function badge(count?: number): string | null {
 }
 
 /*
- * Полоса. Тёмная пилюля с белыми кружками: то же противопоставление, что у
- * основной кнопки приложения, — и на любой странице она читается как «поверх».
+ * Полоса — та же поверхность, что у карточек, а не заливка акцентом.
+ *
+ * Акцентом её красить нельзя: в тёмной теме акцент — лайм, и выбранный пункт,
+ * тоже лаймовый, растворялся в полосе целиком. Поверхность же в обеих темах
+ * противопоставлена и странице (тенью), и выбранному кружку (заливкой), и
+ * выбранный отмечается ровно так же, как на рельсе слева, — приложение
+ * остаётся одним целым.
  */
 .dock {
   position: absolute;
@@ -160,11 +165,12 @@ function badge(count?: number): string | null {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem;
+  gap: 0.25rem;
+  padding: 0.4rem;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  box-shadow: 0 12px 30px rgb(0 0 0 / 22%);
+  background: var(--color-surface);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 22%);
   pointer-events: auto;
 }
 
@@ -172,38 +178,50 @@ function badge(count?: number): string | null {
   position: relative;
   display: grid;
   place-items: center;
-  width: 3rem;
-  height: 3rem;
+  width: 2.9rem;
+  height: 2.9rem;
   flex-shrink: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.key:hover:not(.key--on) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
 }
 
 .key:active {
-  transform: scale(0.94);
+  transform: scale(0.92);
 }
 
-/* Раздел, в котором человек сейчас: лаймом, а не заливкой в цвет полосы —
-   тёмный кружок на тёмной полосе не виден вовсе. */
+/*
+ * Выбранный раздел — залитый кружок в цвет акцента, как на рельсе: в светлой
+ * теме почти чёрный на белой полосе, в тёмной лаймовый на тёмной. Ни в одной
+ * он не сливается ни с полосой, ни с соседями.
+ */
 .key--on {
-  background: var(--color-highlight);
-  color: var(--color-highlight-text);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
-/* Аватарка сама себе фон: круг под ней только обрезал бы её края. */
+/* Аватарка сама себе фон: круг под ней только обрезал бы её края, а выбранность
+   отмечается кольцом — заливка ушла бы под фотографию. */
 .key--face {
   background: transparent;
-  padding: 0;
+}
+
+.key--face:hover {
+  background: transparent;
 }
 
 .key--face.key--on {
   background: transparent;
-  box-shadow: 0 0 0 2px var(--color-highlight);
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .key__badge {
@@ -213,24 +231,32 @@ function badge(count?: number): string | null {
   min-width: 1.05rem;
   padding: 0 0.25rem;
   border-radius: var(--radius-pill);
-  background: var(--color-highlight);
-  color: var(--color-highlight-text);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
   font-size: 0.65rem;
   font-weight: 700;
   line-height: 1.05rem;
   text-align: center;
 }
 
+/* Значок на выбранном кружке уже был бы того же цвета, что и он сам, — на нём
+   метка рисуется наоборот. */
+.key--on .key__badge {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
 /* За «ещё» может ждать непрочитанное — о нём говорит точка, а не число:
    складывать сообщения с новостями в одну цифру значит соврать. */
 .key__dot {
   position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
+  top: 0.35rem;
+  right: 0.35rem;
   width: 0.45rem;
   height: 0.45rem;
   border-radius: 50%;
-  background: var(--color-highlight);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface);
 }
 
 /* ---------- Лист с остальными разделами ---------- */
@@ -310,10 +336,12 @@ function badge(count?: number): string | null {
   font-weight: 500;
 }
 
+/* Выбранная строка — тем же акцентом, что и кружок в полосе: одно правило на
+   всё приложение, а не два похожих. */
 .row--on .row__label,
 .row--on .row__icon {
-  background: var(--color-highlight);
-  color: var(--color-highlight-text);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .sheet-enter-active,
