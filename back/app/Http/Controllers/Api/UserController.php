@@ -14,6 +14,7 @@ use App\Http\Requests\User\UpdateUserAccessRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -22,7 +23,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class UserController extends Controller
 {
-    public function index(): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
         // By surname, as a staff list is read, falling back to the given name
         // so that a record without a surname still lands in its alphabetical
@@ -31,13 +32,27 @@ final class UserController extends Controller
         // Collated to ICU because the databases use the C collation, which
         // orders Cyrillic by byte value and would put "Ёлкин" after "Яковлев".
         $users = User::query()
-            ->with('roles', 'permissions')
+            ->with([
+                'roles',
+                'permissions',
+                // Отделы — столбец списка, и берутся они одним запросом на всю
+                // страницу, а не по запросу на строку. По названию, потому что
+                // у человека их бывает несколько и порядок иначе случаен.
+                'departments' => fn (BelongsToMany $query) => $query
+                    ->orderByRaw('departments.name COLLATE "und-x-icu"'),
+            ])
+            // Поиск идёт в базу, а не по загруженной странице: страница — это
+            // двадцать пять человек из всех, и отбор по ней находил бы лишь
+            // тех, кто и так на виду.
+            ->matching($request->query('search'))
             // Уволенные — в конце списка: они здесь ради возвращения в строй,
             // а не ради ежедневной работы со списком сотрудников.
             ->orderByRaw('dismissed_at IS NOT NULL')
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
-            ->paginate(25);
+            ->paginate(25)
+            // Иначе вторая страница поиска возвращается ко всему списку.
+            ->withQueryString();
 
         return UserResource::collection($users);
     }

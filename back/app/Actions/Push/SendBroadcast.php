@@ -7,11 +7,11 @@ namespace App\Actions\Push;
 use App\Enums\BroadcastAudience;
 use App\Exceptions\ConflictException;
 use App\Jobs\SendPush;
-use App\Models\Department;
 use App\Models\PushBroadcast;
 use App\Models\PushSubscription;
 use App\Models\User;
 use App\Support\Push\PushMessage;
+use App\Support\Structure\DepartmentReach;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,6 +26,8 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class SendBroadcast
 {
+    public function __construct(private DepartmentReach $reach) {}
+
     /**
      * @param  array{
      *     title: string,
@@ -33,7 +35,8 @@ final readonly class SendBroadcast
      *     url?: ?string,
      *     audience: BroadcastAudience,
      *     user_ids?: list<int>,
-     *     department_id?: ?int
+     *     department_id?: ?int,
+     *     group_id?: ?int
      * } $attributes
      *
      * @throws ConflictException
@@ -41,7 +44,7 @@ final readonly class SendBroadcast
     public function handle(array $attributes, User $author): PushBroadcast
     {
         $audience = $attributes['audience'];
-        $recipients = $this->recipients($audience, $attributes['user_ids'] ?? [], $attributes['department_id'] ?? null);
+        $recipients = $this->recipients($audience, $attributes);
 
         if ($recipients === []) {
             throw new ConflictException('Некому отправлять: среди выбранных нет работающих сотрудников.');
@@ -56,6 +59,9 @@ final readonly class SendBroadcast
                 'audience' => $audience,
                 'department_id' => $audience === BroadcastAudience::Department
                     ? $attributes['department_id']
+                    : null,
+                'group_id' => $audience === BroadcastAudience::Group
+                    ? $attributes['group_id']
                     : null,
                 'recipients_count' => count($recipients),
                 // Устройств меньше, чем людей: подписался не каждый и не на
@@ -80,65 +86,38 @@ final readonly class SendBroadcast
             tag: 'broadcast-'.$broadcast->getKey(),
         ));
 
-        return $broadcast->load('author', 'department', 'recipients');
+        return $broadcast->load('author', 'department', 'group', 'recipients');
     }
 
     /**
      * Кому уйдёт — только работающим: уволенному платформа закрыта, и звать его
      * туда уведомлением незачем.
      *
-     * @param  list<int>  $userIds
+     * @param  array{user_ids?: list<int>, department_id?: ?int, group_id?: ?int}  $attributes
      * @return list<int>
      */
-    private function recipients(BroadcastAudience $audience, array $userIds, ?int $departmentId): array
+    private function recipients(BroadcastAudience $audience, array $attributes): array
     {
         $people = User::query()->employed();
 
         if ($audience === BroadcastAudience::Selected) {
-            $people->whereIn('id', $userIds);
+            $people->whereIn('id', $attributes['user_ids'] ?? []);
         }
 
         if ($audience === BroadcastAudience::Department) {
-            $people->whereHas(
-                'departments',
-                fn ($query) => $query->whereIn('departments.id', $this->branch($departmentId)),
-            );
+            // Отдел вместе со всем, что под ним: рассылка «складу» касается и
+            // его подотделов — см. DepartmentReach.
+            $people->whereHas('departments', fn ($query) => $query->whereIn(
+                'departments.id',
+                $this->reach->branch(array_filter([$attributes['department_id'] ?? null])),
+            ));
+        }
+
+        if ($audience === BroadcastAudience::Group) {
+            // Группа — ровно те, кого в неё внесли: вложенности у групп нет.
+            $people->whereHas('groups', fn ($query) => $query->whereKey($attributes['group_id'] ?? 0));
         }
 
         return $people->pluck('id')->map(intval(...))->all();
-    }
-
-    /**
-     * Отдел вместе со всем, что под ним: рассылка «складу» касается и его
-     * подотделов — иначе пришлось бы перечислять их руками, а завтра появится
-     * новый, и о нём забудут.
-     *
-     * @return list<int>
-     */
-    private function branch(?int $departmentId): array
-    {
-        if ($departmentId === null) {
-            return [];
-        }
-
-        /** @var array<int, int|null> $parents */
-        $parents = Department::query()->pluck('parent_id', 'id')->all();
-
-        $branch = [$departmentId];
-
-        // Идём сверху вниз по всему справочнику: отделов десятки, и рекурсивный
-        // запрос ради такого — из пушки по воробьям.
-        do {
-            $added = false;
-
-            foreach ($parents as $id => $parent) {
-                if ($parent !== null && in_array($parent, $branch, true) && ! in_array((int) $id, $branch, true)) {
-                    $branch[] = (int) $id;
-                    $added = true;
-                }
-            }
-        } while ($added);
-
-        return $branch;
     }
 }

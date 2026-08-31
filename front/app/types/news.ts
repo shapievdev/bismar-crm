@@ -65,8 +65,13 @@ export interface News {
 
   author?: { id: number, name: string } | null
 
-  /** Только на экране составителя. */
+  /**
+   * Кому адресована — только на экране составителя. Три списка, и они
+   * складываются: отделу, группе и ещё двоим поимённо.
+   */
   recipients?: NewsPerson[]
+  departments?: NewsAddressee[]
+  groups?: NewsAddressee[]
 
   attachments?: LessonAttachment[]
 
@@ -96,6 +101,15 @@ export interface News {
   audience_size?: number
 }
 
+/**
+ * Отдел или группа в адресатах новости: название — всё, что о них нужно
+ * знать экрану, состав читает сервер на каждом обращении.
+ */
+export interface NewsAddressee {
+  id: number
+  name: string
+}
+
 export interface NewsPayload {
   title: string
   excerpt: string | null
@@ -105,6 +119,8 @@ export interface NewsPayload {
   audience: NewsAudienceKind
   requires_acknowledgement: boolean
   recipients: number[]
+  department_ids: number[]
+  group_ids: number[]
   links: { type: LinkedKind, id: number }[]
 }
 

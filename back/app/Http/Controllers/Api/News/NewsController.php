@@ -13,6 +13,7 @@ use App\Http\Resources\News\NewsResource;
 use App\Models\News;
 use App\Models\NewsLink;
 use App\Models\User;
+use App\Support\News\Addressees;
 use App\Support\News\LinkedMaterial;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +35,8 @@ final class NewsController extends Controller
 {
     /** Сколько человек показывает подсказка поиска адресатов. */
     private const CANDIDATES = 20;
+
+    public function __construct(private readonly Addressees $addressees) {}
 
     /**
      * Лента: то, что этот человек вправе прочитать.
@@ -127,7 +130,7 @@ final class NewsController extends Controller
 
         // Составителю едет ещё и список адресатов — ему им управлять.
         if ($reader->can('update', $news)) {
-            $news->load('recipients');
+            $news->load('recipients', 'departments', 'groups');
             $this->attachAudienceSize($news);
             $news->loadCount('acknowledgements');
         }
@@ -218,7 +221,10 @@ final class NewsController extends Controller
 
     private function forEditor(News $news): News
     {
-        $news->load('author', 'recipients', 'attachments', 'quiz.questions.options', 'links.linkable');
+        $news->load(
+            'author', 'recipients', 'departments', 'groups',
+            'attachments', 'quiz.questions.options', 'links.linkable',
+        );
         $news->loadCount('acknowledgements');
         $news->setAttribute('sends_content', true);
 
@@ -244,7 +250,10 @@ final class NewsController extends Controller
                     fn (Builder $query) => $query->where('users.created_at', '<=', $news->published_at),
                 )
                 ->count()
-            : $news->recipients()->count();
+            // Выбранные адресаты — люди, отделы и группы вместе, и по одному
+            // разу: назвав человека поимённо и его отдел целиком, знаменатель
+            // не удваивают. Уволенные не в счёт — им платформа закрыта.
+            : $this->addressees->query($news)->employed()->count();
 
         return $news->setAttribute('audience_size', $size);
     }

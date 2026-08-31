@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\News;
 
 use App\Actions\News\AcknowledgeNews;
-use App\Enums\NewsAudience;
 use App\Exceptions\ConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\News\NewsPersonResource;
 use App\Models\News;
 use App\Models\User;
+use App\Support\News\Addressees;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\Gate;
  */
 final class NewsAcknowledgementController extends Controller
 {
+    public function __construct(private readonly Addressees $addressees) {}
+
     /**
      * Отметиться самому.
      *
@@ -92,14 +94,11 @@ final class NewsAcknowledgementController extends Controller
      */
     private function audienceOf(News $news): Collection
     {
-        // Через саму связь, а не через её `getQuery()`: тот отдаёт запрос без
-        // `select users.*`, и колонки сводной таблицы затирают `id` человека
-        // своим — список выглядит правильным, а номера в нём чужие.
-        $query = $news->audience === NewsAudience::Everyone
-            ? User::query()
-            : $news->recipients();
-
-        return $query
+        // Одним запросом по людям, а не по связи адресатов: у связи в выборку
+        // попадают колонки сводной таблицы и затирают `id` человека своим —
+        // список выглядит правильным, а номера в нём чужие. Отделы и группы
+        // разворачиваются в тех же людей, по одному разу каждого.
+        return $this->addressees->query($news)
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
             ->get();

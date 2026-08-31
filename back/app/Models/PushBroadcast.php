@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * Отправленная рассылка. Правке не подлежит: уведомление уже на экранах.
  */
 #[Fillable([
-    'author_id', 'title', 'body', 'url', 'audience', 'department_id',
+    'author_id', 'title', 'body', 'url', 'audience', 'department_id', 'group_id',
     'recipients_count', 'devices_count', 'sent_at',
 ])]
 class PushBroadcast extends Model
@@ -33,6 +33,14 @@ class PushBroadcast extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * @return BelongsTo<Group, $this>
+     */
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(Group::class);
     }
 
     /**

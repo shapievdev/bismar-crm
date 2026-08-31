@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\News;
 
+use App\Models\Department;
+use App\Models\Group;
 use App\Models\News;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -44,8 +46,19 @@ final class NewsResource extends JsonResource
             ]),
 
             // Кому адресована — только на экране составителя: читателю список
-            // людей, которым это тоже прислали, знать незачем.
+            // людей, которым это тоже прислали, знать незачем. Три списка, и
+            // они складываются: отделу, группе и ещё двоим поимённо.
             'recipients' => NewsPersonResource::collection($this->whenLoaded('recipients')),
+            'departments' => $this->whenLoaded('departments', fn (): array => $this->departments
+                ->map(fn (Department $department): array => [
+                    'id' => $department->getKey(),
+                    'name' => $department->name,
+                ])->all()),
+            'groups' => $this->whenLoaded('groups', fn (): array => $this->groups
+                ->map(fn (Group $group): array => [
+                    'id' => $group->getKey(),
+                    'name' => $group->name,
+                ])->all()),
 
             'attachments' => NewsAttachmentResource::collection($this->whenLoaded('attachments')),
 

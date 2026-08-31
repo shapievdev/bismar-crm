@@ -6,6 +6,13 @@ import type {
   User,
   UserPayload,
 } from '~/types/auth'
+import type { PaginatedResponse } from '~/types/lms'
+
+/** Чего просят у списка сотрудников: страницу и строку поиска. */
+export interface StaffQuery {
+  search?: string
+  page?: number
+}
 
 /**
  * Typed access to the user endpoints, so pages describe what they want rather
@@ -19,8 +26,13 @@ export function useAdminApi() {
     fetchPermissions: (): Promise<ResourceResponse<PermissionOption[]>> =>
       $api<ResourceResponse<PermissionOption[]>>('/api/permissions'),
 
-    fetchUsers: (): Promise<ResourceResponse<User[]>> =>
-      $api<ResourceResponse<User[]>>('/api/users'),
+    /**
+     * Список сотрудников — постранично и с поиском по фамилии, имени и почте.
+     * Отбор делает сервер: на странице двадцать пять человек из всех, и искать
+     * по ней значило бы находить только тех, кто и так на виду.
+     */
+    fetchUsers: (query: StaffQuery = {}): Promise<PaginatedResponse<User>> =>
+      $api<PaginatedResponse<User>>('/api/users', { query }),
 
     /** Один сотрудник — для его профиля. */
     fetchStaffMember: (id: number): Promise<ResourceResponse<User>> =>

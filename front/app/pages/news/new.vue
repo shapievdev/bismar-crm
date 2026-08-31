@@ -39,8 +39,12 @@ async function save() {
       is_pinned: false,
       audience: form.audience,
       requires_acknowledgement: form.requires_acknowledgement,
+      // Адресатов выбирают в редакторе: новость заводят с решения «это не
+      // всем», а кому именно — выясняют, пока она черновик.
       recipients: [],
-      // Материал привязывают в редакторе — здесь ещё нечего связывать.
+      department_ids: [],
+      group_ids: [],
+      // Материал привязывают там же — здесь ещё нечего связывать.
       links: [],
     })
 

@@ -3,7 +3,8 @@ import type { JSONContent } from '@tiptap/core'
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { UploadOptions } from '~/utils/upload'
 import type { QuizPayload } from '~/types/lms'
-import type { LinkedMaterialResult, NewsAudienceKind, NewsPerson } from '~/types/news'
+import type { LinkedMaterialResult, NewsAddressee, NewsAudienceKind, NewsPerson } from '~/types/news'
+import type { Department, Group } from '~/types/structure'
 import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'news.manage' })
@@ -51,7 +52,16 @@ const form = reactive({
 })
 
 const document = ref<JSONContent | null>(null)
+
+/**
+ * Адресаты трёх видов, и они складываются: отделу продаж, группе наставников и
+ * ещё двоим поимённо. Отдел приводит с собой подотделы, а состав отдела и
+ * группы читается на каждом обращении — пришедший туда завтра увидит
+ * адресованное вчера.
+ */
 const recipients = ref<NewsPerson[]>([])
+const chosenDepartments = ref<NewsAddressee[]>([])
+const chosenGroups = ref<NewsAddressee[]>([])
 
 /** Куда сходить после новости. Порядок списка и есть порядок ссылок. */
 const links = ref<LinkedMaterialResult[]>([])
@@ -72,6 +82,8 @@ watch(news, (value) => {
   // хранит номера, и адрес подставляется на пути к редактору.
   document.value = withResolvedMedia(value.content_json ?? null, value.attachments ?? [])
   recipients.value = value.recipients ?? []
+  chosenDepartments.value = value.departments ?? []
+  chosenGroups.value = value.groups ?? []
 
   links.value = (value.links ?? []).map(link => ({
     kind: link.kind,
@@ -103,6 +115,8 @@ async function save() {
       audience: form.audience,
       requires_acknowledgement: form.requires_acknowledgement,
       recipients: recipients.value.map(person => person.id),
+      department_ids: chosenDepartments.value.map(one => one.id),
+      group_ids: chosenGroups.value.map(one => one.id),
       links: links.value.map(link => ({ type: link.kind, id: link.id })),
     })
 
@@ -186,6 +200,106 @@ function addRecipient(person: NewsPerson) {
 
 function dropRecipient(id: number) {
   recipients.value = recipients.value.filter(person => person.id !== id)
+}
+
+/**
+ * Отделы и группы: справочники берутся разом и живут в выпадающих списках —
+ * отделов десятки, групп единицы, и поиск здесь был бы лишним обрядом.
+ */
+const { fetchStructure } = useStructureApi()
+const { fetchGroups } = useGroupsApi()
+
+const { data: addressees } = await useAsyncData('news.addressees', async () => {
+  // Половины независимы, и падать вместе им незачем: сломанный справочник
+  // групп не должен уносить с собой отделы.
+  const [structure, groups] = await Promise.allSettled([fetchStructure(), fetchGroups()])
+
+  return {
+    departments: structure.status === 'fulfilled' ? structure.value.data : [],
+    groups: groups.status === 'fulfilled' ? groups.value.data : [],
+  }
+})
+
+/**
+ * Отделы одним списком с отступами: вложенность подсказывает, чей это отдел, а
+ * дерево в выпадающем списке не нарисовать.
+ */
+const departmentOptions = computed(() => {
+  const options: { value: string, label: string }[] = []
+
+  const walk = (nodes: Department[], depth: number) => {
+    for (const node of nodes) {
+      options.push({ value: String(node.id), label: `${'— '.repeat(depth)}${node.name}` })
+      walk(node.children ?? [], depth + 1)
+    }
+  }
+
+  walk(addressees.value?.departments ?? [], 0)
+
+  return options.filter(option => !chosenDepartments.value.some(one => String(one.id) === option.value))
+})
+
+const groupOptions = computed(() => (addressees.value?.groups ?? [])
+  .filter((group: Group) => !chosenGroups.value.some(one => one.id === group.id))
+  .map((group: Group) => ({
+    value: String(group.id),
+    label: `${group.name} — ${group.people_count} ${pluralise(group.people_count, 'человек', 'человека', 'человек')}`,
+  })))
+
+/** Выбранное из списка сразу становится строкой адресатов, а не выбором в нём. */
+const departmentToAdd = ref('')
+const groupToAdd = ref('')
+
+function findDepartment(nodes: Department[], id: number): Department | null {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node
+    }
+
+    const found = findDepartment(node.children ?? [], id)
+
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+watch(departmentToAdd, (value) => {
+  if (!value) {
+    return
+  }
+
+  const node = findDepartment(addressees.value?.departments ?? [], Number(value))
+
+  if (node && !chosenDepartments.value.some(one => one.id === node.id)) {
+    chosenDepartments.value = [...chosenDepartments.value, { id: node.id, name: node.name }]
+  }
+
+  departmentToAdd.value = ''
+})
+
+watch(groupToAdd, (value) => {
+  if (!value) {
+    return
+  }
+
+  const group = (addressees.value?.groups ?? []).find((one: Group) => one.id === Number(value))
+
+  if (group && !chosenGroups.value.some(one => one.id === group.id)) {
+    chosenGroups.value = [...chosenGroups.value, { id: group.id, name: group.name }]
+  }
+
+  groupToAdd.value = ''
+})
+
+function dropDepartment(id: number) {
+  chosenDepartments.value = chosenDepartments.value.filter(one => one.id !== id)
+}
+
+function dropGroup(id: number) {
+  chosenGroups.value = chosenGroups.value.filter(one => one.id !== id)
 }
 
 /* ---------- Куда сходить после новости ---------- */
@@ -289,7 +403,23 @@ function dropLink(found: LinkedMaterialResult) {
       </div>
 
       <template v-if="form.audience === 'selected'">
-        <ul v-if="recipients.length" class="chips">
+        <!-- Три вида адресатов складываются: отделу, группе и ещё двоим
+             поимённо. Отдел приводит с собой подотделы, а состав отдела и
+             группы читается на каждом обращении — пришедший туда завтра
+             увидит адресованное вчера. -->
+        <ul v-if="chosenDepartments.length || chosenGroups.length || recipients.length" class="chips">
+          <li v-for="unit in chosenDepartments" :key="`d${unit.id}`" class="chip">
+            Отдел: {{ unit.name }}
+            <button type="button" class="chip__drop" :aria-label="`Убрать отдел ${unit.name}`" @click="dropDepartment(unit.id)">
+              ×
+            </button>
+          </li>
+          <li v-for="group in chosenGroups" :key="`g${group.id}`" class="chip">
+            Группа: {{ group.name }}
+            <button type="button" class="chip__drop" :aria-label="`Убрать группу ${group.name}`" @click="dropGroup(group.id)">
+              ×
+            </button>
+          </li>
           <li v-for="person in recipients" :key="person.id" class="chip">
             {{ person.name }}
             <button type="button" class="chip__drop" :aria-label="`Убрать ${person.name}`" @click="dropRecipient(person.id)">
@@ -297,6 +427,29 @@ function dropLink(found: LinkedMaterialResult) {
             </button>
           </li>
         </ul>
+
+        <div class="field">
+          <label class="field-label" for="department-add">Добавить отдел</label>
+          <UiSelect
+            id="department-add"
+            v-model="departmentToAdd"
+            :options="departmentOptions"
+            placeholder="Выберите отдел"
+          />
+          <p class="faint">
+            Новость увидят и подотделы выбранного.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="group-add">Добавить группу</label>
+          <UiSelect
+            id="group-add"
+            v-model="groupToAdd"
+            :options="groupOptions"
+            placeholder="Выберите группу"
+          />
+        </div>
 
         <div class="field">
           <label class="field-label" for="person-search">Добавить сотрудника</label>

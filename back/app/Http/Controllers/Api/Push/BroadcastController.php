@@ -29,7 +29,7 @@ final class BroadcastController extends Controller
     public function index(): AnonymousResourceCollection
     {
         $broadcasts = PushBroadcast::query()
-            ->with('author', 'department')
+            ->with('author', 'department', 'group')
             ->latest('sent_at')
             ->limit(self::HISTORY)
             ->get();

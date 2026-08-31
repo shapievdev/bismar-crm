@@ -1,3 +1,13 @@
+import type { DepartmentRoleKind } from '~/types/structure'
+
+/** Отдел, в котором человек числится, — с ролью, в которой он там стоит. */
+export interface UserDepartment {
+  id: number
+  name: string
+  role: DepartmentRoleKind
+  role_label: string
+}
+
 export interface User {
   id: number
   level: AccessLevel
@@ -22,10 +32,11 @@ export interface User {
   /** Всё, что человек реально может. У администратора — весь список. */
   permissions: string[]
   /**
-   * Где человек в структуре компании. Приходит только со своей учётной
-   * записью и с карточки сотрудника — списку это лишний запрос на строку.
+   * Где человек в структуре компании. Приходит со своей учётной записью, с
+   * карточки сотрудника и со списка сотрудников; в подсказках выбора людей
+   * отделов нет.
    */
-  departments?: { id: number, name: string, role: string, role_label: string }[]
+  departments?: UserDepartment[]
 }
 
 /** Суперадминистратор, администратор или обычный пользователь. */

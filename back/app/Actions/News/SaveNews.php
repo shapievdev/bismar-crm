@@ -10,6 +10,7 @@ use App\Jobs\SendPush;
 use App\Models\News;
 use App\Models\NewsLink;
 use App\Models\User;
+use App\Support\News\Addressees;
 use App\Support\Push\PushMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -24,6 +25,8 @@ use Illuminate\Support\Str;
  */
 final readonly class SaveNews
 {
+    public function __construct(private Addressees $addressees) {}
+
     /**
      * @param  array{
      *     title: string,
@@ -34,6 +37,8 @@ final readonly class SaveNews
      *     audience: string,
      *     requires_acknowledgement?: bool,
      *     recipients?: list<int>,
+     *     department_ids?: list<int>,
+     *     group_ids?: list<int>,
      *     links?: list<array{type: string, id: int}>
      * } $attributes
      */
@@ -67,10 +72,10 @@ final readonly class SaveNews
 
             $news->save();
 
-            $this->syncRecipients($news, $audience, $attributes['recipients'] ?? []);
+            $this->syncAddressees($news, $audience, $attributes);
             $this->syncLinks($news, $attributes['links'] ?? []);
 
-            return $news->load('author', 'recipients', 'links.linkable');
+            return $news->load('author', 'recipients', 'departments', 'groups', 'links.linkable');
         });
 
         if (! $wasVisible && $saved->status->isVisibleToReaders()) {
@@ -84,15 +89,14 @@ final readonly class SaveNews
      * Уведомление о вышедшей новости.
      *
      * Автору не шлём: он знает, что нажал «опубликовать». Адресаты — те же, кто
-     * увидит новость в ленте: либо названные поимённо, либо вся компания.
+     * увидит новость в ленте: вся компания либо выбранные люди, отделы и группы.
+     * Уволенным не шлём — платформа им закрыта, и звать их туда незачем.
      */
     private function notify(News $news, User $author): void
     {
-        $recipients = $news->audience === NewsAudience::Everyone
-            ? User::query()->employed()->pluck('id')
-            : $news->recipients()->pluck('users.id');
-
-        $people = $recipients
+        $people = $this->addressees->query($news)
+            ->employed()
+            ->pluck('id')
             ->map(intval(...))
             ->reject(fn (int $id): bool => $id === (int) $author->getKey())
             ->values()
@@ -152,20 +156,38 @@ final readonly class SaveNews
     }
 
     /**
-     * @param  list<int>  $recipients
+     * Адресаты: названные поимённо, отделы и группы.
+     *
+     * Все три задаются целиком, как и ссылки: экран присылает то, что видно в
+     * нём сейчас, а не разницу с прежним.
+     *
+     * @param  array{recipients?: list<int>, department_ids?: list<int>, group_ids?: list<int>}  $attributes
      */
-    private function syncRecipients(News $news, NewsAudience $audience, array $recipients): void
+    private function syncAddressees(News $news, NewsAudience $audience, array $attributes): void
     {
         if (! $audience->isSelected()) {
-            // Новость для всех поимённого списка не держит: оставленный, он
-            // ожил бы при обратном переключении и адресовал бы её людям,
+            // Новость для всех выбранных адресатов не держит: оставленные, они
+            // ожили бы при обратном переключении и адресовали бы её людям,
             // которых сегодня никто не выбирал.
             $news->recipients()->detach();
+            $news->departments()->detach();
+            $news->groups()->detach();
 
             return;
         }
 
-        $news->recipients()->sync(array_values(array_unique(array_map(intval(...), $recipients))));
+        $news->recipients()->sync($this->ids($attributes['recipients'] ?? []));
+        $news->departments()->sync($this->ids($attributes['department_ids'] ?? []));
+        $news->groups()->sync($this->ids($attributes['group_ids'] ?? []));
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    private function ids(array $ids): array
+    {
+        return array_values(array_unique(array_map(intval(...), $ids)));
     }
 
     private function uniqueSlug(string $title): string

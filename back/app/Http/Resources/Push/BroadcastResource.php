@@ -29,6 +29,7 @@ final class BroadcastResource extends JsonResource
             'audience' => $this->audience->value,
             'audience_label' => $this->audience->label(),
             'department' => $this->whenLoaded('department', fn (): ?string => $this->department?->name),
+            'group' => $this->whenLoaded('group', fn (): ?string => $this->group?->name),
 
             // Людей и устройств — снимком на день отправки: и те, и другие с тех
             // пор могли измениться.

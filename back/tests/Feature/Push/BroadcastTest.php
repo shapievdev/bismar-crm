@@ -9,6 +9,7 @@ use App\Enums\DepartmentRole;
 use App\Enums\Permission;
 use App\Jobs\SendPush;
 use App\Models\Department;
+use App\Models\Group;
 use App\Models\PushBroadcast;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -150,6 +151,71 @@ final class BroadcastTest extends TestCase
             return $recipients === collect([$keeper->id, $nightly->id])->sort()->values()->all()
                 && ! in_array($seller->id, $recipients, true);
         });
+    }
+
+    /**
+     * Группа — ровно те, кого в неё внесли: вложенности у групп нет, и отдел
+     * человека к делу не относится.
+     */
+    public function test_a_broadcast_to_a_group_reaches_only_its_people(): void
+    {
+        Queue::fake();
+
+        $mentors = Group::factory()->create(['name' => 'Наставники']);
+        $mentor = $this->learner();
+        $other = $this->learner();
+
+        $mentors->members()->attach($mentor->id);
+
+        $this->actingAs($this->administrator())
+            ->postJson(route('push.broadcasts.store'), $this->letter([
+                'audience' => BroadcastAudience::Group->value,
+                'group_id' => $mentors->id,
+            ]))
+            ->assertCreated()
+            ->assertJsonPath('data.audience', BroadcastAudience::Group->value)
+            ->assertJsonPath('data.group', 'Наставники');
+
+        Queue::assertPushed(SendPush::class, fn (SendPush $job): bool => $this->recipientsOf($job) === [$mentor->id]);
+
+        $this->assertSame($mentors->id, PushBroadcast::query()->firstOrFail()->group_id);
+    }
+
+    public function test_a_broadcast_to_a_group_needs_a_group(): void
+    {
+        $this->actingAs($this->administrator())
+            ->postJson(route('push.broadcasts.store'), $this->letter([
+                'audience' => BroadcastAudience::Group->value,
+            ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('group_id');
+    }
+
+    /**
+     * Удалённая группа не уносит с собой историю: запись остаётся и говорит
+     * «группе», не называя её.
+     */
+    public function test_the_history_survives_a_deleted_group(): void
+    {
+        Queue::fake();
+
+        $group = Group::factory()->create();
+        $group->members()->attach($this->learner()->id);
+
+        $this->actingAs($this->administrator())
+            ->postJson(route('push.broadcasts.store'), $this->letter([
+                'audience' => BroadcastAudience::Group->value,
+                'group_id' => $group->id,
+            ]))
+            ->assertCreated();
+
+        $group->delete();
+
+        $this->actingAs($this->administrator())
+            ->getJson(route('push.broadcasts.index'))
+            ->assertOk()
+            ->assertJsonPath('data.0.audience_label', 'Группе')
+            ->assertJsonPath('data.0.group', null);
     }
 
     public function test_a_broadcast_with_nobody_to_reach_is_refused(): void

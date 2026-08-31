@@ -86,6 +86,15 @@ const links = computed<NavLink[]>(() => {
         visible: can('users.view'),
         matches: (p: string) => p === '/staff' || /^\/staff\/(new|\d+)/.test(p),
       },
+      // Группы открыты всем, как и структура: без названия группы не выбрать
+      // адресата новости тому, кто её ведёт, а права на людей у него может и
+      // не быть.
+      {
+        to: '/staff/groups',
+        label: 'Группы',
+        visible: true,
+        matches: (p: string) => p.startsWith('/staff/groups'),
+      },
     ].filter(link => link.visible)
   }
 

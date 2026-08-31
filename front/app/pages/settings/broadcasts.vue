@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
-import type { BroadcastAudienceKind, Department, DepartmentPerson } from '~/types/structure'
+import type { Broadcast, BroadcastAudienceKind, Department, DepartmentPerson, Group } from '~/types/structure'
 import { formatDate } from '~/utils/numbers'
 
 /**
@@ -15,14 +15,16 @@ useHead({ title: 'Рассылки' })
 
 const { isAdmin } = useAuth()
 const { fetchBroadcasts, sendBroadcast, fetchStructure, searchDepartmentCandidates } = useStructureApi()
+const { fetchGroups } = useGroupsApi()
 
 const { data, pending, error, refresh } = await useAsyncData('broadcasts', async () => {
-  const [history, structure] = await Promise.all([
+  const [history, structure, groups] = await Promise.all([
     fetchBroadcasts(),
     fetchStructure(),
+    fetchGroups(),
   ])
 
-  return { history: history.data, roots: structure.data }
+  return { history: history.data, roots: structure.data, groups: groups.data }
 })
 
 const history = computed(() => data.value?.history ?? [])
@@ -49,6 +51,16 @@ const departmentOptions = computed(() => {
   return options
 })
 
+/**
+ * Группы — простым списком: вложенности у них нет, и отступы подсказывать
+ * нечему. Пустые тоже показываем: пустая группа — повод её наполнить, а не
+ * прятать, но сколько в ней людей, видно сразу.
+ */
+const groupOptions = computed(() => (data.value?.groups ?? []).map((group: Group) => ({
+  value: String(group.id),
+  label: `${group.name} — ${group.people_count} ${pluralise(group.people_count, 'человек', 'человека', 'человек')}`,
+})))
+
 /* ---------- Письмо ---------- */
 
 const form = reactive({
@@ -57,12 +69,14 @@ const form = reactive({
   url: '',
   audience: 'everyone' as BroadcastAudienceKind,
   department: '',
+  group: '',
 })
 
 const audiences = [
   { value: 'everyone', label: 'Всем сотрудникам', hint: 'Всем, кто работает и подписался на уведомления' },
   { value: 'selected', label: 'Выбранным', hint: 'Тем, кого назовёте по имени' },
   { value: 'department', label: 'Отделу', hint: 'Отделу вместе со всеми его подотделами' },
+  { value: 'group', label: 'Группе', hint: 'Списку людей, собранному вручную' },
 ] as const
 
 /** Названные поимённо: список набирается поиском и держится до отправки. */
@@ -98,7 +112,11 @@ const ready = computed(() => {
     return chosen.value.length > 0
   }
 
-  return form.audience !== 'department' || form.department !== ''
+  if (form.audience === 'department') {
+    return form.department !== ''
+  }
+
+  return form.audience !== 'group' || form.group !== ''
 })
 
 async function send() {
@@ -115,6 +133,7 @@ async function send() {
       audience: form.audience,
       user_ids: form.audience === 'selected' ? chosen.value.map(one => one.id) : undefined,
       department_id: form.audience === 'department' ? Number(form.department) : undefined,
+      group_id: form.audience === 'group' ? Number(form.group) : undefined,
     })
 
     sent.value = { recipients: broadcast.recipients_count, devices: broadcast.devices_count }
@@ -138,6 +157,22 @@ async function send() {
   finally {
     isSending.value = false
   }
+}
+
+/**
+ * Кому ушла рассылка. Удалённые с тех пор отдел и группа названия не имеют —
+ * тогда остаётся «Отделу», «Группе»: лучше, чем стёртая история.
+ */
+function sentTo(one: Broadcast): string {
+  if (one.audience === 'department' && one.department) {
+    return `Отделу «${one.department}»`
+  }
+
+  if (one.audience === 'group' && one.group) {
+    return `Группе «${one.group}»`
+  }
+
+  return one.audience_label
 }
 
 function when(value: string | null): string {
@@ -294,6 +329,23 @@ function when(value: string | null): string {
           </p>
         </div>
 
+        <!-- Группа — ровно те, кого в неё внесли. -->
+        <div v-if="form.audience === 'group'" class="field">
+          <label class="field-label" for="group">Группа</label>
+          <UiSelect
+            id="group"
+            v-model="form.group"
+            :options="groupOptions"
+            placeholder="Выберите группу"
+          />
+          <p class="faint">
+            Состав группы правят в разделе «Сотрудники» — вкладка «Группы».
+          </p>
+          <p v-if="errors.group_id?.length" class="field-error">
+            {{ errors.group_id[0] }}
+          </p>
+        </div>
+
         <!-- Как это будет выглядеть: заголовок и текст в том же порядке, в
              каком их покажет телефон. -->
         <div v-if="form.title.trim() || form.body.trim()" class="preview">
@@ -340,7 +392,7 @@ function when(value: string | null): string {
               {{ one.body }}
             </p>
             <p class="faint">
-              {{ one.audience === 'department' && one.department ? `Отделу «${one.department}»` : one.audience_label }}
+              {{ sentTo(one) }}
               · {{ one.recipients_count }} {{ pluralise(one.recipients_count, 'человек', 'человека', 'человек') }}
               · {{ one.devices_count }} {{ pluralise(one.devices_count, 'устройство', 'устройства', 'устройств') }}
               <template v-if="one.author"> · {{ one.author }}</template>

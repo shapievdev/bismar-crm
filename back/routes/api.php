@@ -18,6 +18,8 @@ use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
 use App\Http\Controllers\Api\Chat\MessageController;
 use App\Http\Controllers\Api\Chat\ParticipantController;
+use App\Http\Controllers\Api\GroupController;
+use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseAccessController;
 use App\Http\Controllers\Api\Lms\CourseController;
@@ -163,6 +165,7 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         // Раньше `plans/{user}`, иначе «people» уедет в подстановку сотрудника.
         Route::get('plans/people', [LearningPlanController::class, 'people'])->name('plans.people');
         Route::get('plans/{user}', [LearningPlanController::class, 'show'])->name('plans.show');
+
         Route::put('plans/{user}', [LearningPlanController::class, 'update'])->name('plans.update');
     });
     Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');
@@ -437,6 +440,31 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('structure')-
         Route::post('departments/{department}/people', [DepartmentMemberController::class, 'store'])->name('people.store');
         Route::put('departments/{department}/people/{user}', [DepartmentMemberController::class, 'update'])->name('people.update');
         Route::delete('departments/{department}/people/{user}', [DepartmentMemberController::class, 'destroy'])->name('people.destroy');
+    });
+});
+
+/*
+ * Группы сотрудников — списки людей, собранные вручную.
+ *
+ * Читает их всякий, кто вошёл, как и структуру: название группы не тайна, а без
+ * него не выбрать адресата новости тому, кто её ведёт. Заводит и правит
+ * администратор — группой адресуют рассылку на телефоны, и права, отмеченного
+ * галочкой, для такого мало. Кандидатов в состав ищут там же, где кандидатов в
+ * отдел: `structure.people.candidates`.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('groups')->as('groups.')->group(function (): void {
+    Route::get('/', [GroupController::class, 'index'])->name('index');
+    Route::get('{group}', [GroupController::class, 'show'])->name('show');
+
+    Route::middleware(EnsureAdministrator::class)->group(function (): void {
+        Route::post('/', [GroupController::class, 'store'])->name('store');
+        Route::put('{group}', [GroupController::class, 'update'])->name('update');
+        Route::delete('{group}', [GroupController::class, 'destroy'])->name('destroy');
+
+        // Состав — своё решение и свой адрес: название правят в одном месте
+        // интерфейса, людей набирают в другом.
+        Route::post('{group}/people', [GroupMemberController::class, 'store'])->name('people.store');
+        Route::delete('{group}/people/{user}', [GroupMemberController::class, 'destroy'])->name('people.destroy');
     });
 });
 

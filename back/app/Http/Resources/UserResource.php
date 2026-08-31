@@ -42,8 +42,10 @@ final class UserResource extends JsonResource
             'email_verified_at' => $this->email_verified_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
 
-            // Где человек в структуре компании. Приходит только в карточке:
-            // списку это лишний запрос на каждую строку.
+            // Где человек в структуре компании — в карточке и в списке
+            // сотрудников, где это отдельный столбец. Приходит, когда отделы
+            // подгружены: остальным экранам, зовущим людей в переписку или в
+            // план обучения, знать их незачем.
             'departments' => $this->whenLoaded('departments', fn (): array => $this->departments
                 ->map(fn (Department $department): array => [
                     'id' => $department->getKey(),

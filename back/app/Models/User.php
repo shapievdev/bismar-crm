@@ -184,6 +184,19 @@ class User extends Authenticatable
     }
 
     /**
+     * Группы, в которые человека включили.
+     *
+     * Отдел — где он работает, группа — с кем его зовут вместе; ни та, ни
+     * другая не про права.
+     *
+     * @return BelongsToMany<Group, $this>
+     */
+    public function groups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_members')->withTimestamps();
+    }
+
+    /**
      * Курсы, за которые этот человек отвечает.
      *
      * @return BelongsToMany<Course, $this>

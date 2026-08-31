@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Authorization;
 
+use App\Enums\DepartmentRole;
 use App\Enums\Permission;
+use App\Models\Department;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -63,6 +65,83 @@ final class UserManagementTest extends TestCase
         $this->actingAs($this->userWith(Permission::ViewCourses))
             ->getJson(route('users.show', User::factory()->create()))
             ->assertForbidden();
+    }
+
+    /* ---------- Поиск по списку ---------- */
+
+    /**
+     * Строчными и по-русски: базы собраны с C-сортировкой, где ILIKE
+     * складывает только латиницу, — без ICU «ёлкин» не нашёл бы Ёлкину.
+     */
+    public function test_the_staff_list_is_searched_by_name_regardless_of_case(): void
+    {
+        $wanted = User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Мария']);
+        User::factory()->create(['last_name' => 'Яковлев', 'first_name' => 'Пётр']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'ёлкин']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    public function test_the_staff_list_is_searched_by_address(): void
+    {
+        $wanted = User::factory()->create(['email' => 'sklad@bismar.test']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'SKLAD@']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    /**
+     * Отбор идёт в базу, а не по загруженной странице: искомый стоит за концом
+     * первой страницы и по ней найден бы не был.
+     */
+    public function test_the_search_reaches_past_the_first_page(): void
+    {
+        User::factory()->count(30)->create(['last_name' => 'Яковлев']);
+        $wanted = User::factory()->create(['last_name' => 'Ёлкина']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'Ёлкина']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    /**
+     * Где человек в структуре компании — столбец списка, а не только карточки.
+     */
+    public function test_the_staff_list_shows_which_departments_a_person_is_in(): void
+    {
+        $department = Department::factory()->create([
+            'name' => 'Отдел продаж',
+            'parent_id' => Department::query()->whereNull('parent_id')->value('id'),
+        ]);
+
+        $member = User::factory()->create(['last_name' => 'Ёлкина']);
+        $member->departments()->attach($department, ['role' => DepartmentRole::Head->value]);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'Ёлкина']))
+            ->assertOk()
+            ->assertJsonPath('data.0.departments.0.name', 'Отдел продаж')
+            ->assertJsonPath('data.0.departments.0.role', DepartmentRole::Head->value)
+            ->assertJsonPath('data.0.departments.0.role_label', 'Руководитель');
+    }
+
+    /** Не состоящий ни в одном отделе приходит с пустым списком, а не без него. */
+    public function test_someone_outside_the_structure_comes_with_no_departments(): void
+    {
+        User::factory()->create(['last_name' => 'Ёлкина']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'Ёлкина']))
+            ->assertOk()
+            ->assertJsonPath('data.0.departments', []);
     }
 
     public function test_a_duplicate_address_is_refused(): void

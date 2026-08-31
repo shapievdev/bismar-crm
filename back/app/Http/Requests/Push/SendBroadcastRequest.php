@@ -6,6 +6,7 @@ namespace App\Http\Requests\Push;
 
 use App\Enums\BroadcastAudience;
 use App\Models\Department;
+use App\Models\Group;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -46,6 +47,13 @@ final class SendBroadcastRequest extends FormRequest
                 'integer',
                 Rule::exists(Department::class, 'id'),
             ],
+
+            'group_id' => [
+                Rule::requiredIf($audience === BroadcastAudience::Group->value),
+                'nullable',
+                'integer',
+                Rule::exists(Group::class, 'id'),
+            ],
         ];
     }
 
@@ -58,6 +66,7 @@ final class SendBroadcastRequest extends FormRequest
             'url.regex' => 'Ссылка должна быть путём внутри приложения — например, /news.',
             'user_ids.required' => 'Выберите, кому отправить.',
             'department_id.required' => 'Выберите отдел.',
+            'group_id.required' => 'Выберите группу.',
         ];
     }
 
@@ -68,7 +77,8 @@ final class SendBroadcastRequest extends FormRequest
      *     url: ?string,
      *     audience: BroadcastAudience,
      *     user_ids: list<int>,
-     *     department_id: ?int
+     *     department_id: ?int,
+     *     group_id: ?int
      * }
      */
     public function toAttributes(): array
@@ -85,6 +95,9 @@ final class SendBroadcastRequest extends FormRequest
             'department_id' => $this->validated('department_id') === null
                 ? null
                 : (int) $this->validated('department_id'),
+            'group_id' => $this->validated('group_id') === null
+                ? null
+                : (int) $this->validated('group_id'),
         ];
     }
 }

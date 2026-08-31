@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\NewsAudience;
 use App\Enums\NewsStatus;
+use App\Support\News\Addressees;
 use Database\Factories\NewsFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -67,6 +68,27 @@ class News extends Model
     }
 
     /**
+     * Отделы, которым адресована новость, — вместе с их подотделами: адресуясь
+     * направлению, адресуются и всему, что под ним.
+     *
+     * @return BelongsToMany<Department, $this>
+     */
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'news_departments')->withTimestamps();
+    }
+
+    /**
+     * Группы, которым адресована новость.
+     *
+     * @return BelongsToMany<Group, $this>
+     */
+    public function groups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'news_groups')->withTimestamps();
+    }
+
+    /**
      * @return HasMany<NewsAcknowledgement, $this>
      */
     public function acknowledgements(): HasMany
@@ -118,7 +140,9 @@ class News extends Model
             return true;
         }
 
-        return $this->recipients()->whereKey($user->getKey())->exists();
+        // Через контейнер, а не через свойство: адресатов у новости три вида, и
+        // складывать их — работа отдельная от самой записи, см. Addressees.
+        return app(Addressees::class)->includes($this, $user);
     }
 
     public function isAcknowledgedBy(User $user): bool
@@ -138,11 +162,9 @@ class News extends Model
      */
     public function scopeReadableBy(Builder $query, User $user): void
     {
-        $query
-            ->where('status', NewsStatus::Published)
-            ->where(fn (Builder $inner) => $inner
-                ->where('audience', NewsAudience::Everyone)
-                ->orWhereHas('recipients', fn (Builder $people) => $people->whereKey($user->getKey())));
+        $query->where('status', NewsStatus::Published);
+
+        app(Addressees::class)->restrictToReader($query, $user);
     }
 
     /**
