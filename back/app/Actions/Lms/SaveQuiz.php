@@ -20,7 +20,6 @@ final readonly class SaveQuiz
      * @param  array{
      *     title: string,
      *     description?: ?string,
-     *     passing_score: int,
      *     max_attempts?: ?int,
      *     questions: array<int, array{text: string, type: string, points: int, options: array<int, array{text: string, is_correct: bool}>}>
      * } $attributes
@@ -33,7 +32,9 @@ final readonly class SaveQuiz
                 [
                     'title' => $attributes['title'],
                     'description' => $attributes['description'] ?? null,
-                    'passing_score' => $attributes['passing_score'],
+                    // Планку ставит правило, а не присланное: урок зачитывается
+                    // при всех верных ответах, и подделать это запросом нельзя.
+                    'passing_score' => Quiz::PASSING_SCORE,
                     'max_attempts' => $attributes['max_attempts'] ?? null,
                 ],
             );

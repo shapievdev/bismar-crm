@@ -107,6 +107,13 @@ const paragraphs = computed(() =>
 )
 
 const isCompleted = computed(() => lesson.value?.is_completed ?? false)
+
+/**
+ * Урок, из-за которого этот пока нельзя закрыть: курс проходят по порядку.
+ * Считает сервер — он один знает, что уже пройдено, — а экран лишь гасит кнопку
+ * и называет причину.
+ */
+const blockedBy = computed(() => lesson.value?.blocked_by ?? null)
 const actionError = ref<string | null>(null)
 const isWorking = ref(false)
 
@@ -342,7 +349,7 @@ function formatSize(bytes: number): string {
               {{ lesson.quiz.title }}
             </h2>
             <p class="muted quiz__rules">
-              Проходной балл — {{ lesson.quiz.passing_score }}%.
+              Урок зачтётся, когда все ответы будут верными.
               <template v-if="attemptsLeft !== null">
                 Осталось попыток: {{ attemptsLeft }}.
               </template>
@@ -440,9 +447,24 @@ function formatSize(bytes: number): string {
       </section>
 
       <div v-else-if="isEnrolled && !isCompleted" class="block">
-        <button type="button" class="button-primary" :disabled="isWorking" @click="markDone">
+        <!-- Курс проходят по порядку: пока предыдущий урок открыт, кнопка
+             гаснет и говорит, с чего начать, — вместо отказа с сервера после
+             нажатия. -->
+        <button
+          type="button"
+          class="button-primary"
+          :disabled="isWorking || blockedBy !== null"
+          @click="markDone"
+        >
           {{ isWorking ? 'Сохраняем…' : 'Отметить пройденным' }}
         </button>
+
+        <p v-if="blockedBy" class="muted blocked">
+          Сначала пройдите предыдущие уроки — начните с
+          <NuxtLink :to="`/lms/${courseSlug}/lessons/${blockedBy.id}`" class="blocked__link">
+            «{{ blockedBy.title }}»
+          </NuxtLink>.
+        </p>
       </div>
 
       <p v-if="actionError" class="alert alert--danger" role="alert">
@@ -474,6 +496,14 @@ function formatSize(bytes: number): string {
 </template>
 
 <style scoped>
+.blocked {
+  margin-top: 0.6rem;
+}
+
+.blocked__link {
+  color: inherit;
+}
+
 .player {
   display: grid;
   grid-template-columns: 1fr;

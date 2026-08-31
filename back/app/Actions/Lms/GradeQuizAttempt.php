@@ -58,8 +58,10 @@ final readonly class GradeQuizAttempt
                 'completed_at' => now(),
             ]);
 
-            // Passing the quiz is what completes the lesson it belongs to.
-            if ($passed && $enrollment !== null) {
+            // Сдача теста и есть прохождение урока — если до этого урока дошли
+            // по порядку. Непройденные предыдущие попытку не отменяют: она
+            // записана, и урок зачтётся, как только очередь дойдёт до него.
+            if ($passed && $enrollment !== null && $this->completeLesson->blockedBy($enrollment, $quiz->lesson) === null) {
                 $this->completeLesson->handle($enrollment, $quiz->lesson);
             }
 

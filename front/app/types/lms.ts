@@ -29,6 +29,11 @@ export interface LessonSummary {
   answers?: LessonAnswer[]
   quiz?: Quiz | null
   is_completed?: boolean
+  /**
+   * Урок, из-за которого этот пока нельзя закрыть: курс проходят по порядку.
+   * Приходит с карточки урока; null — путь открыт.
+   */
+  blocked_by?: LessonLink | null
   /** Present on the lesson endpoint: what to show as previous/next. */
   neighbours?: { previous: LessonLink | null, next: LessonLink | null }
   course_title?: string
@@ -151,6 +156,23 @@ export interface Enrollment {
 
 /** Что бывает шагом плана обучения. */
 export type PlannableKind = 'course' | 'regulation'
+
+/**
+ * Материал, который можно поставить шагом плана.
+ *
+ * Приходит списком целиком, с категорией у каждой строки: план составляют,
+ * глядя на то, что есть, а не угадывая название. `is_visible_to_learner`
+ * говорит про сотрудника — назначить закрытое от него не запрещено, но знать
+ * об этом составитель должен сразу.
+ */
+export interface PlannableItem {
+  kind: PlannableKind
+  id: number
+  title: string
+  slug: string
+  category: string | null
+  is_visible_to_learner: boolean
+}
 
 export interface LearningPlanItem {
   id: number

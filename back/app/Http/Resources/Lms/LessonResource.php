@@ -37,6 +37,10 @@ final class LessonResource extends JsonResource
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
             // Attached by the controller from the learner's completions.
             'is_completed' => $this->is_completed_by_learner,
+
+            // Урок, из-за которого этот пока нельзя закрыть: курс проходят по
+            // порядку. Null — путь открыт.
+            'blocked_by' => $this->blocked_by,
             'neighbours' => $this->neighbours,
             'course_title' => $this->course_title,
             'course_slug' => $this->course_slug,

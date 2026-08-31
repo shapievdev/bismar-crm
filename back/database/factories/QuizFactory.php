@@ -25,7 +25,9 @@ final class QuizFactory extends Factory
             'lesson_id' => Lesson::factory(),
             'title' => 'Проверка знаний',
             'description' => null,
-            'passing_score' => 70,
+            // Планка теста при уроке — правило, а не настройка автора: урок
+            // зачитывается при всех верных ответах.
+            'passing_score' => Quiz::PASSING_SCORE,
             'max_attempts' => null,
         ];
     }

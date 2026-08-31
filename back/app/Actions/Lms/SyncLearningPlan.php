@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Lms;
 
+use App\Jobs\SendPush;
 use App\Models\LearningPlanItem;
 use App\Models\User;
+use App\Support\Push\PushMessage;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +32,10 @@ final readonly class SyncLearningPlan
     {
         $wanted = $this->unique($items);
 
+        // Что было до правки — чтобы сказать сотруднику, что именно изменилось.
+        // Читаем прежде транзакции: после неё прежнего плана уже нет.
+        $before = $this->keysOf($learner);
+
         DB::transaction(function () use ($learner, $wanted, $actor): void {
             $this->dropEverythingBut($learner, $wanted);
 
@@ -52,7 +58,93 @@ final readonly class SyncLearningPlan
             }
         });
 
-        return $learner->planItems()->with('plannable')->get();
+        $plan = $learner->planItems()->with('plannable')->get();
+
+        $this->notify($learner, $actor, $before, $plan);
+
+        return $plan;
+    }
+
+    /**
+     * Сообщает сотруднику, что план изменился.
+     *
+     * Только о составе: переставленные местами шаги — совет о порядке, а не
+     * новое задание (порядок в плане и так не запрет), и звонить телефоном ради
+     * этого незачем.
+     *
+     * Себе не сообщаем: тот, кто правит свой план, только что его и правил.
+     *
+     * Имя уведомления одно на сотрудника — новое **заменяет** прежнее: важно
+     * не то, сколько раз план правили, а каким он стал.
+     *
+     * @param  list<string>  $before
+     * @param  Collection<int, LearningPlanItem>  $plan
+     */
+    private function notify(User $learner, User $actor, array $before, Collection $plan): void
+    {
+        if ($learner->is($actor)) {
+            return;
+        }
+
+        $after = $plan->map($this->keyOf(...))->all();
+
+        $added = $plan->filter(fn (LearningPlanItem $item): bool => ! in_array($this->keyOf($item), $before, true));
+        $removed = array_values(array_diff($before, $after));
+
+        if ($added->isEmpty() && $removed === []) {
+            return;
+        }
+
+        SendPush::dispatch([(int) $learner->getKey()], new PushMessage(
+            title: 'План обучения изменился',
+            body: $this->summary($added, count($removed)),
+            url: '/lms/plan',
+            tag: 'learning-plan',
+        ));
+    }
+
+    /**
+     * О чём уведомление одной строкой.
+     *
+     * Название — когда добавили ровно один шаг: тогда оно и есть новость.
+     * Дальше числами, иначе уведомление обрежется на середине второго названия.
+     *
+     * @param  Collection<int, LearningPlanItem>  $added
+     */
+    private function summary(Collection $added, int $removed): string
+    {
+        $count = $added->count();
+
+        if ($count === 0) {
+            return $removed === 1
+                ? 'Один шаг убрали из плана.'
+                : sprintf('Из плана убрали шагов: %d.', $removed);
+        }
+
+        /** @var LearningPlanItem $first */
+        $first = $added->first();
+
+        $news = $count === 1
+            ? sprintf('Вам назначено: %s', PushMessage::shorten($first->plannable?->title, 80))
+            : sprintf('Вам назначено новых шагов: %d', $count);
+
+        return $removed === 0 ? $news.'.' : $news.sprintf(' (убрано: %d)', $removed);
+    }
+
+    /**
+     * Ключи шагов плана: «course:3». Вид и номер вместе — курс №3 и регламент
+     * №3 разные вещи.
+     *
+     * @return list<string>
+     */
+    private function keysOf(User $learner): array
+    {
+        return $learner->planItems()->get()->map($this->keyOf(...))->all();
+    }
+
+    private function keyOf(LearningPlanItem $item): string
+    {
+        return $item->plannable_type.':'.$item->plannable_id;
     }
 
     /**

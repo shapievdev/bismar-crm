@@ -24,6 +24,7 @@ final readonly class CompleteLesson
     public function handle(Enrollment $enrollment, Lesson $lesson): Enrollment
     {
         $this->ensureLessonBelongsToCourse($enrollment, $lesson);
+        $this->ensureEarlierLessonsAreDone($enrollment, $lesson);
         $this->ensureQuizWasPassed($enrollment, $lesson);
 
         return DB::transaction(function () use ($enrollment, $lesson): Enrollment {
@@ -65,6 +66,54 @@ final readonly class CompleteLesson
     }
 
     /**
+     * Урок, из-за которого этот пока нельзя закрыть, — первый непройденный из
+     * стоящих раньше. Null означает «путь открыт».
+     *
+     * Курс проходят по порядку: перескочив середину, человек досдаёт последний
+     * урок и получает курс «пройденным», не открыв половины (решение
+     * пользователя 2026-08-31). Порядок — тот же, в каком уроки читают:
+     * по модулям, внутри модуля по номеру шага.
+     *
+     * Уже отмеченное прежде не отзывается: правило про новые отметки, а не про
+     * прошлые, — иначе добавленный в начало курса урок разом обнулил бы
+     * пройденное у всех.
+     */
+    public function blockedBy(Enrollment $enrollment, Lesson $lesson): ?Lesson
+    {
+        $enrollment->loadMissing('course');
+
+        $lessons = $enrollment->course->lessons()->get(['lessons.id', 'lessons.title']);
+        $index = $lessons->search(fn (Lesson $candidate): bool => $candidate->is($lesson));
+
+        // Первый урок никому не подчинён; неизвестный курсу не наше дело —
+        // о нём скажет ensureLessonBelongsToCourse.
+        if ($index === false || $index === 0) {
+            return null;
+        }
+
+        $done = $enrollment->completions()->pluck('lesson_id')->map(intval(...))->all();
+
+        return $lessons->take($index)->first(
+            fn (Lesson $earlier): bool => ! in_array((int) $earlier->getKey(), $done, strict: true),
+        );
+    }
+
+    /**
+     * @throws ConflictException
+     */
+    private function ensureEarlierLessonsAreDone(Enrollment $enrollment, Lesson $lesson): void
+    {
+        $blocker = $this->blockedBy($enrollment, $lesson);
+
+        if ($blocker !== null) {
+            throw new ConflictException(sprintf(
+                'Сначала пройдите предыдущие уроки — начните с «%s».',
+                $blocker->title,
+            ));
+        }
+    }
+
+    /**
      * @throws ConflictException
      */
     private function ensureLessonBelongsToCourse(Enrollment $enrollment, Lesson $lesson): void
@@ -79,6 +128,9 @@ final readonly class CompleteLesson
     /**
      * A lesson carrying a quiz is completed by passing it, never by simply
      * clicking "done" — otherwise the test could be skipped entirely.
+     *
+     * Сдать — значит ответить верно на все вопросы: планка теста при уроке
+     * равна ста процентам, см. Quiz::PASSING_SCORE.
      *
      * @throws ConflictException
      */
@@ -96,7 +148,9 @@ final readonly class CompleteLesson
             ->exists();
 
         if (! $passed) {
-            throw new ConflictException('Урок содержит тест — сначала нужно его сдать.');
+            throw new ConflictException(
+                'Урок содержит тест — он зачтётся, когда все ответы будут верными.',
+            );
         }
     }
 }

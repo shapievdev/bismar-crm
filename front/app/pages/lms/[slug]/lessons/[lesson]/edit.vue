@@ -347,6 +347,7 @@ async function removeQuiz() {
       :quiz="lesson.quiz ?? null"
       :errors="quizErrors"
       :is-submitting="isSavingQuiz"
+      :fixed-passing-score="100"
       @save="persistQuiz"
       @remove="removeQuiz"
     />

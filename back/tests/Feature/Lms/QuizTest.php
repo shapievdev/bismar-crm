@@ -169,7 +169,9 @@ final class QuizTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.quiz.save', $lesson), $payload)
             ->assertCreated()
-            ->assertJsonPath('data.passing_score', 80)
+            // Планку ставит правило, а не автор: тест при уроке зачитывается
+            // при всех верных ответах, и присланные 80 не понижают её.
+            ->assertJsonPath('data.passing_score', Quiz::PASSING_SCORE)
             ->assertJsonCount(1, 'data.questions');
 
         // Saving again replaces the quiz rather than stacking a second copy.

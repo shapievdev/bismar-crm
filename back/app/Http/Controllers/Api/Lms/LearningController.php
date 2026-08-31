@@ -130,6 +130,14 @@ final class LearningController extends Controller
             $enrollment?->completions()->where('lesson_id', $lesson->getKey())->exists() ?? false,
         );
 
+        // Что мешает закрыть урок: курс проходят по порядку, и кнопку
+        // «Отметить пройденным» экран гасит, называя причину, а не даёт нажать
+        // её ради отказа с сервера.
+        $lesson->setAttribute(
+            'blocked_by',
+            $enrollment === null ? null : $this->completeLesson->blockedBy($enrollment, $lesson)?->only('id', 'title'),
+        );
+
         // Neighbours let the player offer "previous" and "next" without the SPA
         // having to fetch and flatten the whole course outline.
         $lesson->setAttribute('neighbours', $this->neighboursOf($course, $lesson));

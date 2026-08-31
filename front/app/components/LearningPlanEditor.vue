@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError } from '~/composables/useAuth'
-import type { Course, LearningPlanItem, PlannableKind, Regulation } from '~/types/lms'
+import type { LearningPlanItem, PlannableItem, PlannableKind } from '~/types/lms'
 
 /**
  * План обучения одного сотрудника: что ему назначено, как далеко он продвинулся
@@ -31,12 +31,7 @@ interface Step {
   slug: string
 }
 
-const { fetchPlan, savePlan, fetchCourses } = useLmsApi()
-const { fetchRegulations } = useRegulationsApi()
-
-function asStep(item: Course | Regulation, kind: PlannableKind): Step {
-  return { kind, id: item.id, title: item.title, slug: item.slug }
-}
+const { fetchPlan, savePlan, fetchPlanMaterial } = useLmsApi()
 
 /**
  * Черновик — просто порядок шагов: он и есть то, что уходит на сервер.
@@ -121,14 +116,6 @@ async function load() {
   }
 }
 
-// Сотрудник может смениться под тем же экраном — на «Планах обучения» выбирают
-// другого, не уходя со страницы.
-watch(() => props.learnerId, () => {
-  saveError.value = null
-  savedAt.value = null
-  void load()
-}, { immediate: true })
-
 function add(step: Step) {
   if (!plannedKeys.value.has(keyOf(step))) {
     draft.value = [...draft.value, step]
@@ -180,26 +167,108 @@ async function save() {
   }
 }
 
-/**
- * Поиск сразу по обоим видам: составителю всё равно, курс это или регламент, —
- * ему нужно то, что называется так, как он набрал.
- */
-const material = useDebouncedSearch<Step>(async (term) => {
-  const [courses, regulations] = await Promise.all([
-    fetchCourses({ search: term }),
-    fetchRegulations({ search: term }),
-  ])
+/* ---------- Что можно назначить ---------- */
 
-  return [
-    ...courses.data.map(course => asStep(course, 'course')),
-    ...regulations.data.map(regulation => asStep(regulation, 'regulation')),
-  ]
+/**
+ * Справочник материала приходит целиком и один раз на сотрудника: курсов и
+ * регламентов десятки, а отбор по виду и категории — дело экрана. Прежде здесь
+ * был поиск по названию, и он требовал знать ответ до вопроса: не набрав
+ * названия, составитель не видел вообще ничего.
+ */
+const catalogue = ref<PlannableItem[]>([])
+const catalogueError = ref<string | null>(null)
+
+/** Своё значение под «без категории»: пустая строка занята словом «все». */
+const NO_CATEGORY = '~'
+
+const kind = ref<PlannableKind>('course')
+const category = ref('')
+const picked = ref('')
+
+const KINDS: { value: PlannableKind, label: string }[] = [
+  { value: 'course', label: 'Курсы' },
+  { value: 'regulation', label: 'Регламенты' },
+]
+
+async function loadCatalogue() {
+  catalogueError.value = null
+
+  try {
+    catalogue.value = (await fetchPlanMaterial(props.learnerId)).data
+  }
+  catch {
+    catalogue.value = []
+    catalogueError.value = 'Не удалось загрузить список курсов и регламентов.'
+  }
+}
+
+/** Материал выбранного вида — то, из чего складываются оба списка ниже. */
+const ofKind = computed(() => catalogue.value.filter(item => item.kind === kind.value))
+
+/**
+ * Категории — те, что есть у самого материала: раздел, в котором нечего
+ * назначить, в отборе только мешает. «Без категории» тоже случай, и прятать
+ * его значило бы прятать материал.
+ */
+const categoryOptions = computed(() => {
+  const names = [...new Set(ofKind.value.map(item => item.category ?? ''))]
+    .sort((a, b) => a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'ru'))
+    .map(name => ({ value: name || NO_CATEGORY, label: name || 'Без категории' }))
+
+  return [{ value: '', label: 'Все категории' }, ...names]
 })
 
-function plan(step: Step) {
-  material.clear()
-  add(step)
-}
+const materialOptions = computed(() => ofKind.value
+  .filter(item => category.value === ''
+    || (category.value === NO_CATEGORY ? item.category === null : item.category === category.value))
+  .filter(item => !plannedKeys.value.has(`${item.kind}:${item.id}`))
+  .map(item => ({
+    value: `${item.kind}:${item.id}`,
+    label: item.title,
+    // Назначить закрытое от сотрудника не запрещено — сначала назначить, потом
+    // впустить — но узнать об этом лучше до сохранения, а не после.
+    hint: item.is_visible_to_learner ? undefined : 'Закрыт от сотрудника',
+  })))
+
+// Категория относится к виду: у регламентов свои разделы, и оставленный отбор
+// показал бы пустой список.
+watch(kind, () => {
+  category.value = ''
+})
+
+/** Выбранное сразу становится шагом плана, а не выбором в списке. */
+watch(picked, (value) => {
+  if (!value) {
+    return
+  }
+
+  const item = catalogue.value.find(one => `${one.kind}:${one.id}` === value)
+
+  if (item) {
+    add({ kind: item.kind, id: item.id, title: item.title, slug: item.slug })
+  }
+
+  picked.value = ''
+})
+
+/**
+ * Сотрудник может смениться под тем же экраном — на «Планах обучения» выбирают
+ * другого, не уходя со страницы. Наблюдатель стоит последним: он трогает всё,
+ * что объявлено выше, а сразу же и срабатывает.
+ */
+watch(() => props.learnerId, () => {
+  saveError.value = null
+  savedAt.value = null
+  void load()
+
+  // Справочник нужен только тому, кто план правит: читателю он ни к чему, а
+  // запрос — лишний на каждом открытии карточки сотрудника.
+  if (props.editable) {
+    kind.value = 'course'
+    category.value = ''
+    void loadCatalogue()
+  }
+}, { immediate: true })
 
 function stepLink(step: Step): string {
   return step.kind === 'regulation' ? `/lms/regulations/${step.slug}` : `/lms/${step.slug}`
@@ -296,44 +365,55 @@ function stepLink(step: Step): string {
             {{ saveError }}
           </p>
 
-          <div class="field">
-            <label class="field-label" :for="`material-search-${learnerId}`">Добавить курс или регламент</label>
-            <input
-              :id="`material-search-${learnerId}`"
-              v-model="material.query.value"
-              class="input"
-              type="search"
-              autocomplete="off"
-              placeholder="Название"
-            >
+          <p v-if="catalogueError" class="alert alert--danger" role="alert">
+            {{ catalogueError }}
+          </p>
+
+          <!-- Добавление шага: вид, раздел, материал. Выбранное в третьем
+               списке сразу становится шагом — «добавить» нажимать не надо. -->
+          <div class="picker">
+            <div class="field">
+              <span class="field-label">Что назначаем</span>
+              <div class="kinds">
+                <button
+                  v-for="option in KINDS"
+                  :key="option.value"
+                  type="button"
+                  class="kinds__one"
+                  :class="{ 'kinds__one--on': kind === option.value }"
+                  :aria-pressed="kind === option.value"
+                  @click="kind = option.value"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="field-label" :for="`plan-category-${learnerId}`">Раздел</label>
+              <UiSelect
+                :id="`plan-category-${learnerId}`"
+                v-model="category"
+                :options="categoryOptions"
+                placeholder="Все категории"
+              />
+            </div>
           </div>
 
-          <p v-if="material.isSearching.value" class="faint">
-            Ищем…
-          </p>
-          <p v-else-if="material.query.value.trim() && !material.results.value.length" class="faint">
-            Ничего не нашли.
-          </p>
-
-          <ul v-else-if="material.results.value.length" class="found">
-            <li v-for="found in material.results.value" :key="`${found.kind}:${found.id}`">
-              <button
-                type="button"
-                class="found__item"
-                :disabled="plannedKeys.has(`${found.kind}:${found.id}`)"
-                @click="plan(found)"
-              >
-                <span class="found__body">
-                  <span class="found__name">{{ found.title }}</span>
-                  <span class="faint">
-                    {{ found.kind === 'regulation' ? 'Регламент' : 'Курс' }}<template
-                      v-if="plannedKeys.has(`${found.kind}:${found.id}`)"
-                    > — уже в плане</template>
-                  </span>
-                </span>
-              </button>
-            </li>
-          </ul>
+          <div class="field">
+            <label class="field-label" :for="`plan-material-${learnerId}`">
+              {{ kind === 'regulation' ? 'Добавить регламент' : 'Добавить курс' }}
+            </label>
+            <UiSelect
+              :id="`plan-material-${learnerId}`"
+              v-model="picked"
+              :options="materialOptions"
+              :disabled="!materialOptions.length"
+              :placeholder="materialOptions.length
+                ? 'Выберите из списка'
+                : 'Назначать нечего — всё уже в плане или раздел пуст'"
+            />
+          </div>
 
           <div class="actions">
             <button type="button" class="button-primary" :disabled="isSaving || !isDirty" @click="save">
@@ -372,49 +452,37 @@ function stepLink(step: Step): string {
   gap: 0.75rem;
 }
 
-.found {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+/* Вид и раздел — в одну строку: вместе они один вопрос «откуда выбирать». */
+.picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  align-items: end;
+  gap: 0.75rem;
 }
 
-.found__item {
+.kinds {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.5rem 0.6rem;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: inherit;
+  gap: 0.4rem;
+}
+
+.kinds__one {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--control-surface);
+  color: var(--color-text-muted);
   font: inherit;
   cursor: pointer;
 }
 
-.found__item:hover:not(:disabled) {
-  background: var(--color-surface-sunken);
+.kinds__one:hover:not(.kinds__one--on) {
+  color: var(--color-text);
 }
 
-.found__item:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.found__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-  text-align: left;
-  font-size: 0.9rem;
-}
-
-.found__name {
-  font-weight: 550;
+.kinds__one--on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
 }
 
 .steps {

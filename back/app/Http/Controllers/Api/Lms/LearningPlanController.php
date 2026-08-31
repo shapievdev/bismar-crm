@@ -15,9 +15,11 @@ use App\Models\LearningPlanItem;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
 use App\Models\User;
+use App\Support\Lms\PlannableMaterial;
 use App\Support\Lms\ProgressCalculator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -43,7 +45,10 @@ final class LearningPlanController extends Controller
     /** Что вообще бывает шагом плана. */
     private const KINDS = [Course::class, Regulation::class];
 
-    public function __construct(private readonly ProgressCalculator $progress) {}
+    public function __construct(
+        private readonly ProgressCalculator $progress,
+        private readonly PlannableMaterial $material,
+    ) {}
 
     /**
      * План того, кто спрашивает.
@@ -94,6 +99,21 @@ final class LearningPlanController extends Controller
         $syncPlan->handle($user, $request->items(), $actor);
 
         return $this->show($user->refresh());
+    }
+
+    /**
+     * Что можно назначить этому сотруднику — весь список, а не поиском.
+     *
+     * План составляют, глядя на то, что есть: курсов и регламентов десятки, и
+     * они приходят разом с категорией у каждого, чтобы экран сузил список сам,
+     * не спрашивая сервер на каждое движение. См. PlannableMaterial.
+     */
+    public function material(Request $request, User $user): JsonResponse
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        return response()->json(['data' => $this->material->catalogue($actor, $user)]);
     }
 
     /**

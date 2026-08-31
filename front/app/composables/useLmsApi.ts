@@ -11,6 +11,7 @@ import type {
   CoursePerson,
   Enrollment,
   LearningPlanItem,
+  PlannableItem,
   PlannableKind,
   LessonAnswer,
   LessonAnswerPayload,
@@ -103,6 +104,16 @@ export function useLmsApi() {
     /** План сотрудника — глазами того, кто его составляет. */
     fetchPlan: (userId: number): Promise<ResourceResponse<LearningPlanItem[]>> =>
       $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`),
+
+    /**
+     * Что можно поставить шагом этому сотруднику — весь список сразу.
+     *
+     * Целиком, а не поиском: курсов и регламентов десятки, и дальше экран
+     * сужает список сам — по виду и по категории, — не спрашивая сервер на
+     * каждое движение.
+     */
+    fetchPlanMaterial: (userId: number): Promise<ResourceResponse<PlannableItem[]>> =>
+      $api<ResourceResponse<PlannableItem[]>>(`/api/lms/plans/${userId}/material`),
 
     /**
      * Задаёт план целиком, и порядок присланного и есть порядок шагов —

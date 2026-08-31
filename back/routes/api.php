@@ -166,6 +166,11 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         Route::get('plans/people', [LearningPlanController::class, 'people'])->name('plans.people');
         Route::get('plans/{user}', [LearningPlanController::class, 'show'])->name('plans.show');
 
+        // Что можно поставить шагом: весь список сразу, с категорией у каждой
+        // строки. Свой адрес, потому что справочник спрашивают один раз, а план
+        // сохраняют сколько угодно.
+        Route::get('plans/{user}/material', [LearningPlanController::class, 'material'])
+            ->name('plans.material');
         Route::put('plans/{user}', [LearningPlanController::class, 'update'])->name('plans.update');
     });
     Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');

@@ -269,6 +269,187 @@ final class LearningFlowTest extends TestCase
             ->assertConflict();
     }
 
+    /* ---------- Курс проходят по порядку ---------- */
+
+    /**
+     * Перескочить середину нельзя: досдав последний урок, человек получил бы
+     * курс «пройденным», не открыв половины.
+     */
+    public function test_a_lesson_cannot_be_ticked_off_while_an_earlier_one_is_open(): void
+    {
+        $course = Course::factory()->withLessons(3)->create();
+        $lessons = $course->lessons()->get();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $lessons[2]))
+            ->assertConflict()
+            // Отказ называет, с чего начать, а не просто «нельзя».
+            ->assertJsonFragment(['message' => sprintf(
+                'Сначала пройдите предыдущие уроки — начните с «%s».',
+                $lessons[0]->title,
+            )]);
+
+        $this->assertSame(0, Enrollment::query()->sole()->completions()->count());
+    }
+
+    public function test_lessons_are_ticked_off_one_after_another(): void
+    {
+        $course = Course::factory()->withLessons(3)->create();
+        $lessons = $course->lessons()->get();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        foreach ($lessons as $lesson) {
+            $this->actingAs($learner)
+                ->postJson(route('lms.lessons.complete', $lesson))
+                ->assertOk();
+        }
+
+        $this->assertNotNull(Enrollment::query()->sole()->completed_at);
+    }
+
+    /** Первый урок никому не подчинён — с него и начинают. */
+    public function test_the_first_lesson_is_never_blocked(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $course->lessons()->first()))
+            ->assertOk();
+    }
+
+    /**
+     * Экран должен знать, что мешает закрыть урок, — чтобы погасить кнопку и
+     * назвать причину, а не давать нажать её ради отказа с сервера.
+     */
+    public function test_the_lesson_says_which_step_blocks_it(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $lessons = $course->lessons()->get();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.lessons.show', $lessons[1]))
+            ->assertOk()
+            ->assertJsonPath('data.blocked_by.id', $lessons[0]->id)
+            ->assertJsonPath('data.blocked_by.title', $lessons[0]->title);
+
+        $this->actingAs($learner)->postJson(route('lms.lessons.complete', $lessons[0]))->assertOk();
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.lessons.show', $lessons[1]))
+            ->assertOk()
+            ->assertJsonPath('data.blocked_by', null);
+    }
+
+    /**
+     * Отмеченное прежде не отзывается: урок, добавленный в начало курса, не
+     * должен обнулять пройденное — иначе правило наказывало бы за правку курса.
+     */
+    public function test_a_lesson_added_in_front_does_not_undo_what_is_done(): void
+    {
+        $course = Course::factory()->withLessons(1)->create();
+        $learner = $this->learner();
+
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $course->lessons()->first()))
+            ->assertOk();
+
+        $module = $course->modules()->firstOrFail();
+        LessonFactory::new()->create(['module_id' => $module->id, 'position' => 0, 'title' => 'Новое начало']);
+
+        $this->assertSame(1, Enrollment::query()->sole()->completions()->count());
+    }
+
+    /* ---------- Тест зачитывается при всех верных ответах ---------- */
+
+    /**
+     * Планка теста при уроке — сто процентов: с ошибкой урок не закрывается,
+     * сколько бы вопросов человек ни угадал.
+     */
+    public function test_a_lesson_with_a_quiz_needs_every_answer_right(): void
+    {
+        $course = Course::factory()->withLessons(1)->create();
+        $lesson = $course->lessons()->first();
+        $quiz = Quiz::factory()->withQuestions(2)->create(['lesson_id' => $lesson->id]);
+        $questions = $quiz->questions()->with('options')->get();
+
+        $learner = $this->learner();
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $half = [
+            $questions[0]->id => [$questions[0]->options->firstWhere('is_correct', true)->id],
+            $questions[1]->id => [$questions[1]->options->firstWhere('is_correct', false)->id],
+        ];
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $half])
+            ->assertCreated()
+            ->assertJsonPath('data.score', 50)
+            ->assertJsonPath('data.passed', false);
+
+        $this->assertSame(0, Enrollment::query()->sole()->completions()->count());
+
+        // И вручную такой урок не закрыть: кнопка «пройдено» не обходит тест.
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $lesson))
+            ->assertConflict();
+
+        $everything = $questions->mapWithKeys(fn ($question): array => [
+            $question->id => [$question->options->firstWhere('is_correct', true)->id],
+        ])->all();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $everything])
+            ->assertCreated()
+            ->assertJsonPath('data.score', 100)
+            ->assertJsonPath('data.passed', true);
+
+        $this->assertSame(1, Enrollment::query()->sole()->completions()->count());
+    }
+
+    /**
+     * Сданный тест урока, до которого ещё не дошла очередь, не пропадает:
+     * попытка записана, и урок зачтётся, когда предыдущие будут пройдены.
+     */
+    public function test_a_quiz_passed_out_of_turn_counts_once_the_way_is_open(): void
+    {
+        $course = Course::factory()->withLessons(2)->create();
+        $lessons = $course->lessons()->get();
+        $quiz = Quiz::factory()->withQuestions(1)->create(['lesson_id' => $lessons[1]->id]);
+        $question = $quiz->questions()->with('options')->firstOrFail();
+
+        $learner = $this->learner();
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lessons[1]), ['answers' => [
+                $question->id => [$question->options->firstWhere('is_correct', true)->id],
+            ]])
+            ->assertCreated()
+            ->assertJsonPath('data.passed', true);
+
+        // Урок пока не закрыт: первый ещё не пройден.
+        $this->assertSame(0, Enrollment::query()->sole()->completions()->count());
+
+        $this->actingAs($learner)->postJson(route('lms.lessons.complete', $lessons[0]))->assertOk();
+
+        // А теперь закрывается — сдавать тест заново не приходится.
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $lessons[1]))
+            ->assertOk();
+
+        $this->assertSame(2, Enrollment::query()->sole()->completions()->count());
+    }
+
     public function test_my_courses_lists_the_learners_own_enrolments_with_progress(): void
     {
         $course = Course::factory()->withLessons(2)->create();

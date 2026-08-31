@@ -7,6 +7,15 @@ const props = defineProps<{
   quiz: Quiz | null
   errors: ValidationErrors
   isSubmitting: boolean
+  /**
+   * Проходной балл, заданный правилом, а не автором.
+   *
+   * У теста при уроке он равен ста процентам: урок зачитывается, когда все
+   * ответы верны, — и поле в форме обещало бы выбор, которого нет. У проверки
+   * при новости планку по-прежнему ставит автор: там тест подтверждает
+   * ознакомление, а не зачитывает урок.
+   */
+  fixedPassingScore?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -43,7 +52,7 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
     return {
       title: 'Проверка знаний',
       description: null,
-      passing_score: 70,
+      passing_score: props.fixedPassingScore ?? 70,
       max_attempts: null,
       questions: [blankQuestion()],
     }
@@ -52,7 +61,7 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
   return {
     title: quiz.title,
     description: quiz.description,
-    passing_score: quiz.passing_score,
+    passing_score: props.fixedPassingScore ?? quiz.passing_score,
     max_attempts: quiz.max_attempts,
     questions: (quiz.questions ?? []).map(question => ({
       text: question.text,
@@ -153,6 +162,11 @@ function errorFor(path: string): string | null {
       Урок с тестом нельзя отметить пройденным — его засчитывает только сдача.
     </p>
 
+    <p v-if="fixedPassingScore != null" class="rule">
+      Тест зачитывает урок: он считается пройденным, когда сотрудник ответил
+      верно на все вопросы. Проходной балл поэтому не настраивается.
+    </p>
+
     <div class="row">
       <div class="field">
         <label for="quiz-title">Название</label>
@@ -162,7 +176,7 @@ function errorFor(path: string): string | null {
         </p>
       </div>
 
-      <div class="field field--narrow">
+      <div v-if="fixedPassingScore == null" class="field field--narrow">
         <label for="quiz-score">Проходной балл, %</label>
         <input id="quiz-score" v-model.number="draft.passing_score" type="number" min="1" max="100">
         <p v-if="errorFor('passing_score')" class="field__error">
@@ -265,6 +279,13 @@ function errorFor(path: string): string | null {
 </template>
 
 <style scoped>
+/* Правило, а не настройка: сказать о нём надо там, где ищут поле. */
+.rule {
+  margin: 0 0 0.9rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 .quiz-builder {
   max-width: 46rem;
   margin-top: 2.5rem;

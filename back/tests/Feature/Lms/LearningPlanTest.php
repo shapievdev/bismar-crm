@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Tests\Feature\Lms;
 
 use App\Enums\Permission;
+use App\Jobs\SendPush;
+use App\Models\Category;
 use App\Models\Course;
 use App\Models\LearningPlanItem;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
 use App\Models\User;
+use App\Support\Push\PushMessage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
@@ -397,6 +401,187 @@ final class LearningPlanTest extends TestCase
             ->assertJsonPath('data.0.is_completed', true);
 
         $this->assertSame(1, RegulationAcknowledgement::query()->count());
+    }
+
+    /* ---------- Что можно назначить ---------- */
+
+    /**
+     * Список целиком, а не поиском: план составляют, глядя на то, что есть.
+     * Черновиков в нём нет — назначать то, чего сотрудник не откроет, незачем.
+     */
+    public function test_the_material_list_offers_published_courses_and_regulations_by_category(): void
+    {
+        $sales = Category::factory()->create(['name' => 'Продажи']);
+        $course = Course::factory()->published()->create(['title' => 'Работа с возражениями', 'category_id' => $sales->id]);
+        $regulation = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        $draft = Course::factory()->create(['title' => 'Ещё пишется']);
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.material', $this->learner()))
+            ->assertOk();
+
+        $titles = array_column($response->json('data'), 'title');
+
+        $this->assertContains('Работа с возражениями', $titles);
+        $this->assertContains('Кассовая дисциплина', $titles);
+        $this->assertNotContains('Ещё пишется', $titles);
+
+        $offered = collect($response->json('data'))->keyBy('title');
+
+        $this->assertSame('course', $offered['Работа с возражениями']['kind']);
+        $this->assertSame($course->id, $offered['Работа с возражениями']['id']);
+        $this->assertSame('Продажи', $offered['Работа с возражениями']['category']);
+        $this->assertSame('regulation', $offered['Кассовая дисциплина']['kind']);
+        $this->assertSame($regulation->id, $offered['Кассовая дисциплина']['id']);
+        // Регламент без раздела приходит с пустой категорией, а не с выдумкой.
+        $this->assertNull($offered['Кассовая дисциплина']['category']);
+    }
+
+    /** Чужой закрытый курс не всплывает в списке даже названием. */
+    public function test_the_material_list_hides_what_the_trainer_cannot_see(): void
+    {
+        Course::factory()->published()->closed()->create(['title' => 'Закрытый курс']);
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.material', $this->learner()))
+            ->assertOk();
+
+        $this->assertNotContains('Закрытый курс', array_column($response->json('data'), 'title'));
+    }
+
+    /**
+     * Назначить закрытое от сотрудника не запрещено — сначала назначить, потом
+     * впустить, — но сказать об этом надо до сохранения.
+     */
+    public function test_the_material_list_marks_what_the_learner_cannot_see(): void
+    {
+        $trainer = $this->trainer();
+        $open = Course::factory()->published()->create(['title' => 'Открытый курс']);
+        $mine = Course::factory()->published()->closed()->create([
+            'title' => 'Мой закрытый курс',
+            'author_id' => $trainer->id,
+        ]);
+
+        $offered = collect(
+            $this->actingAs($trainer)
+                ->getJson(route('lms.plans.material', $this->learner()))
+                ->assertOk()
+                ->json('data'),
+        )->keyBy('title');
+
+        $this->assertTrue($offered['Открытый курс']['is_visible_to_learner']);
+        $this->assertFalse($offered['Мой закрытый курс']['is_visible_to_learner']);
+        $this->assertSame($mine->id, $offered['Мой закрытый курс']['id']);
+        $this->assertSame($open->id, $offered['Открытый курс']['id']);
+    }
+
+    public function test_the_material_list_is_closed_to_someone_who_may_not_see_plans(): void
+    {
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.plans.material', $this->learner()))
+            ->assertForbidden();
+    }
+
+    /* ---------- Сотруднику сообщают об изменении ---------- */
+
+    public function test_the_learner_is_notified_about_a_new_step(): void
+    {
+        Queue::fake();
+
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create(['title' => 'Работа с возражениями']);
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
+            ->assertOk();
+
+        Queue::assertPushed(SendPush::class, function (SendPush $job) use ($learner): bool {
+            $message = $this->messageOf($job);
+
+            return $this->recipientsOf($job) === [$learner->id]
+                && $message->url === '/lms/plan'
+                && str_contains($message->body, 'Работа с возражениями');
+        });
+    }
+
+    /**
+     * Порядок в плане — совет, а не задание: переставленные местами шаги телефон
+     * будить не должны.
+     */
+    public function test_reordering_notifies_nobody(): void
+    {
+        $learner = $this->learner();
+        $first = Course::factory()->published()->create();
+        $second = Course::factory()->published()->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($first),
+                $this->step($second),
+            ]))
+            ->assertOk();
+
+        Queue::fake();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($second),
+                $this->step($first),
+            ]))
+            ->assertOk();
+
+        Queue::assertNotPushed(SendPush::class);
+    }
+
+    public function test_the_learner_is_notified_when_a_step_is_taken_away(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
+            ->assertOk();
+
+        Queue::fake();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([]))
+            ->assertOk();
+
+        Queue::assertPushed(SendPush::class, function (SendPush $job) use ($learner): bool {
+            return $this->recipientsOf($job) === [$learner->id]
+                && str_contains($this->messageOf($job)->body, 'убрал');
+        });
+    }
+
+    /** Тот, кто правит свой план, только что его и правил. */
+    public function test_nobody_is_notified_about_their_own_doing(): void
+    {
+        Queue::fake();
+
+        $trainer = $this->trainer();
+
+        $this->actingAs($trainer)
+            ->putJson(
+                route('lms.plans.update', $trainer),
+                $this->plan([$this->step(Course::factory()->published()->create())]),
+            )
+            ->assertOk();
+
+        Queue::assertNotPushed(SendPush::class);
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function recipientsOf(SendPush $job): array
+    {
+        return (fn (): array => $this->userIds)->call($job);
+    }
+
+    private function messageOf(SendPush $job): PushMessage
+    {
+        return (fn (): PushMessage => $this->message)->call($job);
     }
 
     public function test_people_can_be_searched_when_choosing_whose_plan_to_edit(): void
