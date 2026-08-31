@@ -51,6 +51,34 @@ export interface DraggedPerson {
   fromDepartmentId: number
 }
 
+/** Кому уходит рассылка уведомлений. */
+export type BroadcastAudienceKind = 'everyone' | 'selected' | 'department'
+
+/** Отправленная рассылка в истории. */
+export interface Broadcast {
+  id: number
+  title: string
+  body: string
+  url: string | null
+  audience: BroadcastAudienceKind
+  audience_label: string
+  department?: string | null
+  /** Снимком на день отправки: и люди, и подписки с тех пор могли измениться. */
+  recipients_count: number
+  devices_count: number
+  author?: string | null
+  sent_at: string | null
+}
+
+export interface BroadcastPayload {
+  title: string
+  body: string
+  url: string | null
+  audience: BroadcastAudienceKind
+  user_ids?: number[]
+  department_id?: number | null
+}
+
 /** Куда бросили карточку: на отдел — подчинить, в промежуток — переставить. */
 export interface DepartmentDropTarget {
   parentId: number

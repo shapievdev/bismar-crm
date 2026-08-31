@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\News\NewsController;
 use App\Http\Controllers\Api\News\NewsQuizController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\Push\BroadcastController;
 use App\Http\Controllers\Api\PushSubscriptionController;
 use App\Http\Controllers\Api\Structure\DepartmentController;
 use App\Http\Controllers\Api\Structure\DepartmentMemberController;
@@ -397,6 +398,15 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('push')->as('
     Route::get('subscription', [PushSubscriptionController::class, 'show'])->name('show');
     Route::post('subscription', [PushSubscriptionController::class, 'store'])->name('store');
     Route::delete('subscription', [PushSubscriptionController::class, 'destroy'])->name('destroy');
+
+    /*
+     * Рассылки. Отправляет администратор: телефон звонит у всей компании, и
+     * права, отмеченного галочкой, для такого мало.
+     */
+    Route::middleware(EnsureAdministrator::class)->group(function (): void {
+        Route::get('broadcasts', [BroadcastController::class, 'index'])->name('broadcasts.index');
+        Route::post('broadcasts', [BroadcastController::class, 'store'])->name('broadcasts.store');
+    });
 });
 
 /*

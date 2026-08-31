@@ -1,5 +1,11 @@
 import type { ResourceResponse } from '~/types/auth'
-import type { Department, DepartmentPerson, DepartmentRoleKind } from '~/types/structure'
+import type {
+  Broadcast,
+  BroadcastPayload,
+  Department,
+  DepartmentPerson,
+  DepartmentRoleKind,
+} from '~/types/structure'
 
 /**
  * Структура компании: дерево отделов и люди в них.
@@ -75,6 +81,15 @@ export function useStructureApi() {
       $api<ResourceResponse<DepartmentPerson[]>>(`/api/structure/departments/${id}/people/${userId}`, {
         method: 'DELETE',
       }),
+
+    /** Что уже рассылали: последние отправки. */
+    fetchBroadcasts: (): Promise<ResourceResponse<Broadcast[]>> =>
+      $api<ResourceResponse<Broadcast[]>>('/api/push/broadcasts'),
+
+    /** Отправить рассылку. Уходит очередью — ответ приходит сразу. */
+    sendBroadcast: (body: BroadcastPayload): Promise<ResourceResponse<Broadcast>> =>
+      $api<ResourceResponse<Broadcast>>('/api/push/broadcasts', { method: 'POST', body })
+        .catch(toValidationError),
 
     /** Кого можно добавить: работающие сотрудники, поиском. */
     searchDepartmentCandidates: (search: string): Promise<ResourceResponse<DepartmentPerson[]>> =>

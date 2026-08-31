@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { can, isSuperAdmin } = useAuth()
+const { can, isAdmin, isSuperAdmin } = useAuth()
 const route = useRoute()
 
 interface NavLink {
@@ -92,6 +92,9 @@ const links = computed<NavLink[]>(() => {
   if (path.startsWith('/settings')) {
     return [
       { to: '/settings/profile', label: 'Профиль', visible: true },
+      // Рассылка будит телефоны всей компании — вкладка видна тем, кто вправе
+      // это делать, а не всем, у кого есть настройки.
+      { to: '/settings/broadcasts', label: 'Рассылки', visible: isAdmin.value },
       // Пробелы в базе закрывают авторы курсов — журнал открыт им.
       { to: '/settings/questions', label: 'Вопросы', visible: can('courses.update') },
       // Платёжный ключ и модель — только суперадминистратору.
