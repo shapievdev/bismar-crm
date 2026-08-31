@@ -19,7 +19,7 @@ export interface NavItem {
 }
 
 export function useNavigation() {
-  const { can } = useAuth()
+  const { can, isAdmin, isSuperAdmin } = useAuth()
   const route = useRoute()
   const messenger = useMessenger()
   const { fetchPendingCount } = useNewsApi()
@@ -89,12 +89,21 @@ export function useNavigation() {
       matches: (path: string) => path.startsWith('/staff'),
     },
     {
-      // У каждого есть профиль, поэтому раздел не скрывается; какие страницы он
-      // предлагает, решает ModuleNav по правам смотрящего.
-      to: '/settings/profile',
+      /*
+       * Настройки — только тем, у кого там что-то есть: рассылки
+       * администратору, журнал вопросов автору курсов, консультант
+       * суперадминистратору. Профиль отсюда ушёл на свою страницу, и для
+       * обычного сотрудника раздел опустел бы.
+       *
+       * Адрес — первая доступная страница: раздел без страниц открывался бы в
+       * пустоту.
+       */
+      to: isAdmin.value
+        ? '/settings/broadcasts'
+        : can('courses.update') ? '/settings/questions' : '/settings/ai',
       label: 'Настройки',
       icon: 'settings',
-      visible: true,
+      visible: isAdmin.value || can('courses.update') || isSuperAdmin.value,
       matches: (path: string) => path.startsWith('/settings'),
     },
   ].filter(item => item.visible))

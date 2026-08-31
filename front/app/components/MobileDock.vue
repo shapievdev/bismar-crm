@@ -117,9 +117,9 @@ function badge(count?: number): string | null {
       <!-- Своё лицо — вход в профиль: подпись здесь не нужна, человек узнаёт
            себя быстрее, чем читает. -->
       <NuxtLink
-        to="/settings/profile"
+        to="/profile"
         class="key key--face"
-        :class="{ 'key--on': route.path.startsWith('/settings') }"
+        :class="{ 'key--on': route.path === '/profile' }"
         title="Профиль"
         :aria-label="`Профиль: ${user?.name ?? ''}`"
       >

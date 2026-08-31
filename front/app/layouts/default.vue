@@ -55,7 +55,7 @@ const fills = computed(() => route.meta.fills === true)
              in every header only tells you what you already know. -->
         <NuxtLink
           v-if="isAuthenticated"
-          to="/settings/profile"
+          to="/profile"
           class="account"
           title="Профиль"
           :aria-label="`Профиль: ${user?.name ?? ''}`"

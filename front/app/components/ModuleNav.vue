@@ -91,7 +91,6 @@ const links = computed<NavLink[]>(() => {
 
   if (path.startsWith('/settings')) {
     return [
-      { to: '/settings/profile', label: 'Профиль', visible: true },
       // Рассылка будит телефоны всей компании — вкладка видна тем, кто вправе
       // это делать, а не всем, у кого есть настройки.
       { to: '/settings/broadcasts', label: 'Рассылки', visible: isAdmin.value },

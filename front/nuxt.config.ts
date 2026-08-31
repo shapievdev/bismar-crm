@@ -56,6 +56,9 @@ export default defineNuxtConfig({
     // остался у людей в закладках и в истории браузера.
     '/settings/users': { redirect: '/staff' },
 
+    // Профиль — не настройка приложения, а своя страница о себе.
+    '/settings/profile': { redirect: '/profile' },
+
     /*
      * Шрифт отдаётся с разрешением на межисходное чтение.
      *
