@@ -95,7 +95,7 @@ function badge(count?: number): string | null {
         :aria-label="item.label"
         :aria-current="isCurrent(item) ? 'page' : undefined"
       >
-        <AppNavIcon :name="item.icon" :size="22" />
+        <AppNavIcon :name="item.icon" :size="20" />
         <span v-if="badge(item.badge)" class="key__badge">{{ badge(item.badge) }}</span>
       </NuxtLink>
 
@@ -108,7 +108,7 @@ function badge(count?: number): string | null {
         :aria-label="isOpen ? 'Закрыть меню' : 'Ещё разделы'"
         @click="isOpen = !isOpen"
       >
-        <AppNavIcon :name="isOpen ? 'close' : 'more'" :size="22" />
+        <AppNavIcon :name="isOpen ? 'close' : 'more'" :size="20" />
         <!-- Непрочитанное из спрятанных разделов видно и на «ещё»: иначе оно
              ждало бы за кнопкой, о которой человек не думает. -->
         <span v-if="!isOpen && badge(rest.reduce((sum, one) => sum + (one.badge ?? 0), 0))" class="key__dot" />
@@ -123,7 +123,7 @@ function badge(count?: number): string | null {
         title="Профиль"
         :aria-label="`Профиль: ${user?.name ?? ''}`"
       >
-        <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="40" />
+        <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="34" />
       </NuxtLink>
     </nav>
   </div>
@@ -165,8 +165,8 @@ function badge(count?: number): string | null {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.5rem;
+  gap: 0.25rem;
+  padding: 0.4rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
@@ -178,8 +178,8 @@ function badge(count?: number): string | null {
   position: relative;
   display: grid;
   place-items: center;
-  width: 3.4rem;
-  height: 3.4rem;
+  width: 2.9rem;
+  height: 2.9rem;
   flex-shrink: 0;
   border: 0;
   border-radius: 50%;
@@ -228,14 +228,14 @@ function badge(count?: number): string | null {
   position: absolute;
   top: -0.1rem;
   right: -0.1rem;
-  min-width: 1.15rem;
-  padding: 0 0.28rem;
+  min-width: 1.05rem;
+  padding: 0 0.25rem;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   color: var(--color-accent-text);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  line-height: 1.15rem;
+  line-height: 1.05rem;
   text-align: center;
 }
 
@@ -267,7 +267,7 @@ function badge(count?: number): string | null {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 1rem 1rem calc(6.1rem + env(safe-area-inset-bottom, 0px));
+  padding: 1rem 1rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
   background: color-mix(in srgb, var(--color-bg) 72%, transparent);
   backdrop-filter: blur(6px);
   pointer-events: auto;
