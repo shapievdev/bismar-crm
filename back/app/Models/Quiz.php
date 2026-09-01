@@ -8,17 +8,17 @@ use Database\Factories\QuizFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
-#[Fillable(['lesson_id', 'title', 'description', 'passing_score', 'max_attempts'])]
+#[Fillable(['quizzable_type', 'quizzable_id', 'title', 'description', 'passing_score', 'max_attempts'])]
 class Quiz extends Model
 {
     /** @use HasFactory<QuizFactory> */
     use HasFactory;
 
     /**
-     * Планка теста при уроке — сто процентов: урок зачитывается, когда все
+     * Планка теста — сто процентов: урок и документ зачитываются, когда все
      * ответы верны (решение пользователя 2026-08-31).
      *
      * Хранится и в строке (`passing_score`), чтобы оценка попытки оставалась
@@ -29,11 +29,17 @@ class Quiz extends Model
     public const PASSING_SCORE = 100;
 
     /**
-     * @return BelongsTo<Lesson, $this>
+     * Кому принадлежит тест: уроку или документу.
+     *
+     * Устройство теста от владельца не зависит — вопросы, попытки и разбор у
+     * них одни и те же. Разное только то, что засчитывается сдачей: у урока
+     * это прохождение урока, у документа — ознакомление с ним.
+     *
+     * @return MorphTo<Model, $this>
      */
-    public function lesson(): BelongsTo
+    public function quizzable(): MorphTo
     {
-        return $this->belongsTo(Lesson::class);
+        return $this->morphTo();
     }
 
     /**

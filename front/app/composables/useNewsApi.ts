@@ -49,7 +49,7 @@ export function useNewsApi() {
 
     /**
      * Что можно привязать к новости — поиском сразу по курсам, модулям, урокам
-     * и регламентам.
+     * и документам.
      */
     searchMaterial: (search: string): Promise<{ data: LinkedMaterialResult[] }> =>
       $api<{ data: LinkedMaterialResult[] }>('/api/news/material', { query: { search } }),

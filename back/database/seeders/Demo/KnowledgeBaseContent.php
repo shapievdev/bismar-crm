@@ -556,7 +556,7 @@ final class KnowledgeBaseContent
         return [
             'title' => 'Возврат и рекламация по ЛКМ',
             'summary' => 'Что подлежит возврату, что не подлежит никогда, как принимать претензию по качеству и в какие сроки.',
-            'category' => 'reglamenty',
+            'category' => 'dokumenty',
             'status' => CourseStatus::Published,
             'module' => 'Возвраты',
             'lessons' => [

@@ -51,6 +51,14 @@ final class RegulationResource extends JsonResource
 
             'attachments' => RegulationAttachmentResource::collection($this->whenLoaded('attachments')),
 
+            // Проверка при документе. Есть — значит отметиться можно только
+            // сдав её, и кнопки «ознакомлен» экран не рисует.
+            'quiz' => QuizResource::make($this->whenLoaded('quiz')),
+
+            // Свои прошлые попытки: по ним человек возвращается к разбору.
+            // Проставляет контроллер — он один знает, кто спрашивает.
+            'own_attempts' => $this->own_attempts,
+
             // Весь прогресс, какой у регламента бывает. Проставляет контроллер:
             // он один знает, кто спрашивает.
             'is_acknowledged' => (bool) $this->is_acknowledged,

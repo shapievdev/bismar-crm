@@ -9,6 +9,7 @@ use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveRegulationRequest;
 use App\Http\Resources\Lms\RegulationResource;
+use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationCategory;
 use App\Models\User;
@@ -76,7 +77,7 @@ final class RegulationController extends Controller
         /** @var User $reader */
         $reader = $request->user();
 
-        $regulation->load('author', 'category', 'attachments', 'experts');
+        $regulation->load('author', 'category', 'attachments', 'experts', 'quiz.questions.options');
 
         if ($reader->can('update', $regulation)) {
             $regulation->loadCount('acknowledgements', 'members');
@@ -143,7 +144,23 @@ final class RegulationController extends Controller
     {
         $acknowledgement = $regulation->acknowledgements()->where('user_id', $reader->getKey())->first();
 
+        // Свои прошлые попытки — чтобы экран показал историю и разбор. Десяти
+        // довольно: дальше это уже не история, а архив.
+        $attempts = $regulation->quiz === null ? [] : $regulation->quiz
+            ->attempts()
+            ->where('user_id', $reader->getKey())
+            ->latest('completed_at')
+            ->limit(10)
+            ->get()
+            ->map(fn (QuizAttempt $attempt): array => [
+                'id' => $attempt->getKey(),
+                'score' => $attempt->score,
+                'passed' => $attempt->passed,
+                'completed_at' => $attempt->completed_at?->toIso8601String(),
+            ])->all();
+
         return $regulation
+            ->setAttribute('own_attempts', $attempts)
             ->setAttribute('is_acknowledged', $acknowledgement !== null)
             ->setAttribute('acknowledged_at', $acknowledgement?->acknowledged_at?->toIso8601String());
     }

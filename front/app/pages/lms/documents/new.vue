@@ -2,7 +2,7 @@
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.create' })
-useHead({ title: 'Новый регламент' })
+useHead({ title: 'Новый документ' })
 
 const { createRegulation, fetchCategories } = useRegulationsApi()
 const router = useRouter()
@@ -12,7 +12,7 @@ const categories = computed(() => categoryData.value?.data ?? [])
 
 /**
  * Здесь только название и место: статью и файлы пишут на экране правки. Так
- * вышло не для простоты — картинке и видео нужен номер регламента, под которым
+ * вышло не для простоты — картинке и видео нужен номер документа, под которым
  * они лягут в хранилище, а до сохранения его ещё нет.
  */
 const form = reactive({
@@ -42,14 +42,14 @@ async function save() {
       category_id: form.category_id,
     })
 
-    await router.push(`/lms/regulations/${data.slug}/edit`)
+    await router.push(`/lms/documents/${data.slug}/edit`)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось создать регламент.'
+      generalError.value = 'Не удалось создать документ.'
     }
   }
   finally {
@@ -62,7 +62,7 @@ async function save() {
   <section>
     <header class="head">
       <h1 class="page-title">
-        Новый регламент
+        Новый документ
       </h1>
       <p class="page-subtitle">
         Назовите его и сохраните — дальше откроется редактор со статьёй и файлами.
@@ -112,7 +112,7 @@ async function save() {
         <button type="submit" class="button-primary" :disabled="isSaving">
           {{ isSaving ? 'Создаём…' : 'Создать черновик' }}
         </button>
-        <NuxtLink to="/lms/regulations" class="button-ghost">
+        <NuxtLink to="/lms/documents" class="button-ghost">
           Отмена
         </NuxtLink>
       </div>

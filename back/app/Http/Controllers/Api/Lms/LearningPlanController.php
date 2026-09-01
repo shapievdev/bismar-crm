@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\Lms;
 use App\Actions\Lms\SyncLearningPlan;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\UpdateLearningPlanRequest;
-use App\Http\Resources\Lms\CoursePersonResource;
 use App\Http\Resources\Lms\LearningPlanItemResource;
 use App\Models\Course;
 use App\Models\Enrollment;
@@ -39,9 +38,6 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  */
 final class LearningPlanController extends Controller
 {
-    /** Сколько человек показывает подсказка поиска. */
-    private const CANDIDATES = 20;
-
     /** Что вообще бывает шагом плана. */
     private const KINDS = [Course::class, Regulation::class];
 
@@ -114,28 +110,6 @@ final class LearningPlanController extends Controller
         $actor = $request->user();
 
         return response()->json(['data' => $this->material->catalogue($actor, $user)]);
-    }
-
-    /**
-     * Кому можно назначить план.
-     *
-     * Поиском, а не списком целиком, по той же причине, что и на экране
-     * доступа к курсу: сотрудников тысячи, а нужен из них один.
-     */
-    public function people(Request $request): AnonymousResourceCollection
-    {
-        $search = trim((string) $request->query('search'));
-
-        $people = User::query()
-            // Уволенным не назначают: пройти назначенное им уже негде.
-            ->employed()
-            ->when($search !== '', fn (Builder $query) => $query->matching($search))
-            ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
-            ->orderByRaw('first_name COLLATE "und-x-icu"')
-            ->limit(self::CANDIDATES)
-            ->get();
-
-        return CoursePersonResource::collection($people);
     }
 
     /**

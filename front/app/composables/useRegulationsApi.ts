@@ -5,6 +5,9 @@ import type {
   CoursePerson,
   LessonAttachment,
   PaginatedResponse,
+  Quiz,
+  QuizOutcome,
+  QuizPayload,
   Regulation,
   RegulationCategory,
   RegulationPayload,
@@ -19,7 +22,7 @@ export interface RegulationQuery {
 }
 
 /**
- * Регламенты — правила, по которым работают.
+ * Документы — правила, по которым работают.
  *
  * Живут в базе знаний рядом с материалами и потому под теми же правами. Тип
  * вложения взят у урока: устройство у них одно и то же, а панель файлов — общая.
@@ -45,7 +48,7 @@ export function useRegulationsApi() {
     deleteRegulation: (slug: string) =>
       $api(`/api/lms/regulations/${slug}`, { method: 'DELETE' }),
 
-    /** Прочитал — весь прогресс, какой у регламента бывает. */
+    /** Прочитал — весь прогресс, какой у документа бывает. */
     acknowledge: (slug: string): Promise<{ data: { is_acknowledged: boolean, acknowledged_at: string | null } }> =>
       $api<{ data: { is_acknowledged: boolean, acknowledged_at: string | null } }>(
         `/api/lms/regulations/${slug}/acknowledge`,
@@ -56,6 +59,26 @@ export function useRegulationsApi() {
       $api<ResourceResponse<CoursePerson[]>>(`/api/lms/regulations/${slug}/acknowledgements`),
 
     /* ---------- Категории: своё дерево ---------- */
+
+    /**
+     * Проверка при документе: заводят её целиком, как и тест урока, — сервер
+     * заменяет прежнюю. Планку ставит правило, а не автор.
+     */
+    saveQuiz: (slug: string, payload: QuizPayload): Promise<ResourceResponse<Quiz>> =>
+      $api<ResourceResponse<Quiz>>(`/api/lms/regulations/${slug}/quiz`, {
+        method: 'PUT',
+        body: payload,
+      }).catch(toValidationError),
+
+    deleteQuiz: (slug: string): Promise<void> =>
+      $api(`/api/lms/regulations/${slug}/quiz`, { method: 'DELETE' }),
+
+    /** Пройти проверку. Сдал — документ считается прочитанным. */
+    submitQuiz: (slug: string, answers: Record<number, number[]>): Promise<ResourceResponse<QuizOutcome>> =>
+      $api<ResourceResponse<QuizOutcome>>(`/api/lms/regulations/${slug}/quiz/submit`, {
+        method: 'POST',
+        body: { answers },
+      }),
 
     fetchCategories: (): Promise<ResourceResponse<RegulationCategory[]>> =>
       $api<ResourceResponse<RegulationCategory[]>>('/api/lms/regulations/categories'),

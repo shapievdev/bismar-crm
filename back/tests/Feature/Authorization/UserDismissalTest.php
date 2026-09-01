@@ -210,8 +210,10 @@ final class UserDismissalTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $working->getKey());
 
-        $this->actingAs($this->userWith(Permission::ViewCourses, Permission::ManageEnrollments))
-            ->getJson(route('lms.plans.people', ['search' => 'Про']))
+        // Второй такой список — кандидаты в отдел: план обучения назначают
+        // теперь в карточке сотрудника, и своего поиска людей у него нет.
+        $this->actingAs($this->administrator())
+            ->getJson(route('structure.people.candidates', ['search' => 'Про']))
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $working->getKey());

@@ -259,7 +259,7 @@ final class LearningFlowTest extends TestCase
     {
         $course = Course::factory()->withLessons(1)->create();
         $lesson = $course->lessons()->first();
-        Quiz::factory()->withQuestions(2)->create(['lesson_id' => $lesson->id]);
+        Quiz::factory()->withQuestions(2)->forLesson($lesson)->create();
 
         $learner = $this->learner();
         $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
@@ -379,7 +379,7 @@ final class LearningFlowTest extends TestCase
     {
         $course = Course::factory()->withLessons(1)->create();
         $lesson = $course->lessons()->first();
-        $quiz = Quiz::factory()->withQuestions(2)->create(['lesson_id' => $lesson->id]);
+        $quiz = Quiz::factory()->withQuestions(2)->forLesson($lesson)->create();
         $questions = $quiz->questions()->with('options')->get();
 
         $learner = $this->learner();
@@ -424,7 +424,7 @@ final class LearningFlowTest extends TestCase
     {
         $course = Course::factory()->withLessons(2)->create();
         $lessons = $course->lessons()->get();
-        $quiz = Quiz::factory()->withQuestions(1)->create(['lesson_id' => $lessons[1]->id]);
+        $quiz = Quiz::factory()->withQuestions(1)->forLesson($lessons[1])->create();
         $question = $quiz->questions()->with('options')->firstOrFail();
 
         $learner = $this->learner();

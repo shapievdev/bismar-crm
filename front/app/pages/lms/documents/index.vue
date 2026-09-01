@@ -1,12 +1,20 @@
 <script setup lang="ts">
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
-useHead({ title: 'Регламенты' })
+useHead({ title: 'Документы' })
 
 const { can } = useAuth()
 const { fetchRegulations, fetchCategories } = useRegulationsApi()
 
+const route = useRoute()
+const router = useRouter()
+
 const search = ref('')
-const category = ref<string>('')
+
+/**
+ * Выбранная категория живёт в адресе: на неё возвращаются крошками с самого
+ * документа, и без этого «вернуться в раздел» вело бы к полному списку.
+ */
+const category = ref<string>(typeof route.query.category === 'string' ? route.query.category : '')
 
 const { data, pending, error, refresh } = await useAsyncData(
   'lms.regulations',
@@ -16,6 +24,10 @@ const { data, pending, error, refresh } = await useAsyncData(
   }),
   { watch: [category] },
 )
+
+watchEffect(() => {
+  router.replace({ query: category.value ? { category: category.value } : {} })
+})
 
 const { data: categoryData } = await useAsyncData('lms.regulation-categories', () => fetchCategories())
 
@@ -28,7 +40,7 @@ const options = computed(() => {
 
   const walk = (nodes: typeof categories.value, depth: number) => {
     for (const node of nodes) {
-      flat.push({ value: node.slug, label: '‒'.repeat(depth) + (depth ? ' ' : '') + node.name })
+      flat.push({ value: node.slug, label: `${'— '.repeat(depth)}${node.name}` })
       walk(node.children ?? [], depth + 1)
     }
   }
@@ -37,6 +49,9 @@ const options = computed(() => {
 
   return flat
 })
+
+/** Дорога от корня раздела до выбранной категории — то, что рисуют крошки. */
+const trail = computed(() => categoryTrail(categories.value, category.value))
 
 let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -54,15 +69,15 @@ onBeforeUnmount(() => clearTimeout(timer))
     <header class="head">
       <div>
         <h1 class="page-title">
-          Регламенты
+          Документы
         </h1>
         <p class="page-subtitle">
           Правила, по которым работают. Каждое — на одну страницу, с отметкой об ознакомлении.
         </p>
       </div>
 
-      <NuxtLink v-if="can('courses.create')" to="/lms/regulations/new" class="button-primary">
-        Новый регламент
+      <NuxtLink v-if="can('courses.create')" to="/lms/documents/new" class="button-primary">
+        Новый документ
       </NuxtLink>
     </header>
 
@@ -72,18 +87,40 @@ onBeforeUnmount(() => clearTimeout(timer))
         class="input"
         type="search"
         placeholder="Название или описание"
-        aria-label="Поиск по регламентам"
+        aria-label="Поиск по документам"
       >
 
-      <select v-model="category" class="input filters__category" aria-label="Категория">
-        <option v-for="option in options" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
+      <!-- Свой список, а не нативный: открытый <select> рисует система, и
+           выпадает он чужими шрифтами и цветами поверх нашей страницы. -->
+      <UiSelect
+        v-model="category"
+        :options="options"
+        class="filters__category"
+        placeholder="Все категории"
+        search-placeholder="Найти категорию…"
+      />
     </div>
 
+    <!-- Где я: корень раздела и категории по дороге сюда. Последняя не ссылка —
+         на ней и стоим. -->
+    <nav v-if="trail.length" class="crumbs" aria-label="Где я">
+      <button type="button" class="crumbs__link" @click="category = ''">
+        Документы
+      </button>
+
+      <template v-for="(node, index) in trail" :key="node.slug">
+        <span class="crumbs__separator" aria-hidden="true">/</span>
+        <span v-if="index === trail.length - 1" class="faint" aria-current="page">
+          {{ node.name }}
+        </span>
+        <button v-else type="button" class="crumbs__link" @click="category = node.slug">
+          {{ node.name }}
+        </button>
+      </template>
+    </nav>
+
     <p v-if="error" class="alert alert--danger" role="alert">
-      Не удалось загрузить регламенты.
+      Не удалось загрузить документы.
     </p>
 
     <div v-else-if="pending" class="stack">
@@ -94,13 +131,13 @@ onBeforeUnmount(() => clearTimeout(timer))
 
     <UiEmptyState
       v-else-if="!regulations.length"
-      title="Регламентов пока нет"
+      title="Документов пока нет"
       :description="can('courses.create')
         ? 'Заведите первый — он будет виден всем, кто читает базу знаний.'
         : 'Когда правила появятся, они будут здесь.'"
     >
-      <NuxtLink v-if="can('courses.create')" to="/lms/regulations/new" class="button-primary">
-        Новый регламент
+      <NuxtLink v-if="can('courses.create')" to="/lms/documents/new" class="button-primary">
+        Новый документ
       </NuxtLink>
     </UiEmptyState>
 
@@ -108,7 +145,7 @@ onBeforeUnmount(() => clearTimeout(timer))
       <NuxtLink
         v-for="item in regulations"
         :key="item.id"
-        :to="`/lms/regulations/${item.slug}`"
+        :to="`/lms/documents/${item.slug}`"
         class="card row"
       >
         <div class="row__body">
@@ -126,6 +163,33 @@ onBeforeUnmount(() => clearTimeout(timer))
 </template>
 
 <style scoped>
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-size: 0.87rem;
+}
+
+.crumbs__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.crumbs__link:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.crumbs__separator {
+  color: var(--color-text-faint);
+}
+
 .head {
   display: flex;
   align-items: flex-start;

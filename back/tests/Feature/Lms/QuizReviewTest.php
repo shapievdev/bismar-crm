@@ -224,7 +224,7 @@ final class QuizReviewTest extends TestCase
     {
         $course = Course::factory()->withLessons(1)->create();
         $lesson = $course->lessons()->firstOrFail();
-        $quiz = Quiz::factory()->withQuestions($questions)->create(['lesson_id' => $lesson->id]);
+        $quiz = Quiz::factory()->withQuestions($questions)->forLesson($lesson)->create();
 
         return [$lesson, $quiz->load('questions.options')];
     }

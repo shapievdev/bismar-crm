@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Facades\Storage;
 
 #[ObservedBy(LessonObserver::class)]
@@ -91,11 +91,11 @@ class Lesson extends Model implements PartOfCourse
     }
 
     /**
-     * @return HasOne<Quiz, $this>
+     * @return MorphOne<Quiz, $this>
      */
-    public function quiz(): HasOne
+    public function quiz(): MorphOne
     {
-        return $this->hasOne(Quiz::class);
+        return $this->morphOne(Quiz::class, 'quizzable');
     }
 
     /**

@@ -265,7 +265,7 @@ final class QuizTest extends TestCase
     {
         $course = Course::factory()->withLessons(1)->create();
         $lesson = $course->lessons()->firstOrFail();
-        $quiz = Quiz::factory()->withQuestions($questions)->create(['lesson_id' => $lesson->id]);
+        $quiz = Quiz::factory()->withQuestions($questions)->forLesson($lesson)->create();
 
         return [$course, $lesson, $quiz->load('questions.options')];
     }

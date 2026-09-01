@@ -289,8 +289,8 @@ final class NewsTest extends TestCase
             ->assertJsonCount(4, 'data.links')
             // Порядок присланного и есть порядок ссылок.
             ->assertJsonPath('data.links.0.kind', 'regulation')
-            ->assertJsonPath('data.links.0.kind_label', 'Регламент')
-            ->assertJsonPath('data.links.0.url', '/lms/regulations/'.$regulation->slug)
+            ->assertJsonPath('data.links.0.kind_label', 'Документ')
+            ->assertJsonPath('data.links.0.url', '/lms/documents/'.$regulation->slug)
             ->assertJsonPath('data.links.1.url', '/lms/'.$course->slug)
             // У модуля своей страницы нет — он ведёт на курс, где виден целиком.
             ->assertJsonPath('data.links.2.kind_label', 'Модуль')
@@ -309,7 +309,7 @@ final class NewsTest extends TestCase
             ->getJson(route('news.show', $news))
             ->assertOk()
             ->assertJsonPath('data.links.0.title', 'Кассовая дисциплина')
-            ->assertJsonPath('data.links.0.url', '/lms/regulations/'.$regulation->slug);
+            ->assertJsonPath('data.links.0.url', '/lms/documents/'.$regulation->slug);
     }
 
     /**

@@ -3,7 +3,7 @@ import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth
 import type { RegulationCategory } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
-useHead({ title: 'Категории регламентов' })
+useHead({ title: 'Категории документов' })
 
 const { fetchCategories, createCategory, updateCategory, deleteCategory } = useRegulationsApi()
 
@@ -129,7 +129,7 @@ async function remove(category: RegulationCategory) {
   <section>
     <header class="head">
       <h1 class="page-title">
-        Категории регламентов
+        Категории документов
       </h1>
       <p class="page-subtitle">
         Своё дерево, не общее с учебными категориями: здесь ищут, по какому правилу работать.
@@ -149,7 +149,7 @@ async function remove(category: RegulationCategory) {
     <UiEmptyState
       v-else-if="!flat.length"
       title="Категорий пока нет"
-      description="Заведите первую — регламент без категории тоже живёт, но искать его труднее."
+      description="Заведите первую — документ без категории тоже живёт, но искать его труднее."
     />
 
     <ul v-else class="tree">

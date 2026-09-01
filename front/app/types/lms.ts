@@ -200,7 +200,7 @@ export interface LearningPlanItem {
   is_visible_to_learner?: boolean
 }
 
-/** Категория регламентов. Своё дерево, не общее с учебными категориями. */
+/** Категория документов. Своё дерево, не общее с учебными категориями. */
 export interface RegulationCategory {
   id: number
   name: string
@@ -221,7 +221,7 @@ export interface Regulation {
   title: string
   slug: string
   summary: string | null
-  /** Едет только с карточкой одного регламента — в каталоге её нет. */
+  /** Едет только с карточкой одного документа — в каталоге её нет. */
   content_json?: JSONContent | null
   status: CourseStatus
   status_label: string
@@ -236,10 +236,28 @@ export interface Regulation {
   author?: { id: number, name: string } | null
   experts?: CoursePerson[]
   attachments?: LessonAttachment[]
-  /** Весь прогресс, какой у регламента бывает. */
+  /**
+   * Проверка при документе. Есть — значит ознакомление засчитывается сдачей, а
+   * не нажатием кнопки, и кнопки экран не рисует.
+   */
+  quiz?: Quiz | null
+  /** Свои прошлые попытки — история и вход в разбор. */
+  own_attempts?: QuizAttempt[]
+
+  /** Весь прогресс, какой у документа бывает. */
   is_acknowledged: boolean
   acknowledged_at: string | null
   acknowledged_count?: number
+}
+
+/** Итог отправленной проверки — у документа он же и есть ознакомление. */
+export interface QuizOutcome {
+  id: number
+  score: number
+  passed: boolean
+  completed_at: string | null
+  is_acknowledged: boolean
+  review?: QuizReview | null
 }
 
 export interface RegulationPayload {
@@ -330,8 +348,8 @@ export interface CoursePerson {
   /** Когда назначили ответственным. То же самое со стороны ответственных. */
   appointed_at?: string | null
   /**
-   * Когда человек отметил, что прочитал регламент. Есть только в списке
-   * ознакомившихся: у регламента это весь прогресс, какой бывает.
+   * Когда человек отметил, что прочитал документ. Есть только в списке
+   * ознакомившихся: у документа это весь прогресс, какой бывает.
    */
   acknowledged_at?: string | null
 }

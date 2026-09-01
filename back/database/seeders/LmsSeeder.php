@@ -24,7 +24,7 @@ final class LmsSeeder extends Seeder
         $categories = [
             ['name' => 'Онбординг', 'slug' => 'onbording', 'position' => 0],
             ['name' => 'Продажи', 'slug' => 'prodazhi', 'position' => 1],
-            ['name' => 'Регламенты', 'slug' => 'reglamenty', 'position' => 2],
+            ['name' => 'Документы', 'slug' => 'dokumenty', 'position' => 2],
         ];
 
         foreach ($categories as $attributes) {

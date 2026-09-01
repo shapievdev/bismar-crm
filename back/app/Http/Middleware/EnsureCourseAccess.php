@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Models\Contracts\PartOfCourse;
+use App\Models\Contracts\PartOfRegulation;
 use App\Support\Lms\CourseAccess;
+use App\Support\Lms\RegulationAccess;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,6 +21,9 @@ use Symfony\Component\HttpFoundation\Response;
  * все. Проверять доступ отдельно в каждом из двух десятков действий — значит
  * однажды завести двадцать первое и забыть, поэтому проверка стоит на входе,
  * общая для всей группы.
+ *
+ * То же и с документами: частей у них до недавнего не было вовсе, а с
+ * появлением проверки появилась первая — попытка её сдачи.
  *
  * Отказ — 404, а не 403: приватный курс для постороннего не существует, и
  * ответ «нельзя» рассказал бы, что он есть.
@@ -34,8 +39,21 @@ final class EnsureCourseAccess
         }
 
         $access = CourseAccess::of($user);
+        $documents = RegulationAccess::of($user);
 
         foreach ($request->route()?->parameters() ?? [] as $parameter) {
+            // Часть документа — попытка сдачи приложенной к нему проверки:
+            // её доступ решает сам документ, а не курс.
+            if ($parameter instanceof PartOfRegulation) {
+                $document = $parameter->owningRegulation();
+
+                if ($document !== null) {
+                    abort_unless($documents->allows($document), Response::HTTP_NOT_FOUND);
+
+                    continue;
+                }
+            }
+
             if (! $parameter instanceof PartOfCourse) {
                 continue;
             }

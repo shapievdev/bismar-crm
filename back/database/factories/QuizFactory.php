@@ -7,6 +7,7 @@ namespace Database\Factories;
 use App\Enums\QuestionType;
 use App\Models\Lesson;
 use App\Models\Quiz;
+use App\Models\Regulation;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -22,7 +23,10 @@ final class QuizFactory extends Factory
     public function definition(): array
     {
         return [
-            'lesson_id' => Lesson::factory(),
+            // Владелец по умолчанию — урок: с него тесты и начались. Тест
+            // документа заводят явно, через forRegulation().
+            'quizzable_type' => 'lesson',
+            'quizzable_id' => Lesson::factory(),
             'title' => 'Проверка знаний',
             'description' => null,
             // Планка теста при уроке — правило, а не настройка автора: урок
@@ -30,6 +34,24 @@ final class QuizFactory extends Factory
             'passing_score' => Quiz::PASSING_SCORE,
             'max_attempts' => null,
         ];
+    }
+
+    /** Тест при этом уроке. */
+    public function forLesson(Lesson $lesson): self
+    {
+        return $this->state([
+            'quizzable_type' => $lesson->getMorphClass(),
+            'quizzable_id' => $lesson->getKey(),
+        ]);
+    }
+
+    /** Тест при документе, а не при уроке. */
+    public function forRegulation(Regulation $regulation): self
+    {
+        return $this->state([
+            'quizzable_type' => $regulation->getMorphClass(),
+            'quizzable_id' => $regulation->getKey(),
+        ]);
     }
 
     /**

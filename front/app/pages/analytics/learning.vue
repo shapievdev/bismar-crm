@@ -74,7 +74,7 @@ const regulationRows = computed<BarRow[]>(() => (data.value?.regulations ?? []).
         :hint="`Опубликовано ${formatNumber(summary.published_courses)}`"
       />
       <AnalyticsStatTile
-        label="Регламентов"
+        label="Документов"
         :value="summary.regulations"
         :span="2"
         :hint="`Опубликовано ${formatNumber(summary.published_regulations)}`"
@@ -113,7 +113,7 @@ const regulationRows = computed<BarRow[]>(() => (data.value?.regulations ?? []).
         :hint="`${formatNumber(summary.quiz_passed)} из ${formatNumber(summary.quiz_attempts)} попыток, средний балл ${summary.quiz_average_score}`"
       />
       <AnalyticsStatTile
-        label="Ознакомлений с регламентами"
+        label="Ознакомлений с документами"
         :value="summary.acknowledgements"
         :span="3"
         :hint="`Отметились ${formatNumber(summary.acknowledged_by)} человек`"
@@ -137,13 +137,13 @@ const regulationRows = computed<BarRow[]>(() => (data.value?.regulations ?? []).
       </AnalyticsChartCard>
 
       <AnalyticsChartCard
-        title="Регламенты: кто ознакомился"
+        title="Документы: кто ознакомился"
         hint="Доля считается от числа работающих сотрудников"
         :span="6"
         :rows="3"
       >
         <AnalyticsBarList v-if="regulationRows.length" :rows="regulationRows" format="number" />
-        <UiEmptyState v-else title="Регламентов пока нет" description="Появятся здесь, как только их заведут." />
+        <UiEmptyState v-else title="Документов пока нет" description="Появятся здесь, как только их заведут." />
       </AnalyticsChartCard>
     </AnalyticsBentoGrid>
   </section>

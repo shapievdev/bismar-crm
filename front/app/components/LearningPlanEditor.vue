@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
 /**
  * Шаг черновика: то немногое, что нужно, чтобы показать строку и отправить её.
  *
- * Курс и регламент приводятся к одному виду сразу — экран рисует список
+ * Курс и документ приводятся к одному виду сразу — экран рисует список
  * одинаковых строк, и разбирать в каждой, чем именно она оказалась, незачем.
  */
 interface Step {
@@ -49,7 +49,7 @@ const loadError = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const savedAt = ref<string | null>(null)
 
-/** Ключ шага — вид и номер вместе: курс №3 и регламент №3 разные вещи. */
+/** Ключ шага — вид и номер вместе: курс №3 и документ №3 разные вещи. */
 function keyOf(step: { kind: string, id?: number, item_id?: number }): string {
   return `${step.kind}:${step.id ?? step.item_id}`
 }
@@ -171,7 +171,7 @@ async function save() {
 
 /**
  * Справочник материала приходит целиком и один раз на сотрудника: курсов и
- * регламентов десятки, а отбор по виду и категории — дело экрана. Прежде здесь
+ * документов десятки, а отбор по виду и категории — дело экрана. Прежде здесь
  * был поиск по названию, и он требовал знать ответ до вопроса: не набрав
  * названия, составитель не видел вообще ничего.
  */
@@ -187,7 +187,7 @@ const picked = ref('')
 
 const KINDS: { value: PlannableKind, label: string }[] = [
   { value: 'course', label: 'Курсы' },
-  { value: 'regulation', label: 'Регламенты' },
+  { value: 'regulation', label: 'Документы' },
 ]
 
 async function loadCatalogue() {
@@ -198,7 +198,7 @@ async function loadCatalogue() {
   }
   catch {
     catalogue.value = []
-    catalogueError.value = 'Не удалось загрузить список курсов и регламентов.'
+    catalogueError.value = 'Не удалось загрузить список курсов и документов.'
   }
 }
 
@@ -230,7 +230,7 @@ const materialOptions = computed(() => ofKind.value
     hint: item.is_visible_to_learner ? undefined : 'Закрыт от сотрудника',
   })))
 
-// Категория относится к виду: у регламентов свои разделы, и оставленный отбор
+// Категория относится к виду: у документов свои разделы, и оставленный отбор
 // показал бы пустой список.
 watch(kind, () => {
   category.value = ''
@@ -271,7 +271,7 @@ watch(() => props.learnerId, () => {
 }, { immediate: true })
 
 function stepLink(step: Step): string {
-  return step.kind === 'regulation' ? `/lms/regulations/${step.slug}` : `/lms/${step.slug}`
+  return step.kind === 'regulation' ? `/lms/documents/${step.slug}` : `/lms/${step.slug}`
 }
 </script>
 
@@ -299,7 +299,7 @@ function stepLink(step: Step): string {
 
         <p v-if="!draft.length" class="faint">
           {{ editable
-            ? 'План пуст. Найдите курс или регламент ниже и добавьте его первым шагом.'
+            ? 'План пуст. Найдите курс или документ ниже и добавьте его первым шагом.'
             : 'План пуст: сотруднику ничего не назначено.' }}
         </p>
 
@@ -313,9 +313,9 @@ function stepLink(step: Step): string {
               </NuxtLink>
 
               <span class="faint">
-                <!-- Вид называем прямо: в одном списке курс и регламент, и по
+                <!-- Вид называем прямо: в одном списке курс и документ, и по
                      названию их не различить. -->
-                {{ step.kind === 'regulation' ? 'Регламент' : 'Курс' }} ·
+                {{ step.kind === 'regulation' ? 'Документ' : 'Курс' }} ·
                 <template v-if="stepFor(step)?.is_completed">пройден</template>
                 <template v-else-if="stepFor(step)?.is_started">пройдено {{ stepFor(step)?.progress }}%</template>
                 <template v-else-if="stepFor(step)">ещё не начат</template>
@@ -402,7 +402,7 @@ function stepLink(step: Step): string {
 
           <div class="field">
             <label class="field-label" :for="`plan-material-${learnerId}`">
-              {{ kind === 'regulation' ? 'Добавить регламент' : 'Добавить курс' }}
+              {{ kind === 'regulation' ? 'Добавить документ' : 'Добавить курс' }}
             </label>
             <UiSelect
               :id="`plan-material-${learnerId}`"

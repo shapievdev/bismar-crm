@@ -61,35 +61,16 @@ async function confirm() {
 
 /* ---------- Ознакомление проверкой ---------- */
 
-const answers = ref<Record<number, number[]>>({})
 const isSubmitting = ref(false)
 const quizError = ref<string | null>(null)
 const result = ref<NewsQuizResult | null>(null)
 
-function toggle(questionId: number, optionId: number, single: boolean) {
-  const chosen = answers.value[questionId] ?? []
-
-  answers.value = {
-    ...answers.value,
-    [questionId]: single
-      ? [optionId]
-      : chosen.includes(optionId) ? chosen.filter(id => id !== optionId) : [...chosen, optionId],
-  }
-}
-
-function isChosen(questionId: number, optionId: number): boolean {
-  return (answers.value[questionId] ?? []).includes(optionId)
-}
-
-const questions = computed(() => news.value?.quiz?.questions ?? [])
-const isAnswered = computed(() => questions.value.every(question => (answers.value[question.id] ?? []).length > 0))
-
-async function send() {
+async function send(answers: Record<number, number[]>) {
   isSubmitting.value = true
   quizError.value = null
 
   try {
-    const { data: outcome } = await submitQuiz(slug.value, answers.value)
+    const { data: outcome } = await submitQuiz(slug.value, answers)
     result.value = outcome
 
     if (outcome.passed) {
@@ -107,7 +88,6 @@ async function send() {
 
 function retry() {
   result.value = null
-  answers.value = {}
 }
 
 /* ---------- Кто ознакомился: только тому, кто новость ведёт ---------- */
@@ -243,61 +223,20 @@ async function loadReaders() {
       </ul>
     </section>
 
-    <!-- Проверка вместо кнопки: сдал — значит прочитал. -->
-    <section v-if="news.quiz && !news.is_acknowledged" class="card quiz">
-      <header>
-        <h2 class="quiz__title">
-          {{ news.quiz.title }}
-        </h2>
-        <p class="faint">
-          Проходной балл — {{ news.quiz.passing_score }}%. Сдав проверку, вы подтверждаете, что прочитали новость.
-        </p>
-        <p v-if="news.quiz.description" class="faint">
-          {{ news.quiz.description }}
-        </p>
-      </header>
-
-      <p v-if="quizError" class="alert alert--danger" role="alert">
-        {{ quizError }}
-      </p>
-
-      <template v-if="result">
-        <p class="alert" :class="result.passed ? 'alert--success' : 'alert--danger'" role="status">
-          <template v-if="result.passed">
-            Сдано, {{ result.score }}%. Новость отмечена как прочитанная.
-          </template>
-          <template v-else>
-            {{ result.score }}% — этого не хватило. Перечитайте новость и попробуйте снова.
-          </template>
-        </p>
-
-        <button v-if="!result.passed" type="button" class="button-secondary" @click="retry">
-          Попробовать снова
-        </button>
-      </template>
-
-      <form v-else class="quiz__form" @submit.prevent="send">
-        <fieldset v-for="(question, index) in questions" :key="question.id" class="question">
-          <legend class="question__text">
-            {{ index + 1 }}. {{ question.text }}
-          </legend>
-
-          <label v-for="option in question.options" :key="option.id" class="option">
-            <input
-              :type="question.type === 'single' ? 'radio' : 'checkbox'"
-              :name="`question-${question.id}`"
-              :checked="isChosen(question.id, option.id)"
-              @change="toggle(question.id, option.id, question.type === 'single')"
-            >
-            {{ option.text }}
-          </label>
-        </fieldset>
-
-        <button type="submit" class="button-primary" :disabled="isSubmitting || !isAnswered">
-          {{ isSubmitting ? 'Отправляем…' : 'Отправить ответы' }}
-        </button>
-      </form>
-    </section>
+    <!-- Проверка вместо кнопки: сдал — значит прочитал. Разметка общая с
+         документом: там и там тест подтверждает ознакомление. -->
+    <QuizRunner
+      v-if="news.quiz && !news.is_acknowledged"
+      :quiz="news.quiz"
+      :is-submitting="isSubmitting"
+      :error-message="quizError"
+      :result="result"
+      :rule="`Проходной балл — ${news.quiz.passing_score}%. Сдав проверку, вы подтверждаете, что прочитали новость.`"
+      passed-note="Новость отмечена как прочитанная."
+      failed-note="Перечитайте новость и попробуйте снова."
+      @submit="send"
+      @retry="retry"
+    />
 
     <!-- Кнопка — когда проверки нет. Есть у любой новости, а не только у той,
          где ознакомление требуют: отметиться человек вправе всегда. -->
@@ -371,8 +310,7 @@ async function loadReaders() {
 }
 
 .readers__title,
-.files__title,
-.quiz__title {
+.files__title {
   margin: 0 0 0.6rem;
   font-size: 1rem;
   font-weight: 600;
@@ -424,7 +362,6 @@ async function loadReaders() {
 
 .files,
 .links,
-.quiz,
 .confirm {
   padding: 1.25rem;
 }
@@ -466,34 +403,6 @@ async function loadReaders() {
 
 .link__title {
   font-weight: 550;
-}
-
-.quiz__form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-  align-items: flex-start;
-}
-
-.question {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.question__text {
-  padding: 0;
-  font-weight: 550;
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
 }
 
 .confirm {

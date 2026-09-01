@@ -109,15 +109,6 @@ const visibleCourses = computed<Course[]>(() => (data.value?.data ?? []).map((co
   }
 }))
 
-// Counted from every enrolment rather than from the courses on screen: these
-// describe the reader, not the page, and must not change as pages turn.
-const inProgressCount = computed(
-  () => (reference.value?.enrolments ?? []).filter(item => !item.is_completed).length,
-)
-const completedCount = computed(
-  () => (reference.value?.enrolments ?? []).filter(item => item.is_completed).length,
-)
-
 const total = computed(() => data.value?.meta.total ?? 0)
 const currentPage = computed(() => data.value?.meta.current_page ?? 1)
 const lastPage = computed(() => data.value?.meta.last_page ?? 1)
@@ -146,30 +137,11 @@ function pageFromQuery(value: unknown): number {
 const categoryTree = computed<Category[]>(() => reference.value?.categories ?? [])
 
 /**
- * The chain of categories from the root down to each one, by slug.
- *
- * Categories arrive as a tree but the address is a single slug, so the way
- * back up has to be recovered — it is what the breadcrumb walks.
+ * Дорога от корня до выбранной категории: в адресе лежит один slug, а крошкам
+ * нужен весь путь. Считает общая утилита — той же дорогой ходят крошки на
+ * карточке материала и в документах.
  */
-const pathBySlug = computed(() => {
-  const paths = new Map<string, Category[]>()
-
-  const walk = (nodes: Category[], ancestors: Category[]) => {
-    for (const node of nodes) {
-      const path = [...ancestors, node]
-      paths.set(node.slug, path)
-      walk(node.children ?? [], path)
-    }
-  }
-
-  walk(categoryTree.value, [])
-
-  return paths
-})
-
-const currentPath = computed(() =>
-  category.value ? pathBySlug.value.get(category.value) ?? [] : [],
-)
+const currentPath = computed(() => categoryTrail(categoryTree.value, category.value))
 
 const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
 
@@ -221,6 +193,14 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         <p class="page-subtitle">
           Материалы команды по категориям. Прогресс сохраняется сам, записываться не нужно.
         </p>
+
+        <!-- Число найденного — строкой, а не плиткой: оно уточняет список, а не
+             спорит с ним за внимание. Свои «в процессе» и «пройдено» человек
+             смотрит у себя, на «Моих материалах», — там они и живут. -->
+        <p v-if="total" class="faint counted">
+          {{ total }} {{ pluralise(total, 'материал', 'материала', 'материалов') }}
+          <template v-if="currentCategory"> в этом разделе</template>
+        </p>
       </div>
 
       <div class="head__actions">
@@ -229,21 +209,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         </NuxtLink>
       </div>
     </header>
-
-    <div class="stats">
-      <div class="card card--raised stat">
-        <span class="metric">{{ inProgressCount }}</span>
-        <span class="metric-label">в процессе</span>
-      </div>
-      <div class="card card--raised stat">
-        <span class="metric">{{ completedCount }}</span>
-        <span class="metric-label">пройдено</span>
-      </div>
-      <div class="card stat stat--muted">
-        <span class="metric">{{ total }}</span>
-        <span class="metric-label">материалов всего</span>
-      </div>
-    </div>
 
     <div class="toolbar">
       <div class="tabs" role="tablist">
@@ -372,23 +337,9 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   margin-bottom: 1.5rem;
 }
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.75rem;
-  max-width: 34rem;
-  margin-bottom: 1.75rem;
-}
 
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  padding: 1.15rem 1.35rem 1.25rem;
-}
-
-.stat--muted .metric {
-  color: var(--color-text-muted);
+.counted {
+  margin: 0.4rem 0 0;
 }
 
 .head__actions {
@@ -588,15 +539,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   .head__actions a {
     flex: 1;
     justify-content: center;
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: none;
-  }
-
-  .stat {
-    padding: 0.9rem 1rem 1rem;
   }
 
   .toolbar {

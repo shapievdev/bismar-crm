@@ -19,6 +19,17 @@ final readonly class LessonObserver
 {
     public function __construct(private SyncLessonTranscripts $sync) {}
 
+    /**
+     * Тест уходит вместе с уроком.
+     *
+     * Прежде это делал внешний ключ, но владелец теста стал полиморфным, а у
+     * полиморфной связи каскада не бывает — см. миграцию 2026_09_01_120000.
+     */
+    public function deleting(Lesson $lesson): void
+    {
+        $lesson->quiz()->delete();
+    }
+
     public function saved(Lesson $lesson): void
     {
         // Заголовок урока хранится рядом с текстом куска и весит в поиске

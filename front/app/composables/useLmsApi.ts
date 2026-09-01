@@ -108,7 +108,7 @@ export function useLmsApi() {
     /**
      * Что можно поставить шагом этому сотруднику — весь список сразу.
      *
-     * Целиком, а не поиском: курсов и регламентов десятки, и дальше экран
+     * Целиком, а не поиском: курсов и документов десятки, и дальше экран
      * сужает список сам — по виду и по категории, — не спрашивая сервер на
      * каждое движение.
      */
@@ -120,7 +120,7 @@ export function useLmsApi() {
      * так же, как список допущенных к курсу.
      *
      * Шаг приходит парой «вид и номер»: номер сам по себе ничего не значит,
-     * курс №3 и регламент №3 — разные вещи.
+     * курс №3 и документ №3 — разные вещи.
      */
     savePlan: (
       userId: number,
@@ -130,10 +130,6 @@ export function useLmsApi() {
         method: 'PUT',
         body: { items },
       }).catch(toValidationError),
-
-    /** Кому назначить план — поиском: сотрудников тысячи, нужен один. */
-    searchPlanPeople: (search: string): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>('/api/lms/plans/people', { query: { search } }),
 
     fetchLesson: (id: number | string): Promise<ResourceResponse<LessonSummary>> =>
       $api<ResourceResponse<LessonSummary>>(`/api/lms/lessons/${id}`),

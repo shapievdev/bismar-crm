@@ -53,7 +53,7 @@ final class LinkedMaterial
             'course' => 'Курс',
             'module' => 'Модуль',
             'lesson' => 'Урок',
-            'regulation' => 'Регламент',
+            'regulation' => 'Документ',
             default => $kind,
         };
     }
@@ -69,7 +69,7 @@ final class LinkedMaterial
     {
         return match (true) {
             $material instanceof Course => '/lms/'.$material->slug,
-            $material instanceof Regulation => '/lms/regulations/'.$material->slug,
+            $material instanceof Regulation => '/lms/documents/'.$material->slug,
             $material instanceof CourseModule => self::courseUrl($material),
             $material instanceof Lesson => self::lessonUrl($material),
             default => null,

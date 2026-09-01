@@ -21,8 +21,13 @@ const finished = computed(() => enrollments.value.filter(item => item.is_complet
         <p class="page-subtitle">
           Всё, на что вы записаны, с текущим прогрессом.
         </p>
-      </div>
 
+        <!-- Свои числа живут здесь, а не в каталоге: «в работе» и «пройдено» —
+             про читателя, а каталог — про то, что есть в компании. -->
+        <p v-if="enrollments.length" class="faint counted">
+          В работе — {{ active.length }} · Пройдено — {{ finished.length }}
+        </p>
+      </div>
     </header>
 
     <p v-if="error" class="alert alert--danger" role="alert">
@@ -96,6 +101,10 @@ const finished = computed(() => enrollments.value.filter(item => item.is_complet
 </template>
 
 <style scoped>
+.counted {
+  margin: 0.4rem 0 0;
+}
+
 .head {
   display: flex;
   align-items: flex-start;

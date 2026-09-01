@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\Lms\RegulationAttachmentController;
 use App\Http\Controllers\Api\Lms\RegulationCategoryController;
 use App\Http\Controllers\Api\Lms\RegulationController;
 use App\Http\Controllers\Api\Lms\RegulationPeopleController;
+use App\Http\Controllers\Api\Lms\RegulationQuizController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
 use App\Http\Controllers\Api\News\NewsController;
@@ -124,6 +125,16 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         Route::middleware($view)->group(function (): void {
             Route::post('{regulation}/acknowledge', [RegulationAcknowledgementController::class, 'store'])
                 ->name('acknowledge');
+
+            // Проверка при документе: сдал — значит ознакомился. Заводит её
+            // тот, кто правит документ; проходит — любой, кто его читает.
+            Route::post('{regulation}/quiz/submit', [RegulationQuizController::class, 'submit'])
+                ->name('quiz.submit');
+        });
+
+        Route::middleware($update)->group(function (): void {
+            Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
+            Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
         });
         Route::get('{regulation}/acknowledgements', [RegulationAcknowledgementController::class, 'index'])
             ->middleware($update)
@@ -162,8 +173,6 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
     // сводится: собрать материал и решать, кто его пройдёт, — разные решения,
     // потому и право своё.
     Route::middleware('can:'.Permission::ManageEnrollments->value)->group(function (): void {
-        // Раньше `plans/{user}`, иначе «people» уедет в подстановку сотрудника.
-        Route::get('plans/people', [LearningPlanController::class, 'people'])->name('plans.people');
         Route::get('plans/{user}', [LearningPlanController::class, 'show'])->name('plans.show');
 
         // Что можно поставить шагом: весь список сразу, с категорией у каждой

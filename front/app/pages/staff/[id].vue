@@ -541,9 +541,6 @@ function messageFrom(caught: unknown, fallback: string): string {
           <h2 class="panel__title">
             План обучения
           </h2>
-          <NuxtLink to="/lms/plans" class="button-ghost button-sm">
-            Все планы
-          </NuxtLink>
         </header>
 
         <p v-if="!mayEditPlan" class="muted">

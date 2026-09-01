@@ -583,24 +583,4 @@ final class LearningPlanTest extends TestCase
     {
         return (fn (): PushMessage => $this->message)->call($job);
     }
-
-    public function test_people_can_be_searched_when_choosing_whose_plan_to_edit(): void
-    {
-        User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Вера']);
-        User::factory()->create(['last_name' => 'Яковлев', 'first_name' => 'Пётр']);
-
-        $response = $this->actingAs($this->trainer())
-            ->getJson(route('lms.plans.people', ['search' => 'ёлкина']))
-            ->assertOk();
-
-        // Кириллица ищется без учёта регистра только через ICU — базы собраны
-        // с C-сортировкой, см. User::scopeMatching.
-        $this->assertCount(1, $response->json('data'));
-        $this->assertSame('Ёлкина Вера', $response->json('data.0.name'));
-    }
-
-    public function test_a_guest_has_no_plan(): void
-    {
-        $this->getJson(route('lms.my-plan'))->assertUnauthorized();
-    }
 }

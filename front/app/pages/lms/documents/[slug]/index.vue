@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { withResolvedMedia } from '~/utils/editor/attachments'
-import type { CoursePerson } from '~/types/lms'
+import type { CoursePerson, QuizOutcome } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
@@ -8,7 +8,7 @@ const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 
 const { can } = useAuth()
-const { fetchRegulation, acknowledge, fetchReaders } = useRegulationsApi()
+const { fetchRegulation, acknowledge, fetchReaders, fetchCategories, submitQuiz } = useRegulationsApi()
 
 const { data, error, refresh } = await useAsyncData(
   () => `lms.regulation.${slug.value}`,
@@ -16,12 +16,28 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Регламент не найден', fatal: true })
+  throw createError({ statusCode: 404, statusMessage: 'Документ не найден', fatal: true })
 }
 
 const regulation = computed(() => data.value?.data ?? null)
 
-useHead({ title: () => regulation.value?.title ?? 'Регламент' })
+useHead({ title: () => regulation.value?.title ?? 'Документ' })
+
+/**
+ * Крошки: раздел, категории по дороге сюда и сам документ.
+ *
+ * У документа своя категория, а крошкам нужен весь путь наверх — отсюда дерево
+ * категорий. Ключ общий с разделом: дерево одно, и второй раз за ним не ходят.
+ */
+const { data: categoryData } = await useAsyncData(
+  'lms.regulation-categories',
+  () => fetchCategories(),
+)
+
+const trail = computed(() => categoryTrail(
+  categoryData.value?.data ?? [],
+  regulation.value?.category?.slug,
+))
 
 /**
  * Адреса вложенных картинок и видео подставляются на пути к экрану: статья
@@ -60,7 +76,42 @@ async function confirm() {
   }
 }
 
-/* ---------- Кто прочитал: только тому, кто регламент ведёт ---------- */
+/* ---------- Проверка вместо кнопки ---------- */
+
+/**
+ * Есть проверка — ознакомление засчитывается сдачей. Кнопки при ней нет вовсе:
+ * нажатие обесценивало бы тест, и сервер её всё равно не примет.
+ */
+const quiz = computed(() => regulation.value?.quiz ?? null)
+const attempts = computed(() => regulation.value?.own_attempts ?? [])
+
+const isSubmitting = ref(false)
+const quizError = ref<string | null>(null)
+const outcome = ref<QuizOutcome | null>(null)
+
+async function sendAnswers(answers: Record<number, number[]>) {
+  isSubmitting.value = true
+  quizError.value = null
+
+  try {
+    outcome.value = (await submitQuiz(slug.value, answers)).data
+
+    // Сдал — документ прочитан: перечитываем его, чтобы отметка и история
+    // попыток пришли с сервера, а не собирались на экране.
+    if (outcome.value.passed) {
+      await refresh()
+    }
+  }
+  catch (caught) {
+    const failure = caught as { data?: { message?: string } }
+    quizError.value = failure.data?.message ?? 'Не удалось отправить ответы.'
+  }
+  finally {
+    isSubmitting.value = false
+  }
+}
+
+/* ---------- Кто прочитал: только тому, кто документ ведёт ---------- */
 
 const readers = ref<CoursePerson[] | null>(null)
 
@@ -77,6 +128,22 @@ async function toggleReaders() {
 
 <template>
   <article v-if="regulation" class="regulation">
+    <nav class="crumbs" aria-label="Где я">
+      <NuxtLink to="/lms/documents">
+        Документы
+      </NuxtLink>
+
+      <template v-for="node in trail" :key="node.slug">
+        <span class="crumbs__separator" aria-hidden="true">/</span>
+        <NuxtLink :to="{ path: '/lms/documents', query: { category: node.slug } }">
+          {{ node.name }}
+        </NuxtLink>
+      </template>
+
+      <span class="crumbs__separator" aria-hidden="true">/</span>
+      <span class="faint" aria-current="page">{{ regulation.title }}</span>
+    </nav>
+
     <header class="head">
       <div class="head__marks">
         <span v-if="!regulation.is_published" class="badge badge--warning">{{ regulation.status_label }}</span>
@@ -99,7 +166,7 @@ async function toggleReaders() {
       </p>
 
       <div v-if="can('courses.update')" class="head__actions">
-        <NuxtLink :to="`/lms/regulations/${regulation.slug}/edit`" class="button-secondary button-sm">
+        <NuxtLink :to="`/lms/documents/${regulation.slug}/edit`" class="button-secondary button-sm">
           Редактировать
         </NuxtLink>
         <button type="button" class="button-ghost button-sm" @click="toggleReaders">
@@ -164,17 +231,33 @@ async function toggleReaders() {
       </ul>
     </section>
 
-    <section v-if="regulation.is_published" class="card confirm">
-      <template v-if="regulation.is_acknowledged">
+    <template v-if="regulation.is_published">
+      <!-- Отметка стоит — говорим об этом и не спрашиваем второй раз, была она
+           поставлена кнопкой или сдачей проверки. -->
+      <section v-if="regulation.is_acknowledged" class="card confirm">
         <p class="confirm__done">
-          Вы ознакомились с этим регламентом
+          Вы ознакомились с этим документом
           <template v-if="regulation.acknowledged_at">
             {{ day(regulation.acknowledged_at) }}
           </template>
         </p>
-      </template>
+      </section>
 
-      <template v-else>
+      <!-- Проверка вместо кнопки: сдал — значит прочитал. -->
+      <QuizRunner
+        v-else-if="quiz"
+        :quiz="quiz"
+        :is-submitting="isSubmitting"
+        :error-message="quizError"
+        :result="outcome"
+        rule="Документ зачтётся, когда все ответы будут верными."
+        passed-note="Документ отмечен как прочитанный."
+        failed-note="Перечитайте документ и попробуйте снова."
+        @submit="sendAnswers"
+        @retry="outcome = null"
+      />
+
+      <section v-else class="card confirm">
         <p v-if="confirmError" class="alert alert--danger" role="alert">
           {{ confirmError }}
         </p>
@@ -184,12 +267,48 @@ async function toggleReaders() {
         <button type="button" class="button-primary" :disabled="isConfirming" @click="confirm">
           {{ isConfirming ? 'Отмечаем…' : 'Ознакомлен' }}
         </button>
-      </template>
-    </section>
+      </section>
+
+      <!-- Прошлые попытки: сколько раз человек подходил и с каким счётом. -->
+      <p v-if="attempts.length" class="faint attempts">
+        Ваши попытки:
+        <template v-for="(attempt, index) in attempts" :key="attempt.id">
+          <template v-if="index">, </template>{{ attempt.score }}%
+          <template v-if="attempt.completed_at">({{ day(attempt.completed_at) }})</template>
+        </template>
+      </p>
+    </template>
   </article>
 </template>
 
 <style scoped>
+.attempts {
+  margin: 0.75rem 0 0;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-size: 0.87rem;
+}
+
+.crumbs a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.crumbs__separator {
+  color: var(--color-text-faint);
+}
+
 .regulation {
   display: flex;
   flex-direction: column;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\AcknowledgeRegulation;
+use App\Exceptions\ConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Lms\CoursePersonResource;
 use App\Models\Regulation;
@@ -22,12 +23,23 @@ use Illuminate\Support\Facades\Gate;
  */
 final class RegulationAcknowledgementController extends Controller
 {
+    /**
+     * @throws ConflictException
+     */
     public function store(
         Request $request,
         Regulation $regulation,
         AcknowledgeRegulation $acknowledge,
     ): JsonResponse {
         Gate::authorize('acknowledge', $regulation);
+
+        // При проверке кнопки нет вовсе: подтверждением служит сдача (решение
+        // пользователя 2026-09-01). Иначе нажатие обесценивало бы тест.
+        if ($regulation->quiz()->exists()) {
+            throw new ConflictException(
+                'К документу приложена проверка — ознакомление засчитывается по ней.',
+            );
+        }
 
         /** @var User $reader */
         $reader = $request->user();

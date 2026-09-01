@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -68,6 +69,20 @@ class Regulation extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');
+    }
+
+    /**
+     * Проверка при документе.
+     *
+     * Есть — значит ознакомление засчитывается сдачей, а не нажатием кнопки
+     * (решение пользователя 2026-09-01). Устройство теста то же, что у урока:
+     * одни вопросы, одни попытки, один разбор.
+     *
+     * @return MorphOne<Quiz, $this>
+     */
+    public function quiz(): MorphOne
+    {
+        return $this->morphOne(Quiz::class, 'quizzable');
     }
 
     /**

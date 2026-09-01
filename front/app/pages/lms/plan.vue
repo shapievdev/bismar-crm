@@ -4,10 +4,10 @@ useHead({ title: 'Мой план' })
 
 const { myPlan } = useLmsApi()
 
-/** Куда ведёт шаг: у курса и регламента разные адреса. */
+/** Куда ведёт шаг: у курса и документа разные адреса. */
 function href(step: { kind: string, slug: string | null }): string {
   return step.kind === 'regulation'
-    ? `/lms/regulations/${step.slug}`
+    ? `/lms/documents/${step.slug}`
     : `/lms/${step.slug}`
 }
 
@@ -33,7 +33,7 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
           Мой план
         </h1>
         <p class="page-subtitle">
-          Курсы и регламенты, которые вам назначили, в том порядке, в каком их стоит пройти.
+          Курсы и документы, которые вам назначили, в том порядке, в каком их стоит пройти.
         </p>
       </div>
 
@@ -90,9 +90,9 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
           <div class="row__body">
             <span class="row__title">{{ step.title }}</span>
             <span class="faint">
-              <!-- У регламента доли нет: он либо прочитан, либо нет. -->
+              <!-- У документа доли нет: он либо прочитан, либо нет. -->
               <template v-if="step.kind === 'regulation'">
-                Регламент — {{ step.is_completed ? 'ознакомлен' : 'нужно прочитать' }}
+                Документ — {{ step.is_completed ? 'ознакомлен' : 'нужно прочитать' }}
               </template>
               <template v-else-if="step.is_completed">Пройден</template>
               <template v-else-if="step.is_started">Пройдено {{ step.progress }}%</template>

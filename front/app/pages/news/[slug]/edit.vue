@@ -507,12 +507,12 @@ function dropLink(found: LinkedMaterialResult) {
         Куда сходить после новости
       </h2>
       <p class="faint">
-        Курс, модуль, урок или регламент. Читателю ссылка покажется, только если он и сам может её открыть.
+        Курс, модуль, урок или документ. Читателю ссылка покажется, только если он и сам может её открыть.
       </p>
 
       <ul v-if="links.length" class="chips">
         <li v-for="link in links" :key="keyOf(link)" class="chip">
-          <span class="chip__kind">{{ link.kind === 'regulation' ? 'Регламент'
+          <span class="chip__kind">{{ link.kind === 'regulation' ? 'Документ'
             : link.kind === 'course' ? 'Курс'
               : link.kind === 'module' ? 'Модуль' : 'Урок' }}</span>
           {{ link.title }}
@@ -530,7 +530,7 @@ function dropLink(found: LinkedMaterialResult) {
           class="input"
           type="search"
           autocomplete="off"
-          placeholder="Название курса, урока или регламента"
+          placeholder="Название курса, урока или документа"
         >
       </div>
 
@@ -551,7 +551,7 @@ function dropLink(found: LinkedMaterialResult) {
             <span class="found__body">
               <span class="found__name">{{ found.title }}</span>
               <span class="faint">
-                {{ found.kind === 'regulation' ? 'Регламент'
+                {{ found.kind === 'regulation' ? 'Документ'
                   : found.kind === 'course' ? 'Курс'
                     : found.kind === 'module' ? 'Модуль' : 'Урок' }}<template
                       v-if="found.subtitle"

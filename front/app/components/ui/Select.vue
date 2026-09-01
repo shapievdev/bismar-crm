@@ -13,7 +13,19 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   /** Matches the width to the widest option instead of filling the row. */
   auto?: boolean
-}>(), { placeholder: 'Не выбрано', disabled: false, auto: false })
+  /**
+   * Поле поиска в списке. По умолчанию появляется само, когда вариантов больше
+   * горсти: у списка из трёх оно только мешает, а в списке из тридцати
+   * категорий нужное иначе приходится искать глазами.
+   */
+  searchable?: boolean
+  searchPlaceholder?: string
+}>(), {
+  placeholder: 'Не выбрано',
+  disabled: false,
+  auto: false,
+  searchPlaceholder: 'Найти…',
+})
 
 const model = defineModel<T>({ required: true })
 
@@ -28,9 +40,34 @@ const model = defineModel<T>({ required: true })
 const isOpen = ref(false)
 const root = useTemplateRef<HTMLElement>('root')
 const list = useTemplateRef<HTMLElement>('list')
+const search = useTemplateRef<HTMLInputElement>('search')
 
 /** Where the keyboard is, which is not where the selection is until Enter. */
 const activeIndex = ref(-1)
+
+const query = ref('')
+
+/** С этого числа вариантов список без поиска читают уже не глазами, а перебором. */
+const SEARCH_FROM = 7
+
+const isSearchShown = computed(() => props.searchable ?? props.options.length > SEARCH_FROM)
+
+/**
+ * Что видно в списке: всё или подходящее под набранное.
+ *
+ * Ищем и по подписи, и по пояснению: у отдела в пояснении стоит число людей, а
+ * у материала — раздел, и набранное человек ждёт найденным в обоих.
+ */
+const visible = computed(() => {
+  const term = query.value.trim().toLowerCase()
+
+  if (term === '') {
+    return props.options
+  }
+
+  return props.options.filter(option =>
+    `${option.label} ${option.hint ?? ''}`.toLowerCase().includes(term))
+})
 
 const selected = computed(() => props.options.find(option => option.value === model.value) ?? null)
 const label = computed(() => selected.value?.label ?? props.placeholder)
@@ -41,15 +78,29 @@ function open() {
   }
 
   isOpen.value = true
+  query.value = ''
   activeIndex.value = Math.max(0, props.options.findIndex(option => option.value === model.value))
 
-  nextTick(() => scrollActiveIntoView())
+  nextTick(() => {
+    // Курсор сразу в поиске: список открывают, чтобы найти, а не чтобы потом
+    // ещё раз щёлкнуть по полю.
+    search.value?.focus()
+    scrollActiveIntoView()
+  })
 }
 
 function close() {
   isOpen.value = false
   activeIndex.value = -1
+  query.value = ''
 }
+
+// Набранное сдвигает список под собой, и прежнее место подсветки в нём уже
+// ничего не значит.
+watch(query, () => {
+  activeIndex.value = visible.value.length > 0 ? 0 : -1
+  nextTick(() => scrollActiveIntoView())
+})
 
 function choose(option: SelectOption<T>) {
   model.value = option.value
@@ -57,20 +108,20 @@ function choose(option: SelectOption<T>) {
 }
 
 function move(step: number) {
-  if (props.options.length === 0) {
+  if (! isOpen.value) {
+    open()
+
     return
   }
 
-  if (!isOpen.value) {
-    open()
-
+  if (visible.value.length === 0) {
     return
   }
 
   const next = activeIndex.value + step
   // Stops at the ends rather than wrapping: a list that jumps from the last
   // item back to the first hides how long it is.
-  activeIndex.value = Math.min(Math.max(0, next), props.options.length - 1)
+  activeIndex.value = Math.min(Math.max(0, next), visible.value.length - 1)
 
   scrollActiveIntoView()
 }
@@ -79,7 +130,13 @@ function scrollActiveIntoView() {
   list.value?.children[activeIndex.value]?.scrollIntoView({ block: 'nearest' })
 }
 
-function onKeydown(event: KeyboardEvent) {
+/**
+ * Клавиши, общие для кнопки и для поля поиска: ими ходят по списку.
+ *
+ * Пробел и Home/End сюда не входят намеренно — в поле поиска это пробел в слове
+ * и перемещение по строке, а не выбор варианта и не прыжок в конец списка.
+ */
+function onNavigationKey(event: KeyboardEvent) {
   switch (event.key) {
     case 'ArrowDown':
       event.preventDefault()
@@ -89,25 +146,10 @@ function onKeydown(event: KeyboardEvent) {
       event.preventDefault()
       move(-1)
       break
-    case 'Home':
-      if (isOpen.value) {
-        event.preventDefault()
-        activeIndex.value = 0
-        scrollActiveIntoView()
-      }
-      break
-    case 'End':
-      if (isOpen.value) {
-        event.preventDefault()
-        activeIndex.value = props.options.length - 1
-        scrollActiveIntoView()
-      }
-      break
     case 'Enter':
-    case ' ':
       event.preventDefault()
-      if (isOpen.value && props.options[activeIndex.value]) {
-        choose(props.options[activeIndex.value]!)
+      if (isOpen.value && visible.value[activeIndex.value]) {
+        choose(visible.value[activeIndex.value]!)
       }
       else {
         open()
@@ -124,6 +166,41 @@ function onKeydown(event: KeyboardEvent) {
       // or a click, as it does in a native select on every platform we target.
       close()
       break
+  }
+}
+
+function onKeydown(event: KeyboardEvent) {
+  switch (event.key) {
+    case 'Home':
+      if (isOpen.value) {
+        event.preventDefault()
+        activeIndex.value = 0
+        scrollActiveIntoView()
+      }
+      break
+    case 'End':
+      if (isOpen.value) {
+        event.preventDefault()
+        activeIndex.value = visible.value.length - 1
+        scrollActiveIntoView()
+      }
+      break
+    case ' ':
+      // На кнопке пробел работает как Enter — так ведёт себя и нативный
+      // список; в поле поиска он остаётся пробелом, потому что там до этой
+      // ветки дело не доходит.
+      event.preventDefault()
+
+      if (isOpen.value && visible.value[activeIndex.value]) {
+        choose(visible.value[activeIndex.value]!)
+      }
+      else {
+        open()
+      }
+
+      break
+    default:
+      onNavigationKey(event)
   }
 }
 
@@ -170,24 +247,45 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown)
       </svg>
     </button>
 
-    <ul v-if="isOpen" ref="list" class="select-field__list" role="listbox">
-      <li
-        v-for="(option, index) in options"
-        :key="String(option.value)"
-        class="select-field__option"
-        :class="{
-          'select-field__option--active': index === activeIndex,
-          'select-field__option--chosen': option.value === model,
-        }"
-        role="option"
-        :aria-selected="option.value === model"
-        @click="choose(option)"
-        @mousemove="activeIndex = index"
-      >
-        <span class="select-field__option-label">{{ option.label }}</span>
-        <span v-if="option.hint" class="select-field__option-hint">{{ option.hint }}</span>
-      </li>
-    </ul>
+    <div v-if="isOpen" class="select-field__popup">
+      <!-- Поиск в самом списке: искать нужное глазами в тридцати категориях —
+           не выбор, а перебор. -->
+      <div v-if="isSearchShown" class="select-field__search">
+        <input
+          ref="search"
+          v-model="query"
+          type="search"
+          class="select-field__query"
+          :placeholder="searchPlaceholder"
+          aria-label="Поиск по списку"
+          autocomplete="off"
+          @keydown="onNavigationKey"
+        >
+      </div>
+
+      <ul ref="list" class="select-field__list" role="listbox">
+        <li
+          v-for="(option, index) in visible"
+          :key="String(option.value)"
+          class="select-field__option"
+          :class="{
+            'select-field__option--active': index === activeIndex,
+            'select-field__option--chosen': option.value === model,
+          }"
+          role="option"
+          :aria-selected="option.value === model"
+          @click="choose(option)"
+          @mousemove="activeIndex = index"
+        >
+          <span class="select-field__option-label">{{ option.label }}</span>
+          <span v-if="option.hint" class="select-field__option-hint">{{ option.hint }}</span>
+        </li>
+      </ul>
+
+      <p v-if="!visible.length" class="select-field__empty">
+        Ничего не нашли
+      </p>
+    </div>
   </div>
 </template>
 
@@ -248,20 +346,56 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown)
   transform: rotate(180deg);
 }
 
-.select-field__list {
+.select-field__popup {
   position: absolute;
   z-index: 20;
   top: calc(100% + 0.35rem);
   left: 0;
   right: 0;
-  max-height: 16rem;
-  overflow-y: auto;
-  margin: 0;
   padding: 0.3rem;
-  list-style: none;
   background: var(--color-surface-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
+}
+
+/* Поиск не уезжает вместе со списком: он остаётся на месте, пока варианты под
+   ним прокручиваются. */
+.select-field__search {
+  padding: 0.15rem 0.15rem 0.35rem;
+}
+
+.select-field__query {
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.select-field__query:focus {
+  outline: none;
+  border-color: var(--color-border-strong);
+}
+
+.select-field__query::-webkit-search-cancel-button {
+  display: none;
+}
+
+.select-field__list {
+  max-height: 15rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.select-field__empty {
+  margin: 0;
+  padding: 0.5rem 0.7rem 0.6rem;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
 }
 
 .select-field__option {

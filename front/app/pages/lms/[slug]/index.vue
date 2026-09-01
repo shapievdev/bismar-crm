@@ -36,16 +36,37 @@ const totalMinutes = computed(() =>
   allLessons.value.reduce((total, lesson) => total + (lesson.duration_minutes ?? 0), 0),
 )
 
+/**
+ * Крошки: раздел, категории по дороге сюда и сам материал.
+ *
+ * Категория у материала одна, а крошкам нужен весь путь наверх — поэтому здесь
+ * дерево категорий. Отдельным запросом и с общим ключом: дерево одно на весь
+ * раздел, и второй раз за него не ходят.
+ */
+const { fetchCategories } = useLmsApi()
+
+const { data: categoryData } = await useAsyncData('lms.categories', () => fetchCategories())
+
+const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], course.value?.category?.slug))
+
 </script>
 
 <template>
   <section v-if="course">
-    <nav class="crumbs">
+    <nav class="crumbs" aria-label="Где я">
       <NuxtLink to="/lms">
         База знаний
       </NuxtLink>
-      <span aria-hidden="true">/</span>
-      <span class="faint">{{ course.title }}</span>
+
+      <template v-for="node in trail" :key="node.slug">
+        <span class="crumbs__separator" aria-hidden="true">/</span>
+        <NuxtLink :to="{ path: '/lms', query: { category: node.slug } }">
+          {{ node.name }}
+        </NuxtLink>
+      </template>
+
+      <span class="crumbs__separator" aria-hidden="true">/</span>
+      <span class="faint" aria-current="page">{{ course.title }}</span>
     </nav>
 
     <header class="hero card">
@@ -203,9 +224,15 @@ const totalMinutes = computed(() =>
 <style scoped>
 .crumbs {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
   margin-bottom: 1rem;
   font-size: 0.87rem;
+}
+
+.crumbs__separator {
+  color: var(--color-text-faint);
 }
 
 .crumbs a {

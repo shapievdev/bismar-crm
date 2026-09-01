@@ -6,19 +6,24 @@ namespace App\Actions\Lms;
 
 use App\Exceptions\ConflictException;
 use App\Models\Enrollment;
+use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
+use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 final readonly class GradeQuizAttempt
 {
-    public function __construct(private CompleteLesson $completeLesson) {}
+    public function __construct(
+        private CompleteLesson $completeLesson,
+        private AcknowledgeRegulation $acknowledgeRegulation,
+    ) {}
 
     /**
-     * Grades a submission, records the attempt, and completes the lesson if the
-     * learner passed.
+     * Grades a submission, records the attempt, and — if the learner passed —
+     * does whatever passing means for the thing the quiz hangs off.
      *
      * @param  array<int, list<int>>  $answers  Question id => chosen option ids.
      *
@@ -58,15 +63,39 @@ final readonly class GradeQuizAttempt
                 'completed_at' => now(),
             ]);
 
-            // Сдача теста и есть прохождение урока — если до этого урока дошли
-            // по порядку. Непройденные предыдущие попытку не отменяют: она
-            // записана, и урок зачтётся, как только очередь дойдёт до него.
-            if ($passed && $enrollment !== null && $this->completeLesson->blockedBy($enrollment, $quiz->lesson) === null) {
-                $this->completeLesson->handle($enrollment, $quiz->lesson);
+            if ($passed) {
+                $this->rewardFor($quiz, $learner, $enrollment);
             }
 
             return $attempt;
         });
+    }
+
+    /**
+     * Что означает сдача — решает владелец теста.
+     *
+     * У урока это прохождение урока, и только если до него дошли по порядку:
+     * непройденные предыдущие попытку не отменяют — она записана, и урок
+     * зачтётся, как только очередь дойдёт до него.
+     *
+     * У документа это ознакомление: сдал — значит прочитал и понял, и другой
+     * отметки у документа с проверкой нет (решение пользователя 2026-09-01).
+     */
+    private function rewardFor(Quiz $quiz, User $learner, ?Enrollment $enrollment): void
+    {
+        $owner = $quiz->quizzable;
+
+        if ($owner instanceof Regulation) {
+            $this->acknowledgeRegulation->handle($owner, $learner);
+
+            return;
+        }
+
+        if ($owner instanceof Lesson
+            && $enrollment !== null
+            && $this->completeLesson->blockedBy($enrollment, $owner) === null) {
+            $this->completeLesson->handle($enrollment, $owner);
+        }
     }
 
     /**

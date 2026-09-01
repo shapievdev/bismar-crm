@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { JSONContent } from '@tiptap/core'
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
-import type { CoursePerson, CourseStatus, CourseVisibility } from '~/types/lms'
+import type { CoursePerson, CourseStatus, CourseVisibility, QuizPayload } from '~/types/lms'
 import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 import type { UploadOptions } from '~/utils/upload'
 
@@ -24,6 +24,8 @@ const {
   fetchExperts,
   updateExperts,
   searchExpertCandidates,
+  saveQuiz,
+  deleteQuiz,
 } = useRegulationsApi()
 
 const router = useRouter()
@@ -34,17 +36,17 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Регламент не найден', fatal: true })
+  throw createError({ statusCode: 404, statusMessage: 'Документ не найден', fatal: true })
 }
 
 const regulation = computed(() => data.value?.data ?? null)
 
-useHead({ title: () => regulation.value ? `${regulation.value.title} — правка` : 'Правка регламента' })
+useHead({ title: () => regulation.value ? `${regulation.value.title} — правка` : 'Правка документа' })
 
 const { data: categoryData } = await useAsyncData('lms.regulation-categories.edit', () => fetchCategories())
 const categories = computed(() => categoryData.value?.data ?? [])
 
-/* ---------- Сам регламент ---------- */
+/* ---------- Сам документ ---------- */
 
 const form = reactive({
   title: '',
@@ -101,7 +103,7 @@ async function save() {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось сохранить регламент.'
+      generalError.value = 'Не удалось сохранить документ.'
     }
   }
   finally {
@@ -111,12 +113,62 @@ async function save() {
 
 async function remove() {
   await deleteRegulation(slug.value)
-  await router.push('/lms/regulations')
+  await router.push('/lms/documents')
+}
+
+/* ---------- Проверка ---------- */
+
+/**
+ * Есть проверка — значит ознакомление засчитывается сдачей, а не нажатием
+ * кнопки. Конструктор тот же, что у теста урока; планку он не спрашивает —
+ * зачитывается всё при всех верных ответах.
+ */
+const quizErrors = ref<ValidationErrors>({})
+const isSavingQuiz = ref(false)
+const showQuizBuilder = ref(false)
+
+watch(regulation, value => showQuizBuilder.value = Boolean(value?.quiz), { immediate: true })
+
+async function persistQuiz(payload: QuizPayload) {
+  isSavingQuiz.value = true
+  quizErrors.value = {}
+
+  try {
+    await saveQuiz(slug.value, payload)
+    await refresh()
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      quizErrors.value = caught.errors
+    }
+    else {
+      generalError.value = 'Не удалось сохранить проверку.'
+    }
+  }
+  finally {
+    isSavingQuiz.value = false
+  }
+}
+
+async function dropQuiz() {
+  isSavingQuiz.value = true
+
+  try {
+    await deleteQuiz(slug.value)
+    showQuizBuilder.value = false
+    await refresh()
+  }
+  catch {
+    generalError.value = 'Не удалось удалить проверку.'
+  }
+  finally {
+    isSavingQuiz.value = false
+  }
 }
 
 /**
  * Вставленное в статью хранится обычным вложением: так у картинки есть номер,
- * переживающий подписанную ссылку, и уходит она вместе с регламентом.
+ * переживающий подписанную ссылку, и уходит она вместе с документом.
  */
 async function uploadInline(file: File, options: UploadOptions, label: string): Promise<UploadedMedia> {
   const { data: attachment } = await uploadAttachment(slug.value, file, label, options)
@@ -199,7 +251,7 @@ async function saveExperts(next: CoursePerson[]) {
         </p>
       </div>
 
-      <NuxtLink :to="`/lms/regulations/${regulation.slug}`" class="button-secondary button-sm">
+      <NuxtLink :to="`/lms/documents/${regulation.slug}`" class="button-secondary button-sm">
         Посмотреть
       </NuxtLink>
     </header>
@@ -210,7 +262,7 @@ async function saveExperts(next: CoursePerson[]) {
 
     <section class="card panel">
       <h2 class="panel__title">
-        Регламент
+        Документ
       </h2>
 
       <div class="field">
@@ -239,8 +291,8 @@ async function saveExperts(next: CoursePerson[]) {
           <EditorRichTextEditor
             v-model="document"
             placeholder="Текст правила. Можно вставить картинку или видео."
-            :upload-image="(file, options) => uploadInline(file, options, 'Изображение в регламенте')"
-            :upload-video="(file, options) => uploadInline(file, options, 'Видео в регламенте')"
+            :upload-image="(file, options) => uploadInline(file, options, 'Изображение в документе')"
+            :upload-video="(file, options) => uploadInline(file, options, 'Видео в документе')"
           />
         </ClientOnly>
       </div>
@@ -290,7 +342,7 @@ async function saveExperts(next: CoursePerson[]) {
       title="Кто допущен"
       :note="form.visibility === 'private'
         ? null
-        : 'Регламент открыт всем — список ни на что не влияет, пока он не закрыт.'"
+        : 'Документ открыт всем — список ни на что не влияет, пока он не закрыт.'"
       :people="members"
       :is-loading="isLoadingPeople"
       :is-saving="isSavingPeople"
@@ -326,19 +378,55 @@ async function saveExperts(next: CoursePerson[]) {
       @changed="refresh"
     />
 
+    <QuizBuilder
+      v-if="showQuizBuilder"
+      :quiz="regulation.quiz ?? null"
+      :errors="quizErrors"
+      :is-submitting="isSavingQuiz"
+      :fixed-passing-score="100"
+      @save="persistQuiz"
+      @remove="dropQuiz"
+    />
+
+    <!-- Пока проверки нет — кнопка её завести. Сказано прямо, чем это кончится:
+         кнопка «ознакомлен» у документа с проверкой пропадает. -->
+    <section v-else class="card panel add-quiz">
+      <div>
+        <h2 class="panel__title">
+          Проверка
+        </h2>
+        <p class="faint">
+          Пока её нет, сотрудник отмечает ознакомление кнопкой. С проверкой
+          кнопки не будет: документ зачтётся, когда он ответит верно на все
+          вопросы.
+        </p>
+      </div>
+
+      <button type="button" class="button-secondary" @click="showQuizBuilder = true">
+        Добавить проверку
+      </button>
+    </section>
+
     <div class="actions">
       <button type="button" class="button-primary" :disabled="isSaving" @click="save">
         {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
       </button>
       <span v-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
       <button type="button" class="button-ghost actions__remove" @click="remove">
-        Удалить регламент
+        Удалить документ
       </button>
     </div>
   </section>
 </template>
 
 <style scoped>
+.add-quiz {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .edit {
   display: flex;
   flex-direction: column;

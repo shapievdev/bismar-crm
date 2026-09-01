@@ -6,12 +6,13 @@ namespace App\Actions\Lms;
 
 use App\Models\Lesson;
 use App\Models\Quiz;
+use App\Models\Regulation;
 use Illuminate\Support\Facades\DB;
 
 final readonly class SaveQuiz
 {
     /**
-     * Replaces a lesson's quiz wholesale.
+     * Replaces the quiz of a lesson or a document wholesale.
      *
      * Questions and options are rewritten rather than diffed: the editor sends
      * the complete quiz, and cascading deletes keep orphans from accumulating.
@@ -24,11 +25,15 @@ final readonly class SaveQuiz
      *     questions: array<int, array{text: string, type: string, points: int, options: array<int, array{text: string, is_correct: bool}>}>
      * } $attributes
      */
-    public function handle(Lesson $lesson, array $attributes): Quiz
+    public function handle(Lesson|Regulation $owner, array $attributes): Quiz
     {
-        return DB::transaction(function () use ($lesson, $attributes): Quiz {
+        return DB::transaction(function () use ($owner, $attributes): Quiz {
             $quiz = Quiz::updateOrCreate(
-                ['lesson_id' => $lesson->getKey()],
+                [
+                    // Вид и номер вместе: урок №3 и документ №3 — разные вещи.
+                    'quizzable_type' => $owner->getMorphClass(),
+                    'quizzable_id' => $owner->getKey(),
+                ],
                 [
                     'title' => $attributes['title'],
                     'description' => $attributes['description'] ?? null,
