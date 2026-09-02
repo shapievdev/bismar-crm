@@ -164,13 +164,17 @@ const origin = computed(() => (import.meta.client ? window.location.origin : '')
         </li>
         <li>
           <b>Credentials → Create credentials → API key</b>. Ограничьте его сайтами:
-          добавьте <code>{{ origin }}/*</code>, а в ограничениях API оставьте только Google Picker API.
-          Это и есть «Ключ API».
+          в <i>Websites</i> добавьте <code>{{ origin }}/*</code> — здесь звёздочка нужна, —
+          а в ограничениях API оставьте только Google Picker API. Это и есть «Ключ API».
         </li>
         <li>
           <b>Credentials → Create credentials → OAuth client ID → Web application</b>.
-          В <i>Authorized JavaScript origins</i> добавьте <code>{{ origin }}</code>.
-          Адреса перенаправления не нужны. Это и есть «Идентификатор клиента OAuth».
+          В <i>Authorized JavaScript origins</i> добавьте <code>{{ origin }}</code> —
+          <b>без звёздочки, без пути и без слэша на конце</b>: Google их здесь не принимает.
+          Поле <i>Authorized redirect URIs</i> оставьте пустым — окно Google открывается
+          поверх страницы и возвращаться ему некуда, а звёздочка в этом поле как раз и даёт
+          ошибку «Invalid Redirect: cannot contain a wildcard». Это и есть «Идентификатор
+          клиента OAuth».
         </li>
         <li>
           <b>OAuth consent screen</b>: если почта компании на Google Workspace, выберите
