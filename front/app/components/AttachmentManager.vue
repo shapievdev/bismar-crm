@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { UploadOptions } from '~/utils/upload'
+import type { DriveFile } from '~/composables/useGoogleDrive'
 import type { LessonAttachment } from '~/types/lms'
 
 /**
@@ -14,6 +15,13 @@ const props = defineProps<{
   uploadFile: (file: File, description: string | null, options: UploadOptions) => Promise<unknown>
   renameFile: (id: number, description: string | null) => Promise<unknown>
   removeFile: (id: number) => Promise<unknown>
+  /**
+   * Приложить файл, оставшийся жить на Google Диске.
+   *
+   * Необязательно: у новостей такого нет, и кнопки там не будет. Панель, как и
+   * прежде, не знает, куда ходить, — действие приходит с вызова.
+   */
+  attachDriveFile?: (file: DriveFile) => Promise<unknown>
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
@@ -22,6 +30,51 @@ const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 const error = ref<string | null>(null)
 
 const upload = useUploadProgress()
+
+const drive = useGoogleDrive()
+
+/** Кнопка есть, только когда ей есть куда вести и чем открыться. */
+const canAttachFromDrive = computed(() => Boolean(props.attachDriveFile) && drive.isConfigured.value)
+
+const isAttachingFromDrive = ref(false)
+
+/** Раскрытый просмотр: один за раз — их и открывают по одному. */
+const previewedId = ref<number | null>(null)
+
+async function attachFromDrive() {
+  const attach = props.attachDriveFile
+
+  if (!attach) {
+    return
+  }
+
+  error.value = null
+  isAttachingFromDrive.value = true
+
+  try {
+    const chosen = await drive.pick()
+
+    if (chosen.length === 0) {
+      return
+    }
+
+    // По одному, а не разом: сервер отвечает на файл, и при отказе на третьем
+    // первые два всё равно приложены — так и должно быть.
+    for (const file of chosen) {
+      await attach(file)
+    }
+
+    emit('changed')
+  }
+  catch (caught) {
+    error.value = caught instanceof Error && caught.message
+      ? caught.message
+      : 'Не удалось приложить файл с Google Диска.'
+  }
+  finally {
+    isAttachingFromDrive.value = false
+  }
+}
 
 /** Chosen but not yet sent: the caption is written before the upload starts. */
 const pendingFile = ref<File | null>(null)
@@ -115,6 +168,16 @@ async function remove(attachment: LessonAttachment) {
       </h2>
 
       <button
+        v-if="canAttachFromDrive"
+        type="button"
+        class="button-secondary button-sm"
+        :disabled="isAttachingFromDrive"
+        @click="attachFromDrive"
+      >
+        {{ isAttachingFromDrive ? 'Открываем Диск…' : 'С Google Диска' }}
+      </button>
+
+      <button
         type="button"
         class="button-secondary button-sm"
         :disabled="upload.isUploading.value"
@@ -129,6 +192,10 @@ async function remove(attachment: LessonAttachment) {
     <p class="faint hint">
       Документы, таблицы, презентации, изображения, архивы и HTML. Хранятся в S3,
       ссылки подписанные и живут ограниченное время.
+      <template v-if="canAttachFromDrive">
+        Файл с Google Диска остаётся у Google: сюда попадает только ссылка на него,
+        и увидят его те, кому он открыт на Диске.
+      </template>
     </p>
 
     <p v-if="error" class="alert alert--danger" role="alert">
@@ -221,12 +288,33 @@ async function remove(attachment: LessonAttachment) {
           </p>
 
           <span class="faint item__meta">
-            {{ formatBytes(file.size) }}
-            <template v-if="!file.opens_inline"> · скачается файлом</template>
+            <template v-if="file.source === 'google_drive'">Google Диск</template>
+            <template v-else>
+              {{ formatBytes(file.size) }}
+              <template v-if="!file.opens_inline"> · скачается файлом</template>
+            </template>
           </span>
+
+          <!-- Свёрнут по умолчанию: здесь список правят, а не читают, и десять
+               открытых рамок подряд мешали бы этому. -->
+          <DriveEmbed
+            v-if="previewedId === file.id && file.embed_url"
+            :src="file.embed_url"
+            :title="file.name"
+            :open-url="file.url"
+          />
         </div>
 
         <div class="item__actions">
+          <button
+            v-if="file.embed_url"
+            type="button"
+            class="button-ghost button-sm"
+            :aria-expanded="previewedId === file.id"
+            @click="previewedId = previewedId === file.id ? null : file.id"
+          >
+            {{ previewedId === file.id ? 'Скрыть' : 'Показать' }}
+          </button>
           <button type="button" class="button-ghost button-sm" @click="startEditing(file)">
             Подписать
           </button>

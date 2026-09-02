@@ -7,6 +7,7 @@ import type {
   ProductBreakdownRow,
   ProductDimension,
   LearningPayload,
+  LearningQuizResult,
   ProductsPayload,
   SalesDimension,
   SalesPayload,
@@ -78,6 +79,13 @@ export function useAnalyticsApi() {
      */
     fetchLearning: (): Promise<AnalyticsResponse<LearningPayload>> =>
       $api<AnalyticsResponse<LearningPayload>>('/api/analytics/learning'),
+
+    /** Кто и как прошёл один тест — раскрывается у одной строки отчёта. */
+    fetchQuizResults: (quizId: number): Promise<AnalyticsResponse<{
+      quiz: { id: number, title: string }
+      people: LearningQuizResult[]
+    }>> =>
+      $api(`/api/analytics/learning/quizzes/${quizId}`),
 
     fetchProducts: (filters: AnalyticsFilters): Promise<AnalyticsResponse<ProductsPayload>> =>
       $api<AnalyticsResponse<ProductsPayload>>('/api/analytics/products', { query: query(filters) }),

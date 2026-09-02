@@ -32,12 +32,16 @@ final readonly class QuizStatistics
 
         $attempts = QuizAttempt::query()
             ->where('quiz_id', $quiz->getKey())
+            // Именами список людей обрастает здесь же: попытки всё равно
+            // читаются целиком, и второй запрос за теми же сотрудниками из
+            // экрана ничего бы не убрал.
+            ->with('user:id,last_name,first_name,middle_name')
             // Читается целиком, потому что попытки одного теста — это в худшем
             // случае несколько на сотрудника. Если счёт пойдёт на десятки
             // тысяч, считать придётся в базе.
             ->orderBy('completed_at')
             ->orderBy('id')
-            ->get(['id', 'user_id', 'score', 'passed', 'answers']);
+            ->get(['id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at']);
 
         $first = $attempts->unique('user_id')->values();
 
@@ -57,7 +61,55 @@ final readonly class QuizStatistics
             'questions' => $quiz->questions->map(
                 fn (QuizQuestion $question): array => $this->question($question, $first),
             )->values()->all(),
+
+            'people' => $this->people($attempts),
         ];
+    }
+
+    /**
+     * Кто проходил тест и что отправлял.
+     *
+     * Доли по вопросам говорят о материале, но не о людях: за «сдали трое из
+     * пяти» стоят двое, которым урок не дался, и найти их можно только
+     * поимённо. Попытки приложены все, а не первые: с ними разговор о том, что
+     * человек так и не понял с третьего раза, ведётся по фактам — разбор каждой
+     * открывается отсюда же.
+     *
+     * Вперёд идут не сдавшие: список читают, чтобы решить, с кем сесть и
+     * разобрать материал, а не чтобы полюбоваться сдавшими.
+     *
+     * @param  Collection<int, QuizAttempt>  $attempts
+     * @return list<array<string, mixed>>
+     */
+    private function people(Collection $attempts): array
+    {
+        return $attempts
+            ->groupBy('user_id')
+            ->map(function (Collection $own): ?array {
+                $learner = $own->first()?->user;
+
+                if ($learner === null) {
+                    return null;
+                }
+
+                return [
+                    'id' => $learner->getKey(),
+                    'name' => $learner->name,
+                    'passed' => $own->contains('passed', true),
+                    'best_score' => (int) $own->max('score'),
+
+                    'attempts' => $own->map(fn (QuizAttempt $attempt): array => [
+                        'id' => $attempt->getKey(),
+                        'score' => (int) $attempt->score,
+                        'passed' => (bool) $attempt->passed,
+                        'completed_at' => $attempt->completed_at?->toIso8601String(),
+                    ])->values()->all(),
+                ];
+            })
+            ->filter()
+            ->sortBy(fn (array $person): string => ($person['passed'] ? '1' : '0').mb_strtolower($person['name']))
+            ->values()
+            ->all();
     }
 
     /**
@@ -66,6 +118,10 @@ final readonly class QuizStatistics
      */
     private function question(QuizQuestion $question, Collection $attempts): array
     {
+        if ($question->type->isWritten() || $question->type->isTable()) {
+            return $this->openQuestion($question, $attempts);
+        }
+
         $correct = $question->correctOptionIds()->map(intval(...))->sort()->values()->all();
 
         $answered = 0;
@@ -116,6 +172,70 @@ final readonly class QuizStatistics
                 // в уроке написано что-то, что читается именно так.
                 'chosen' => $chosenTimes[(int) $option->id] ?? 0,
             ])->values()->all(),
+        ];
+    }
+
+    /**
+     * Вопрос без вариантов: письменный ответ или таблица.
+     *
+     * Вместо «какой вариант выбирают» здесь средняя схожесть с эталоном — она и
+     * говорит автору о пороге: если верные по смыслу ответы стоят у самой
+     * черты, дело не в людях, а в том, что эталон написан слишком узко. У
+     * таблицы схожести нет, зато есть доля заполнивших её целиком.
+     *
+     * @param  Collection<int, QuizAttempt>  $attempts
+     * @return array<string, mixed>
+     */
+    private function openQuestion(QuizQuestion $question, Collection $attempts): array
+    {
+        $answered = 0;
+        $right = 0;
+        $similarities = [];
+
+        foreach ($attempts as $attempt) {
+            /** @var array<int|string, mixed> $submitted */
+            $submitted = $attempt->answers ?? [];
+            /** @var array<int|string, array<string, mixed>> $scores */
+            $scores = $attempt->scores ?? [];
+
+            $key = $question->getKey();
+            $given = $submitted[$key] ?? $submitted[(string) $key] ?? null;
+
+            // Тронут ли вопрос: у письменного это непустая строка, у таблицы —
+            // хоть одна заполненная ячейка.
+            $touched = is_array($given)
+                ? collect($given)->flatten()->contains(fn ($cell): bool => trim((string) $cell) !== '')
+                : trim((string) $given) !== '';
+
+            if (! $touched) {
+                continue;
+            }
+
+            $answered++;
+
+            $score = $scores[$key] ?? $scores[(string) $key] ?? [];
+
+            if (($score['points'] ?? 0) > 0) {
+                $right++;
+            }
+
+            if (isset($score['similarity'])) {
+                $similarities[] = (float) $score['similarity'];
+            }
+        }
+
+        return [
+            'id' => $question->getKey(),
+            'text' => $question->text,
+            'answered' => $answered,
+            'correct' => $right,
+            'correct_share' => $answered === 0 ? null : (int) round($right / $answered * 100),
+
+            'average_similarity' => $similarities === []
+                ? null
+                : round(array_sum($similarities) / count($similarities), 2),
+
+            'options' => [],
         ];
     }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { SelectOption } from '~/components/ui/Select.vue'
 import type { ValidationErrors } from '~/composables/useAuth'
-import type { QuestionType, Quiz, QuizPayload } from '~/types/lms'
+import type { QuestionTable, QuestionType, Quiz, QuizPayload } from '~/types/lms'
 
 const props = defineProps<{
   quiz: Quiz | null
@@ -26,10 +26,45 @@ const emit = defineEmits<{
 const questionTypes: SelectOption<QuestionType>[] = [
   { value: 'single', label: 'Один ответ' },
   { value: 'multiple', label: 'Несколько ответов' },
+  { value: 'text', label: 'Короткий ответ' },
+  { value: 'long_text', label: 'Развёрнутый ответ' },
+  { value: 'table', label: 'Таблица' },
 ]
 
-interface DraftOption { text: string, is_correct: boolean }
-interface DraftQuestion { text: string, type: QuestionType, points: number, options: DraftOption[] }
+/** Заполняют таблицу: ни вариантов, ни эталона — зачёт по заполненности. */
+function isTable(type: QuestionType): boolean {
+  return type === 'table'
+}
+
+function blankTable(): QuestionTable {
+  return {
+    row_label_title: '',
+    columns: [{ title: '', kind: 'text', options: [] }],
+    rows: [{ label: '' }],
+    can_add_rows: false,
+  }
+}
+
+/** Отвечают своими словами: вариантов нет, зато нужен эталон. */
+function isWritten(type: QuestionType): boolean {
+  return type === 'text' || type === 'long_text'
+}
+
+/**
+ * Черновик хранит номера того, что уже есть на сервере: по ним разложены ответы
+ * прошлых попыток, и вопрос, вернувшийся без номера, сервер заведёт заново — а
+ * вместе с ним потеряется разбор всего, что на него отвечали.
+ */
+interface DraftOption { id?: number | null, text: string, is_correct: boolean }
+interface DraftQuestion {
+  id?: number | null
+  text: string
+  type: QuestionType
+  points: number
+  options: DraftOption[]
+  expected_answer: string
+  table: QuestionTable
+}
 
 function blankQuestion(): DraftQuestion {
   return {
@@ -40,12 +75,15 @@ function blankQuestion(): DraftQuestion {
       { text: '', is_correct: true },
       { text: '', is_correct: false },
     ],
+    expected_answer: '',
+    table: blankTable(),
   }
 }
 
 /**
  * The server replaces the quiz wholesale on save, so the editor keeps its own
- * draft and sends the complete thing.
+ * draft and sends the complete thing — вместе с номерами: по ним сервер узнаёт
+ * уже существующие вопросы и варианты и правит их на месте.
  */
 function draftFrom(quiz: Quiz | null): QuizPayload {
   if (quiz === null) {
@@ -64,13 +102,17 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
     passing_score: props.fixedPassingScore ?? quiz.passing_score,
     max_attempts: quiz.max_attempts,
     questions: (quiz.questions ?? []).map(question => ({
+      id: question.id,
       text: question.text,
       type: question.type,
       points: question.points,
       options: question.options.map(option => ({
+        id: option.id,
         text: option.text,
         is_correct: option.is_correct ?? false,
       })),
+      expected_answer: question.expected_answer ?? '',
+      table: question.table ?? blankTable(),
     })),
   }
 }
@@ -119,6 +161,41 @@ function markCorrect(questionIndex: number, optionIndex: number) {
 
   if (option) {
     option.is_correct = !option.is_correct
+  }
+}
+
+/**
+ * Что уходит на сервер: у вопроса с выбором — варианты, у письменного —
+ * эталон. Присылать и то и другое значило бы держать два ключа у одного
+ * вопроса.
+ */
+function payload(): QuizPayload {
+  return {
+    ...draft.value,
+    questions: draft.value.questions.map((question) => {
+      const common = {
+        // Номер едет обратно всегда: без него сервер заведёт вопрос заново, и
+        // ответы прошлых попыток перестанут с ним сходиться.
+        id: question.id ?? null,
+        text: question.text,
+        type: question.type,
+        points: question.points,
+      }
+
+      if (isWritten(question.type)) {
+        return {
+          ...common,
+          options: [],
+          expected_answer: (question.expected_answer ?? '').trim(),
+        }
+      }
+
+      if (isTable(question.type)) {
+        return { ...common, options: [], table: question.table }
+      }
+
+      return { ...common, options: question.options }
+    }),
   }
 }
 
@@ -227,34 +304,73 @@ function errorFor(path: string): string | null {
         {{ errorFor(`questions.${questionIndex}.text`) }}
       </p>
 
-      <div v-for="(option, optionIndex) in question.options" :key="optionIndex" class="option">
-        <input
-          :type="question.type === 'single' ? 'radio' : 'checkbox'"
-          :name="`correct-${questionIndex}`"
-          :checked="option.is_correct"
-          title="Правильный вариант"
-          @change="markCorrect(questionIndex, optionIndex)"
-        >
+      <!-- Письменный вопрос: вариантов нет, есть эталон. С ним ИИ сравнивает
+           написанное сотрудником — по смыслу, а не по буквам. -->
+      <template v-if="isWritten(question.type)">
+        <label class="reference">
+          <span>Эталонный ответ</span>
+          <textarea
+            v-model.trim="question.expected_answer"
+            :rows="question.type === 'long_text' ? 4 : 2"
+            placeholder="Как выглядит верный ответ. Своими словами, полно — с этим текстом будет сравниваться написанное сотрудником"
+          />
+        </label>
 
-        <input v-model.trim="option.text" type="text" placeholder="Текст варианта">
+        <p class="reference__note">
+          Ответ зачитывается, если он близок к эталону по смыслу: «деньги
+          заморожены в запасах» и «товар лежит на складе, оплата у клиентов» —
+          для проверки одно и то же. Порог схожести общий для всех тестов и
+          задаётся в настройках консультанта. Сотрудник эталона не видит.
+        </p>
 
-        <button
-          type="button"
-          class="danger"
-          :disabled="question.options.length <= 2"
-          @click="removeOption(questionIndex, optionIndex)"
-        >
-          ×
+        <p v-if="errorFor(`questions.${questionIndex}.expected_answer`)" class="field__error">
+          {{ errorFor(`questions.${questionIndex}.expected_answer`) }}
+        </p>
+      </template>
+
+      <!-- Таблица: столбцы и строки собирает автор, а зачитывается она по
+           заполненности — верны ли числа, приложение знать не может. -->
+      <template v-else-if="isTable(question.type)">
+        <QuizTableEditor v-if="question.table" v-model="question.table" />
+
+        <p v-if="errorFor(`questions.${questionIndex}.table.columns`)" class="field__error">
+          {{ errorFor(`questions.${questionIndex}.table.columns`) }}
+        </p>
+        <p v-if="errorFor(`questions.${questionIndex}.table.rows`)" class="field__error">
+          {{ errorFor(`questions.${questionIndex}.table.rows`) }}
+        </p>
+      </template>
+
+      <template v-else>
+        <div v-for="(option, optionIndex) in question.options" :key="optionIndex" class="option">
+          <input
+            :type="question.type === 'single' ? 'radio' : 'checkbox'"
+            :name="`correct-${questionIndex}`"
+            :checked="option.is_correct"
+            title="Правильный вариант"
+            @change="markCorrect(questionIndex, optionIndex)"
+          >
+
+          <input v-model.trim="option.text" type="text" placeholder="Текст варианта">
+
+          <button
+            type="button"
+            class="danger"
+            :disabled="question.options.length <= 2"
+            @click="removeOption(questionIndex, optionIndex)"
+          >
+            ×
+          </button>
+        </div>
+
+        <p v-if="errorFor(`questions.${questionIndex}.options`)" class="field__error">
+          {{ errorFor(`questions.${questionIndex}.options`) }}
+        </p>
+
+        <button type="button" class="button-plain" @click="addOption(questionIndex)">
+          Добавить вариант
         </button>
-      </div>
-
-      <p v-if="errorFor(`questions.${questionIndex}.options`)" class="field__error">
-        {{ errorFor(`questions.${questionIndex}.options`) }}
-      </p>
-
-      <button type="button" class="button-plain" @click="addOption(questionIndex)">
-        Добавить вариант
-      </button>
+      </template>
     </article>
 
     <p v-if="errorFor('questions')" class="field__error">
@@ -270,7 +386,7 @@ function errorFor(path: string): string | null {
         type="button"
         class="button-primary"
         :disabled="isSubmitting"
-        @click="emit('save', draft)"
+        @click="emit('save', payload())"
       >
         {{ isSubmitting ? 'Сохраняем…' : 'Сохранить тест' }}
       </button>
@@ -279,6 +395,24 @@ function errorFor(path: string): string | null {
 </template>
 
 <style scoped>
+.reference {
+  display: block;
+  margin: 0.5rem 0 0;
+}
+
+.reference span {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.reference__note {
+  margin: 0.4rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
 /* Правило, а не настройка: сказать о нём надо там, где ищут поле. */
 .rule {
   margin: 0 0 0.9rem;

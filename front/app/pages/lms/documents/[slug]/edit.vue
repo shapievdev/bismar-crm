@@ -18,6 +18,7 @@ const {
   uploadAttachment,
   updateAttachment,
   deleteAttachment,
+  attachDriveFile,
   fetchMembers,
   updateMembers,
   searchMemberCandidates,
@@ -26,6 +27,8 @@ const {
   searchExpertCandidates,
   saveQuiz,
   deleteQuiz,
+  fetchQuizStatistics,
+  fetchQuizAttempt,
 } = useRegulationsApi()
 
 const router = useRouter()
@@ -375,6 +378,7 @@ async function saveExperts(next: CoursePerson[]) {
       :upload-file="(file, description, options) => uploadAttachment(slug, file, description, options)"
       :rename-file="(id, description) => updateAttachment(slug, id, description)"
       :remove-file="(id) => deleteAttachment(slug, id)"
+      :attach-drive-file="(file) => attachDriveFile(slug, file)"
       @changed="refresh"
     />
 
@@ -386,6 +390,15 @@ async function saveExperts(next: CoursePerson[]) {
       :fixed-passing-score="100"
       @save="persistQuiz"
       @remove="dropQuiz"
+    />
+
+    <!-- Разбор — только у сохранённой проверки: пока её нет, считать нечего.
+         Ключ здесь и так открыт: автор видит верные ответы в самой проверке. -->
+    <QuizStatisticsPanel
+      v-if="regulation.quiz"
+      :key="regulation.quiz.id"
+      :load="async () => (await fetchQuizStatistics(slug)).data"
+      :load-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
     />
 
     <!-- Пока проверки нет — кнопка её завести. Сказано прямо, чем это кончится:

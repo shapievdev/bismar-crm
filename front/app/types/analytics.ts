@@ -97,10 +97,40 @@ export interface LearningRegulationRow {
   acknowledged: number
 }
 
+/**
+ * Строка отчёта по тестам — один тест, где бы он ни висел: при уроке или при
+ * документе. `attempted` и `passed` считаются по людям, а не по попыткам.
+ */
+export interface LearningQuizRow {
+  id: number
+  title: string
+  kind: 'lesson' | 'regulation'
+  material: string | null
+  course_title: string | null
+  course_slug: string | null
+  lesson_id: number | null
+  document_slug: string | null
+  questions: number
+  attempted: number
+  passed: number
+  average_score: number
+}
+
+/** Кто и как прошёл один тест. */
+export interface LearningQuizResult {
+  id: number
+  name: string
+  attempts: number
+  best_score: number
+  passed: boolean
+  last_at: string | null
+}
+
 export interface LearningPayload {
   summary: LearningSummary
   courses: LearningCourseRow[]
   regulations: LearningRegulationRow[]
+  quizzes: LearningQuizRow[]
 }
 
 export interface Directory {

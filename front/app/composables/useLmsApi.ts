@@ -1,4 +1,5 @@
 import { toValidationError } from '~/composables/useAuth'
+import type { DriveFile } from '~/composables/useGoogleDrive'
 import type { ResourceResponse } from '~/types/auth'
 import type {
   AnswerSourceKind,
@@ -139,7 +140,8 @@ export function useLmsApi() {
 
     submitQuiz: (
       lessonId: number | string,
-      answers: Record<number, number[]>,
+      // У письменного вопроса ответ — строка, у выбора — номера вариантов.
+      answers: Record<number, number[] | string | string[][]>,
     ): Promise<ResourceResponse<QuizAttempt>> =>
       $api<ResourceResponse<QuizAttempt>>(`/api/lms/lessons/${lessonId}/quiz/submit`, {
         method: 'POST',
@@ -153,6 +155,16 @@ export function useLmsApi() {
     /** Автору: какой вопрос заваливают и что выбирают вместо верного. */
     fetchQuizStatistics: (lessonId: number | string): Promise<ResourceResponse<QuizStatistics>> =>
       $api<ResourceResponse<QuizStatistics>>(`/api/lms/lessons/${lessonId}/quiz/statistics`),
+
+    /**
+     * Автору: разбор попытки сотрудника. Адрес при уроке, а не при попытке, —
+     * право смотреть чужие ответы даёт материал.
+     */
+    fetchLessonAttempt: (
+      lessonId: number | string,
+      attemptId: number,
+    ): Promise<ResourceResponse<QuizAttempt>> =>
+      $api<ResourceResponse<QuizAttempt>>(`/api/lms/lessons/${lessonId}/quiz/attempts/${attemptId}`),
 
     addModule: (slug: string, body: ModulePayload) =>
       $api(`/api/lms/courses/${slug}/modules`, { method: 'POST', body }),
@@ -191,6 +203,20 @@ export function useLmsApi() {
         options,
       )
     },
+
+    /**
+     * Приложить файл, оставшийся жить на Google Диске: уходит только его номер,
+     * адрес просмотра сервер собирает сам.
+     */
+    attachDriveFile: (
+      lessonId: number | string,
+      file: DriveFile,
+      description: string | null = null,
+    ): Promise<ResourceResponse<LessonAttachment>> =>
+      $api<ResourceResponse<LessonAttachment>>(`/api/lms/lessons/${lessonId}/attachments/drive`, {
+        method: 'POST',
+        body: { ...file, description },
+      }),
 
     updateAttachment: (attachmentId: number, description: string | null) =>
       $api<ResourceResponse<LessonAttachment>>(`/api/lms/attachments/${attachmentId}`, {

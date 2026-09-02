@@ -104,6 +104,8 @@ const links = computed<NavLink[]>(() => {
       { to: '/settings/broadcasts', label: 'Рассылки', visible: isAdmin.value },
       // Пробелы в базе закрывают авторы курсов — журнал открыт им.
       { to: '/settings/questions', label: 'Вопросы', visible: can('courses.update') },
+      // Связка с чужими службами — решение о компании, а не право с галочкой.
+      { to: '/settings/integrations', label: 'Интеграции', visible: isAdmin.value },
       // Платёжный ключ и модель — только суперадминистратору.
       { to: '/settings/ai', label: 'Консультант', visible: isSuperAdmin.value },
     ].filter(link => link.visible)

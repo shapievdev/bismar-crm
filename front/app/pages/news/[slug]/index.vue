@@ -65,7 +65,7 @@ const isSubmitting = ref(false)
 const quizError = ref<string | null>(null)
 const result = ref<NewsQuizResult | null>(null)
 
-async function send(answers: Record<number, number[]>) {
+async function send(answers: Record<number, number[] | string | string[][]>) {
   isSubmitting.value = true
   quizError.value = null
 

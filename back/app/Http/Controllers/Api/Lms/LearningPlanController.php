@@ -11,11 +11,14 @@ use App\Http\Resources\Lms\LearningPlanItemResource;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\LearningPlanItem;
+use App\Models\Quiz;
+use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
 use App\Models\User;
 use App\Support\Lms\PlannableMaterial;
 use App\Support\Lms\ProgressCalculator;
+use Carbon\CarbonImmutable as Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -130,18 +133,76 @@ final class LearningPlanController extends Controller
             ->get()
             ->keyBy('course_id');
 
+        // Не просто «отметился», а когда: у пройденного шага дата — это то, о
+        // чём спрашивают вторым вопросом после «пройдено ли».
         $acknowledged = RegulationAcknowledgement::query()
             ->where('user_id', $learner->getKey())
             ->whereIn('regulation_id', $this->idsOf($items, Regulation::class))
-            ->pluck('regulation_id')
-            ->map(intval(...))
+            ->pluck('acknowledged_at', 'regulation_id')
             ->all();
 
-        return $items->each(function (LearningPlanItem $item) use ($enrollments, $acknowledged): void {
+        $quizzes = $this->quizOutcomes($items, $learner);
+
+        return $items->each(function (LearningPlanItem $item) use ($enrollments, $acknowledged, $quizzes): void {
             $item->plannable instanceof Regulation
                 ? $this->attachRegulationProgress($item, $acknowledged)
                 : $this->attachCourseProgress($item, $enrollments);
+
+            $item->setAttribute('quiz', $quizzes[(int) $item->plannable_id] ?? null);
         });
+    }
+
+    /**
+     * Как этот человек прошёл проверки при документах плана.
+     *
+     * Только у документов: у курса тест висит на уроке, и о нём говорит доля
+     * пройденного, — а у документа проверка и есть всё его прохождение, и «не
+     * ознакомлен» без неё выглядел бы ленью, а не несданным тестом.
+     *
+     * Двумя запросами на весь план, а не по запросу на шаг: проверок и попыток
+     * в плане из десяти шагов — десятки строк.
+     *
+     * @param  Collection<int, LearningPlanItem>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function quizOutcomes(Collection $items, User $learner): array
+    {
+        $documentIds = $this->idsOf($items, Regulation::class);
+
+        if ($documentIds === []) {
+            return [];
+        }
+
+        $quizzes = Quiz::query()
+            ->where('quizzable_type', (new Regulation)->getMorphClass())
+            ->whereIn('quizzable_id', $documentIds)
+            ->withCount('questions')
+            ->get();
+
+        if ($quizzes->isEmpty()) {
+            return [];
+        }
+
+        $attempts = QuizAttempt::query()
+            ->whereIn('quiz_id', $quizzes->modelKeys())
+            ->where('user_id', $learner->getKey())
+            ->get(['quiz_id', 'score', 'passed', 'completed_at'])
+            ->groupBy('quiz_id');
+
+        return $quizzes->mapWithKeys(function (Quiz $quiz) use ($attempts): array {
+            /** @var \Illuminate\Support\Collection<int, QuizAttempt> $own */
+            $own = $attempts->get($quiz->getKey(), collect());
+
+            return [(int) $quiz->quizzable_id => [
+                'questions' => (int) $quiz->questions_count,
+                'attempts' => $own->count(),
+                // Лучшая попытка, а не последняя: сдал — значит сдал, и
+                // повторный заход из любопытства этого не отменяет.
+                'best_score' => $own->max('score'),
+                'passed' => $own->contains(fn (QuizAttempt $attempt): bool => (bool) $attempt->passed),
+                'last_at' => $own->max('completed_at')?->toIso8601String(),
+            ]];
+        })->all();
     }
 
     /**
@@ -162,22 +223,25 @@ final class LearningPlanController extends Controller
         $item->setAttribute('progress_percentage', $enrollment === null ? 0 : $this->progress->percentage($enrollment));
         $item->setAttribute('is_started', $enrollment?->started_at !== null);
         $item->setAttribute('is_completed', $enrollment?->isCompleted() ?? false);
+        $item->setAttribute('completed_at', $enrollment?->completed_at?->toIso8601String());
     }
 
     /**
-     * У регламента прогресса как доли нет: правило либо прочитано, либо нет.
+     * У документа прогресса как доли нет: правило либо прочитано, либо нет.
      *
-     * @param  list<int>  $acknowledged
+     * @param  array<int|string, mixed>  $acknowledged  номер документа => когда отметился
      */
     private function attachRegulationProgress(LearningPlanItem $item, array $acknowledged): void
     {
-        $done = in_array((int) $item->plannable_id, $acknowledged, strict: true);
+        $at = $acknowledged[(int) $item->plannable_id] ?? null;
+        $done = $at !== null;
 
         $item->setAttribute('progress_percentage', $done ? 100 : 0);
-        // «Начал читать» регламент — состояние, которого не существует: он на
+        // «Начал читать» документ — состояние, которого не существует: он на
         // одну страницу, и середины у него нет.
         $item->setAttribute('is_started', $done);
         $item->setAttribute('is_completed', $done);
+        $item->setAttribute('completed_at', $at === null ? null : Carbon::parse($at)->toIso8601String());
     }
 
     /**

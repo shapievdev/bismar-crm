@@ -16,7 +16,12 @@ const props = defineProps<{
   quiz: Quiz
   isSubmitting: boolean
   errorMessage?: string | null
-  /** Итог последней отправки. Null — вопросы ещё не отправляли. */
+  /**
+   * Итог последней отправки. Null — вопросы ещё не отправляли.
+   *
+   * Разбор показывает, в каких вопросах ошибка, но не верные ответы: ключ
+   * открывается только когда попытки кончились — см. QuizReview на сервере.
+   */
   result?: { score: number, passed: boolean, review?: QuizReview | null } | null
   /** Правило сдачи прописью: планка у документа и у новости разная. */
   rule: string
@@ -27,11 +32,36 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [answers: Record<number, number[]>]
+  submit: [answers: Record<number, number[] | string | string[][]>]
   retry: []
 }>()
 
-const answers = ref<Record<number, number[]>>({})
+/**
+ * Ответы: у вопроса с выбором — номера вариантов, у письменного — строка.
+ * Уходят одним полем, как их и принимает сервер.
+ */
+const answers = ref<Record<number, number[] | string | string[][]>>({})
+
+function written(questionId: number): string {
+  const answer = answers.value[questionId]
+
+  return typeof answer === 'string' ? answer : ''
+}
+
+/** Строки таблицы держит сам компонент таблицы — здесь только их место. */
+function tableRows(questionId: number): string[][] {
+  const answer = answers.value[questionId]
+
+  return Array.isArray(answer) && Array.isArray(answer[0]) ? answer as string[][] : []
+}
+
+function setTableRows(questionId: number, rows: string[][]) {
+  answers.value = { ...answers.value, [questionId]: rows }
+}
+
+function write(questionId: number, value: string) {
+  answers.value = { ...answers.value, [questionId]: value }
+}
 
 const questions = computed(() => props.quiz.questions ?? [])
 
@@ -41,11 +71,32 @@ const questions = computed(() => props.quiz.questions ?? [])
  */
 const isAnswered = computed(
   () => questions.value.length > 0
-    && questions.value.every(question => (answers.value[question.id] ?? []).length > 0),
+    && questions.value.every((question) => {
+      const answer = answers.value[question.id]
+
+      if (typeof answer === 'string') {
+        return answer.trim() !== ''
+      }
+
+      // У таблицы «отвечено» — хоть одна заполненная ячейка: полнота её
+      // проверяется на сервере, там же лежит и правило зачёта.
+      if (Array.isArray(answer) && Array.isArray(answer[0])) {
+        return (answer as string[][]).some(row => row.some(cell => cell.trim() !== ''))
+      }
+
+      return chosenOptions(question.id).length > 0
+    }),
 )
 
+/** Выбранные варианты: у прочих видов ответа их нет. */
+function chosenOptions(questionId: number): number[] {
+  const answer = answers.value[questionId]
+
+  return Array.isArray(answer) && !Array.isArray(answer[0]) ? answer as number[] : []
+}
+
 function toggle(questionId: number, optionId: number, single: boolean) {
-  const chosen = answers.value[questionId] ?? []
+  const chosen = chosenOptions(questionId)
 
   answers.value = {
     ...answers.value,
@@ -56,7 +107,7 @@ function toggle(questionId: number, optionId: number, single: boolean) {
 }
 
 function isChosen(questionId: number, optionId: number): boolean {
-  return (answers.value[questionId] ?? []).includes(optionId)
+  return chosenOptions(questionId).includes(optionId)
 }
 
 function retry() {
@@ -93,7 +144,7 @@ function retry() {
         </template>
       </p>
 
-      <!-- Разбор сразу: пересдача без него учит разве что перебирать варианты. -->
+      <!-- Разбор: где ошибка, видно сразу; верные ответы — нет. -->
       <QuizReviewPanel v-if="result.review" :review="result.review" />
 
       <button v-if="!result.passed" type="button" class="button-secondary" @click="retry">
@@ -107,15 +158,43 @@ function retry() {
           {{ index + 1 }}. {{ question.text }}
         </legend>
 
-        <label v-for="option in question.options" :key="option.id" class="option">
-          <input
-            :type="question.type === 'single' ? 'radio' : 'checkbox'"
-            :name="`question-${question.id}`"
-            :checked="isChosen(question.id, option.id)"
-            @change="toggle(question.id, option.id, question.type === 'single')"
-          >
-          {{ option.text }}
-        </label>
+        <!-- Письменный ответ: своими словами, а верность проверит ИИ по
+             схожести с эталоном автора. -->
+        <textarea
+          v-if="question.type === 'long_text'"
+          class="input written"
+          rows="4"
+          :value="written(question.id)"
+          placeholder="Ответьте своими словами"
+          @input="write(question.id, ($event.target as HTMLTextAreaElement).value)"
+        />
+        <input
+          v-else-if="question.type === 'text'"
+          class="input written"
+          type="text"
+          :value="written(question.id)"
+          placeholder="Ответьте одной строкой"
+          @input="write(question.id, ($event.target as HTMLInputElement).value)"
+        >
+
+        <QuizTable
+          v-else-if="question.type === 'table' && question.table"
+          :table="question.table"
+          :model-value="tableRows(question.id)"
+          @update:model-value="rows => setTableRows(question.id, rows)"
+        />
+
+        <template v-else>
+          <label v-for="option in question.options" :key="option.id" class="option">
+            <input
+              :type="question.type === 'single' ? 'radio' : 'checkbox'"
+              :name="`question-${question.id}`"
+              :checked="isChosen(question.id, option.id)"
+              @change="toggle(question.id, option.id, question.type === 'single')"
+            >
+            {{ option.text }}
+          </label>
+        </template>
       </fieldset>
 
       <button type="submit" class="button-primary" :disabled="isSubmitting || !isAnswered">
@@ -126,6 +205,10 @@ function retry() {
 </template>
 
 <style scoped>
+.written {
+  width: 100%;
+}
+
 .quiz {
   display: flex;
   flex-direction: column;

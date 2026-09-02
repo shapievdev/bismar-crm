@@ -204,6 +204,115 @@ final class LearningReport
     }
 
     /**
+     * Тесты: сколько человек их проходило и сколько сдало.
+     *
+     * Один список на оба вида — тесты уроков и проверки документов: у них общее
+     * устройство и общий вопрос «как это проходят», а разбирать отчёт по двум
+     * таблицам значило бы читать его в две колонки.
+     *
+     * Сдавшие считаются по людям, а не по попыткам: сдал со третьего раза —
+     * всё равно сдал один человек. Средний балл берётся по лучшей попытке
+     * каждого: по всем подряд он говорил бы о том, сколько раз человек
+     * пробовал, а не о том, чем кончилось.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function quizzes(): array
+    {
+        $rows = DB::select(sprintf(<<<'SQL'
+            with best as (
+                select a.quiz_id, a.user_id, max(a.score) as best_score, bool_or(a.passed) as passed
+                from quiz_attempts a
+                join users u on u.id = a.user_id and u.dismissed_at is null
+                group by a.quiz_id, a.user_id
+            )
+            select
+                q.id,
+                q.title,
+                q.quizzable_type as kind,
+                q.quizzable_id,
+                (select count(*) from quiz_questions where quiz_id = q.id) as questions,
+                l.id as lesson_id,
+                l.title as lesson_title,
+                c.slug as course_slug,
+                c.title as course_title,
+                r.slug as document_slug,
+                r.title as document_title,
+                count(best.user_id) as attempted,
+                count(best.user_id) filter (where best.passed) as passed,
+                coalesce(round(avg(best.best_score)), 0) as average_score
+            from quizzes q
+            left join best on best.quiz_id = q.id
+            left join lessons l on q.quizzable_type = 'lesson' and l.id = q.quizzable_id
+            left join course_modules m on m.id = l.module_id
+            left join courses c on c.id = m.course_id and c.deleted_at is null
+            left join regulations r on q.quizzable_type = 'regulation' and r.id = q.quizzable_id
+                and r.deleted_at is null
+            group by q.id, q.title, q.quizzable_type, q.quizzable_id,
+                l.id, l.title, c.slug, c.title, r.slug, r.title
+            order by count(best.user_id) desc, q.title collate "und-x-icu"
+            limit %d
+            SQL, self::TOP));
+
+        return array_map(static fn (object $row): array => [
+            'id' => (int) $row->id,
+            'title' => $row->title,
+
+            // Где тест стоит: экран рисует по этому и подпись, и ссылку —
+            // «Кассовая дисциплина» ведёт в документ, урок — в курс.
+            'kind' => $row->kind,
+            'material' => $row->kind === 'lesson' ? $row->lesson_title : $row->document_title,
+            'course_title' => $row->course_title,
+            'course_slug' => $row->course_slug,
+            'lesson_id' => $row->lesson_id === null ? null : (int) $row->lesson_id,
+            'document_slug' => $row->document_slug,
+
+            'questions' => (int) $row->questions,
+            'attempted' => (int) $row->attempted,
+            'passed' => (int) $row->passed,
+            'average_score' => (int) $row->average_score,
+        ], $rows);
+    }
+
+    /**
+     * Кто и как прошёл один тест.
+     *
+     * По человеку, а не по попытке: в отчёте спрашивают «сдал ли Иванов», а не
+     * «что он отправлял в третий раз». Попытки при этом посчитаны — по их числу
+     * видно, далась ли проверка с первого раза.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function quizResults(int $quizId): array
+    {
+        $rows = DB::select(<<<'SQL'
+            select
+                u.id,
+                coalesce(u.last_name, '') as last_name,
+                u.first_name,
+                u.middle_name,
+                count(a.id) as attempts,
+                max(a.score) as best_score,
+                bool_or(a.passed) as passed,
+                max(a.completed_at) as last_at
+            from quiz_attempts a
+            join users u on u.id = a.user_id and u.dismissed_at is null
+            where a.quiz_id = ?
+            group by u.id, u.last_name, u.first_name, u.middle_name
+            order by bool_or(a.passed), coalesce(u.last_name, u.first_name) collate "und-x-icu"
+            SQL, [$quizId]);
+
+        return array_map(static fn (object $row): array => [
+            'id' => (int) $row->id,
+            'name' => trim(implode(' ', array_filter([$row->last_name, $row->first_name, $row->middle_name]))),
+            'attempts' => (int) $row->attempts,
+            'best_score' => (int) $row->best_score,
+            'passed' => (bool) $row->passed,
+            'last_at' => $row->last_at === null ? null : (string) $row->last_at,
+        ], $rows);
+    }
+
+    /**
      * Записи на курсы с посчитанным прогрессом — общая заготовка для сводки и
      * для рейтинга курсов.
      *

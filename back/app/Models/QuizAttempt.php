@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['quiz_id', 'user_id', 'score', 'passed', 'answers', 'completed_at'])]
+#[Fillable(['quiz_id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at'])]
 class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
 {
     /**
@@ -45,6 +45,9 @@ class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
     {
         return [
             'answers' => 'array',
+            // Разбор оценки по вопросам: сколько баллов дано и, у письменного
+            // ответа, чем измерена схожесть.
+            'scores' => 'array',
             'passed' => 'boolean',
             'completed_at' => 'datetime',
         ];

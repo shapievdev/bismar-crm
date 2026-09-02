@@ -9,7 +9,38 @@ export type CourseStatus = 'draft' | 'published' | 'archived'
  * для остальных его нет ни в каталоге, ни у консультанта.
  */
 export type CourseVisibility = 'public' | 'private'
-export type QuestionType = 'single' | 'multiple'
+/**
+ * Чем отвечают на вопрос: выбором варианта или своими словами.
+ *
+ * Письменный ответ проверяет ИИ — сравнивает его с эталоном автора по смыслу.
+ */
+export type QuestionType = 'single' | 'multiple' | 'text' | 'long_text' | 'table'
+
+/** Столбец таблицы: свободная ячейка или выбор из списка. */
+export interface QuestionTableColumn {
+  title: string
+  kind: 'text' | 'select'
+  options: string[]
+}
+
+/**
+ * Устройство таблицы-вопроса.
+ *
+ * `row_label_title` пуст — ведущего столбца с подписями нет вовсе (так устроена
+ * таблица на двенадцать месяцев). Пустая подпись строки означает, что название
+ * вписывает сам сотрудник.
+ */
+export interface QuestionTable {
+  row_label_title: string | null
+  columns: QuestionTableColumn[]
+  /**
+   * Строки таблицы. `expected` — ожидаемые значения по столбцам: где автор их
+   * задал, ячейка сверяется, где оставил пустыми — только требуется заполнить.
+   * Сотруднику этот список не приходит: это тот же ключ.
+   */
+  rows: { label: string, expected?: string[] }[]
+  can_add_rows: boolean
+}
 
 export interface LessonSummary {
   id: number
@@ -64,6 +95,14 @@ export interface LessonLink {
   title: string
 }
 
+/**
+ * Откуда файл: загружен к нам или остался жить на Google Диске.
+ *
+ * Разница не в способе загрузки, а в том, кто отвечает за доступ: наш файл
+ * закрыт подписанной ссылкой, файл с Диска — настройками доступа у Google.
+ */
+export type AttachmentSource = 'storage' | 'google_drive'
+
 export interface LessonAttachment {
   id: number
   name: string
@@ -73,6 +112,9 @@ export interface LessonAttachment {
   /** False when the signed URL forces a download instead of rendering. */
   opens_inline: boolean
   url: string
+  source: AttachmentSource
+  /** Адрес для рамки просмотра — только у файла с Google Диска. */
+  embed_url: string | null
 }
 
 export interface QuizOption {
@@ -90,6 +132,13 @@ export interface QuizQuestion {
   points: number
   position: number
   options: QuizOption[]
+  /**
+   * Эталонный ответ письменного вопроса. Приходит только тому, кто правит
+   * материал: сотруднику это тот же ключ.
+   */
+  expected_answer?: string | null
+  /** Форма таблицы. Не ключ — без неё заполнять нечего, поэтому едет всем. */
+  table?: QuestionTable | null
 }
 
 export interface Quiz {
@@ -193,6 +242,21 @@ export interface LearningPlanItem {
   progress: number
   is_started: boolean
   is_completed: boolean
+  /** Когда шаг был пройден. Пусто у непройденного. */
+  completed_at?: string | null
+
+  /**
+   * Проверка при документе и то, как её прошёл этот человек. Null — проверки
+   * нет; у курса её и не бывает, там тест висит на уроке.
+   */
+  quiz?: {
+    questions: number
+    attempts: number
+    best_score: number | null
+    passed: boolean
+    last_at: string | null
+  } | null
+
   /**
    * Увидит ли сотрудник этот шаг у себя. Приходит только тому, кто план
    * составляет: материал могли закрыть уже после назначения.
@@ -295,6 +359,25 @@ export interface QuizReviewQuestion {
   is_answered: boolean
   selected_option_ids: number[]
   options: QuizReviewOption[]
+
+  /* Письменный ответ: что человек написал и как это оценено. */
+  answer?: string | null
+  similarity?: number | null
+  threshold?: number | null
+  /** Чем измеряли: по смыслу (эмбеддинги) или по пересечению слов. */
+  measured_by?: 'meaning' | 'words' | null
+  /** Эталон — открывается по тем же правилам, что и ключ у выбора. */
+  expected_answer?: string | null
+
+  /* Таблица: как она устроена и как её заполнили. */
+  table?: QuestionTable | null
+  table_answer?: string[][]
+  filled_cells?: number | null
+  required_cells?: number | null
+  /** Сверяемые ячейки: сколько их, сколько совпало и какие разошлись. */
+  checked_cells?: number | null
+  correct_cells?: number | null
+  wrong_cells?: { row: number, cell: number }[]
 }
 
 /** Что человек выбрал и где ошибся. */
@@ -312,6 +395,26 @@ export interface QuizQuestionStatistics {
   /** Доля верных среди отвечавших; null — вопрос никто не тронул. */
   correct_share: number | null
   options: { id: number, text: string, is_correct: boolean, chosen: number }[]
+  /**
+   * Средняя схожесть с эталоном — только у письменного вопроса. По ней видно,
+   * не узок ли эталон: верные по смыслу ответы у самой черты — признак того,
+   * что дело не в людях.
+   */
+  average_similarity?: number | null
+}
+
+/**
+ * Кто проходил тест — со всеми своими попытками.
+ *
+ * Попытки приложены сразу: их у человека единицы, а разбор каждой спрашивается
+ * отдельно — он тяжёлый и нужен не всякой строке.
+ */
+export interface QuizLearner {
+  id: number
+  name: string
+  passed: boolean
+  best_score: number
+  attempts: QuizAttempt[]
 }
 
 /** Как тест проходят — по первым попыткам каждого. */
@@ -321,6 +424,7 @@ export interface QuizStatistics {
   passed: number
   average_first_score: number | null
   questions: QuizQuestionStatistics[]
+  people: QuizLearner[]
 }
 
 export interface CoursePayload {
@@ -379,10 +483,21 @@ export interface QuizPayload {
   passing_score: number
   max_attempts: number | null
   questions: {
+    /**
+     * Номер уже существующего вопроса. Им вопрос остаётся собой при правке: по
+     * номерам разложены ответы прошлых попыток, и пересозданный вопрос стирает
+     * из разбора всё, что на него отвечали. У нового вопроса номера нет.
+     */
+    id?: number | null
     text: string
     type: QuestionType
     points: number
-    options: { text: string, is_correct: boolean }[]
+    /** Варианты — только у вопроса с выбором. */
+    options: { id?: number | null, text: string, is_correct: boolean }[]
+    /** Эталон — только у письменного: с ним сравнивают написанное. */
+    expected_answer?: string | null
+    /** Форма — только у таблицы. */
+    table?: QuestionTable | null
   }[]
 }
 

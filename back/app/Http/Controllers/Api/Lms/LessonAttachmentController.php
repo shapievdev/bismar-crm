@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Actions\Lms\AttachDriveFile;
 use App\Actions\Lms\StoreLessonAttachment;
 use App\Actions\Lms\StoreLessonVideo;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Lms\AttachDriveFileRequest;
 use App\Http\Requests\Lms\StoreAttachmentRequest;
 use App\Http\Requests\Lms\StoreVideoRequest;
 use App\Http\Requests\Lms\UpdateAttachmentRequest;
@@ -30,6 +32,29 @@ final class LessonAttachmentController extends Controller
             $request->file('file'),
             $request->validated('description'),
         );
+
+        return LessonAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Приложить файл, лежащий на Google Диске.
+     *
+     * Отдельный адрес, а не тот же `store`: там приходит сам файл и тратится
+     * место в корзине, здесь — только номер чужого файла. Право то же: и то и
+     * другое — правка урока.
+     */
+    public function storeFromDrive(
+        AttachDriveFileRequest $request,
+        Lesson $lesson,
+        AttachDriveFile $attach,
+    ): JsonResponse {
+        /** @var array{external_id: string, name: string, mime_type?: ?string, description?: ?string} $file */
+        $file = $request->validated();
+
+        /** @var LessonAttachment $attachment */
+        $attachment = $attach->handle($lesson, $file);
 
         return LessonAttachmentResource::make($attachment)
             ->response()

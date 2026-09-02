@@ -10,10 +10,13 @@ use App\Exceptions\ConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveQuizRequest;
 use App\Http\Requests\Lms\SubmitQuizRequest;
+use App\Http\Resources\Lms\QuizAttemptResource;
 use App\Http\Resources\Lms\QuizResource;
+use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Lms\QuizReview;
+use App\Support\Lms\QuizStatistics;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -53,6 +56,42 @@ final class RegulationQuizController extends Controller
         $regulation->quiz()->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Что проверка показывает тому, кто ведёт документ: какие вопросы
+     * заваливают. Разбор тот же, что у теста урока, — считать его дважды
+     * незачем, см. QuizStatistics.
+     */
+    public function statistics(Regulation $regulation, QuizStatistics $statistics): JsonResponse
+    {
+        Gate::authorize('update', $regulation);
+
+        $quiz = $regulation->quiz;
+
+        abort_if($quiz === null, HttpResponse::HTTP_NOT_FOUND);
+
+        return response()->json(['data' => $statistics->of($quiz)]);
+    }
+
+    /**
+     * Разбор чужой попытки — тому, кто ведёт документ. Устроен так же, как у
+     * урока, см. QuizController::attempt.
+     */
+    public function attempt(Regulation $regulation, QuizAttempt $attempt): QuizAttemptResource
+    {
+        Gate::authorize('update', $regulation);
+
+        $quiz = $regulation->quiz;
+
+        abort_if(
+            $quiz === null || $attempt->quiz_id !== $quiz->getKey(),
+            HttpResponse::HTTP_NOT_FOUND,
+        );
+
+        $attempt->setAttribute('review', $this->review->forAuthor($attempt));
+
+        return QuizAttemptResource::make($attempt);
     }
 
     /**

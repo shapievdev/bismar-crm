@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import type { QuizStatistics } from '~/types/lms'
+import type { QuizLearner, QuizReview, QuizStatistics } from '~/types/lms'
 
-const props = defineProps<{ lessonId: number | string }>()
-
-const { fetchQuizStatistics } = useLmsApi()
+/**
+ * Разбор теста для того, кто его ведёт: какие вопросы заваливают и кто как
+ * прошёл.
+ *
+ * Откуда брать цифры, говорит тот, кто ставит панель: тест висит и на уроке, и
+ * на документе, а панель об их различиях знать не должна. Тем же путём приходит
+ * и разбор одной попытки — он спрашивается по нажатию, а не вместе со сводкой.
+ */
+const props = defineProps<{
+  load: () => Promise<QuizStatistics>
+  loadReview: (attemptId: number) => Promise<QuizReview | null>
+}>()
 
 const statistics = ref<QuizStatistics | null>(null)
 const isLoading = ref(true)
@@ -11,7 +20,7 @@ const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    statistics.value = (await fetchQuizStatistics(props.lessonId)).data
+    statistics.value = await props.load()
   }
   catch {
     errorMessage.value = 'Не удалось загрузить разбор теста.'
@@ -39,6 +48,16 @@ const HARD = 50
 
 function share(question: { answered: number, chosen: number }): number {
   return question.answered === 0 ? 0 : Math.round(question.chosen / question.answered * 100)
+}
+
+/**
+ * Подпись человека в списке: имя и чем дело кончилось.
+ *
+ * «Сдано» вместо «сдал»: в списке стоят и сотрудницы, а форма ответа от этого
+ * не зависит.
+ */
+function learnerLabel(person: QuizLearner): string {
+  return `${person.name} — ${person.passed ? `сдано, ${person.best_score}%` : 'не сдано'}`
 }
 </script>
 
@@ -88,7 +107,19 @@ function share(question: { answered: number, chosen: number }): number {
               <span class="stat-question__text">{{ question.text }}</span>
             </p>
 
-            <ul class="stat-options">
+            <!-- У письменного вопроса вариантов нет: вместо них средняя
+                 схожесть с эталоном. Если верные по смыслу ответы стоят у
+                 самой черты, дело не в людях, а в узком эталоне. -->
+            <p
+              v-if="question.average_similarity !== null && question.average_similarity !== undefined"
+              class="stat-written"
+            >
+              Ответы своими словами · средняя схожесть с эталоном
+              {{ Math.round(question.average_similarity * 100) }}%
+              · зачтено {{ question.correct }} из {{ question.answered }}
+            </p>
+
+            <ul v-else class="stat-options">
               <li
                 v-for="option in question.options"
                 :key="option.id"
@@ -112,12 +143,36 @@ function share(question: { answered: number, chosen: number }): number {
             </ul>
           </li>
         </ol>
+
+        <!-- Доли по вопросам говорят о материале, а этот список — о людях:
+             кому урок не дался, видно поимённо, и разговор с человеком ведётся
+             по тому, что он отправил, а не по средней доле. -->
+        <section v-if="statistics.people.length" class="people">
+          <h4 class="people__title">
+            Кто проходил
+          </h4>
+
+          <QuizAttemptsHistory
+            v-for="person in statistics.people"
+            :key="person.id"
+            class="people__person"
+            :attempts="person.attempts"
+            :label="learnerLabel(person)"
+            :load-review="loadReview"
+          />
+        </section>
       </template>
     </template>
   </section>
 </template>
 
 <style scoped>
+.stat-written {
+  margin: 0.3rem 0 0 3.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 .stats {
   display: flex;
   flex-direction: column;
@@ -141,6 +196,25 @@ function share(question: { answered: number, chosen: number }): number {
   margin: 0;
   color: var(--color-text-muted);
   font-size: 0.85rem;
+}
+
+.people {
+  margin-top: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.people__title {
+  margin: 0;
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+
+/* Свой отступ вместо того, с каким блок попыток стоит сам по себе: здесь их
+   подряд столько, сколько человек проходило. Селектор длиннее нужного нарочно
+   — иначе он спорит с отступом самого блока на равных. */
+.people .people__person {
+  margin-top: 0.35rem;
 }
 
 .stats__list {

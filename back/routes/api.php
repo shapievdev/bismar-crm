@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Chat\MessageController;
 use App\Http\Controllers\Api\Chat\ParticipantController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
+use App\Http\Controllers\Api\Integrations\GoogleController;
 use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseAccessController;
 use App\Http\Controllers\Api\Lms\CourseController;
@@ -133,6 +134,13 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         });
 
         Route::middleware($update)->group(function (): void {
+            Route::get('{regulation}/quiz/statistics', [RegulationQuizController::class, 'statistics'])
+                ->name('quiz.statistics');
+
+            // Разбор чужой попытки: не только «какой вопрос заваливают», но и
+            // что отправил конкретный человек.
+            Route::get('{regulation}/quiz/attempts/{attempt}', [RegulationQuizController::class, 'attempt'])
+                ->name('quiz.attempt');
             Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
             Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
         });
@@ -156,6 +164,10 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
                 ->name('experts.candidates');
 
             Route::post('{regulation}/attachments', [RegulationAttachmentController::class, 'store'])->name('attachments.store');
+
+            // Файл, оставшийся жить на Google Диске, — как и у урока.
+            Route::post('{regulation}/attachments/drive', [RegulationAttachmentController::class, 'storeFromDrive'])
+                ->name('attachments.drive');
             Route::put('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'update'])->name('attachments.update');
             Route::delete('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'destroy'])->name('attachments.destroy');
         });
@@ -236,6 +248,11 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         Route::delete('categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
 
         Route::post('lessons/{lesson}/attachments', [LessonAttachmentController::class, 'store'])->name('attachments.store');
+
+        // Файл, оставшийся жить на Google Диске: приходит только его номер,
+        // адрес мы собираем сами — см. App\Support\Lms\GoogleDrive.
+        Route::post('lessons/{lesson}/attachments/drive', [LessonAttachmentController::class, 'storeFromDrive'])
+            ->name('attachments.drive');
         Route::post('lessons/{lesson}/video', [LessonAttachmentController::class, 'storeVideo'])->name('video.store');
         Route::delete('lessons/{lesson}/video', [LessonAttachmentController::class, 'destroyVideo'])->name('video.destroy');
         Route::put('attachments/{attachment}', [LessonAttachmentController::class, 'update'])->name('attachments.update');
@@ -247,6 +264,12 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
         // Разбор теста для автора: где урок не научил. Право то же, что на
         // правку урока, — чинить дыру всё равно правкой материала.
         Route::get('lessons/{lesson}/quiz/statistics', [QuizController::class, 'statistics'])->name('quiz.statistics');
+
+        // Разбор чужой попытки: не только «какой вопрос заваливают», но и что
+        // отправил конкретный человек. Право спрашивается у урока, потому адрес
+        // при нём, а не при попытке.
+        Route::get('lessons/{lesson}/quiz/attempts/{attempt}', [QuizController::class, 'attempt'])
+            ->name('quiz.attempt');
 
         // Таблица «вопрос — ответ — источник». Право то же, что на правку
         // урока: это часть материала, а не отдельная сущность.
@@ -299,6 +322,23 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('news')->as('
     Route::put('{news}/quiz', [NewsQuizController::class, 'save'])->name('quiz.save');
     Route::delete('{news}/quiz', [NewsQuizController::class, 'destroy'])->name('quiz.destroy');
     Route::post('{news}/quiz/submit', [NewsQuizController::class, 'submit'])->name('quiz.submit');
+});
+
+/*
+ * Связка с чужими службами.
+ *
+ * Настройки Google читают все, кто вошёл: окно выбора файла на Диске
+ * открывается в браузере сотрудника, и номер приложения с ключом всё равно
+ * должны до него доехать — прячет их не тайна, а список разрешённых источников
+ * в Google Cloud. Заводит их администратор: настройка интеграции — решение о
+ * компании, а не право, отмеченное галочкой.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('integrations')->as('integrations.')->group(function (): void {
+    Route::get('google', [GoogleController::class, 'show'])->name('google.show');
+
+    Route::put('google', [GoogleController::class, 'update'])
+        ->middleware(EnsureAdministrator::class)
+        ->name('google.update');
 });
 
 Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('profile')->as('profile.')->group(function (): void {
@@ -403,7 +443,14 @@ Route::middleware([
     'auth:sanctum',
     EnsureEmployed::class,
     'can:'.Permission::ManageEnrollments->value,
-])->get('analytics/learning', AnalyticsLearningController::class)->name('analytics.learning');
+])->group(function (): void {
+    Route::get('analytics/learning', [AnalyticsLearningController::class, '__invoke'])
+        ->name('analytics.learning');
+
+    // Кто и как прошёл один тест — раскрывается у одной строки отчёта.
+    Route::get('analytics/learning/quizzes/{quiz}', [AnalyticsLearningController::class, 'results'])
+        ->name('analytics.learning.quiz');
+});
 
 /*
  * Уведомления на устройство.

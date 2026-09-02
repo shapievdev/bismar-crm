@@ -4,6 +4,40 @@ import type { QuizReview, QuizReviewQuestion } from '~/types/lms'
 defineProps<{ review: QuizReview }>()
 
 /**
+ * Разошедшиеся ячейки с ожидаемым значением.
+ *
+ * Пусто, пока эталон закрыт: в разборе он появляется по тем же правилам, что и
+ * ключ у выбора, — когда попытки кончились.
+ */
+function mismatches(question: QuizReviewQuestion) {
+  const table = question.table
+
+  if (!table) {
+    return []
+  }
+
+  // Ведущая ячейка в ответе есть не всегда: когда её заполняет сотрудник,
+  // столбцы сдвинуты на один.
+  const hasLeading = table.row_label_title !== null
+    && (table.rows.some(row => row.label === '') || table.can_add_rows)
+
+  return (question.wrong_cells ?? []).flatMap((cell) => {
+    const column = cell.cell - (hasLeading ? 1 : 0)
+    const expected = table.rows[cell.row]?.expected?.[column]
+
+    return expected
+      ? [{
+          row: cell.row,
+          column,
+          row_label: table.rows[cell.row]?.label || `Строка ${cell.row + 1}`,
+          column_label: table.columns[column]?.title || `Столбец ${column + 1}`,
+          expected,
+        }]
+      : []
+  })
+}
+
+/**
  * Как показать вариант: выбран, верен, и то и другое.
  *
  * Пока ключ закрыт, «верно» неизвестно — вариант остаётся просто выбранным,
@@ -22,8 +56,8 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
 <template>
   <div class="review">
     <p v-if="!review.reveals_key" class="review__note">
-      Верные ответы откроются, когда тест будет сдан или попытки закончатся.
-      Сейчас видно, в каких вопросах ошибка, — к ним и стоит вернуться в уроке.
+      Верные ответы откроются, когда закончатся попытки. Сейчас видно, в каких
+      вопросах ошибка, — к ним и стоит вернуться в материале.
     </p>
 
     <ol class="review__list">
@@ -41,7 +75,60 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
           <span v-if="!question.is_answered" class="badge">без ответа</span>
         </p>
 
-        <ul class="review-question__options">
+        <!-- Письменный ответ: своё написанное человек видит всегда, схожесть с
+             эталоном — тоже («не зачтено» без числа выглядит произволом), а сам
+             эталон открывается по тем же правилам, что и ключ у выбора. -->
+        <template v-if="question.answer !== undefined && question.options.length === 0">
+          <p class="written">
+            <span class="written__label">Ваш ответ</span>
+            {{ question.answer ?? '—' }}
+          </p>
+
+          <p v-if="question.similarity !== null && question.similarity !== undefined" class="written__score">
+            Схожесть с эталоном — {{ Math.round(question.similarity * 100) }}%
+            <template v-if="question.threshold">
+              (зачитывается от {{ Math.round(question.threshold * 100) }}%)
+            </template>
+            <template v-if="question.measured_by === 'words'">
+              · измерено пересечением слов: разбор по смыслу был недоступен
+            </template>
+          </p>
+
+          <p v-if="question.expected_answer" class="written">
+            <span class="written__label">Как правильно</span>
+            {{ question.expected_answer }}
+          </p>
+        </template>
+
+        <!-- Таблица: показывается как заполнена, скрывать в ней нечего —
+             ключа у таблицы нет, зачёт идёт по заполненности. -->
+        <template v-else-if="question.table">
+          <QuizTable
+            :table="question.table"
+            :model-value="question.table_answer ?? []"
+            :wrong="question.wrong_cells ?? []"
+            disabled
+          />
+
+          <p v-if="question.required_cells" class="written__score">
+            Заполнено {{ question.filled_cells ?? 0 }} из {{ question.required_cells }}
+            {{ pluralise(question.required_cells, 'ячейки', 'ячеек', 'ячеек') }}
+            <template v-if="question.checked_cells">
+              · совпало с правильным ответом {{ question.correct_cells ?? 0 }}
+              из {{ question.checked_cells }}
+            </template>
+          </p>
+
+          <!-- Что именно ожидалось: показывается по тем же правилам, что и
+               ключ у выбора — когда попытки кончились. -->
+          <ul v-if="mismatches(question).length" class="mismatches">
+            <li v-for="cell in mismatches(question)" :key="`${cell.row}:${cell.column}`">
+              {{ cell.row_label }} · {{ cell.column_label }} — ожидалось «{{ cell.expected }}»
+            </li>
+          </ul>
+        </template>
+
+        <ul v-else class="review-question__options">
           <li
             v-for="option in question.options"
             :key="option.id"
@@ -59,6 +146,36 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
 </template>
 
 <style scoped>
+.mismatches {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.written {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-size: 0.92rem;
+  white-space: pre-line;
+}
+
+.written__label {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.written__score {
+  margin: 0.3rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
 .review {
   display: flex;
   flex-direction: column;

@@ -25,8 +25,17 @@ final class LessonAttachmentResource extends JsonResource
             'mime_type' => $this->mime_type,
             'size' => $this->size,
             'opens_inline' => $this->opensInline(),
-            // Signed and short-lived, so the bucket itself stays private.
-            'url' => $this->temporaryUrl(),
+
+            // Наш файл или лежащий на Google Диске: экран рисует их по-разному,
+            // и это единственное, по чему он их различает.
+            'source' => $this->source->value,
+
+            // Signed and short-lived, so the bucket itself stays private. У
+            // файла с Диска — он сам на Диске: туда идут за доступом.
+            'url' => $this->url(),
+
+            // Адрес для рамки — только у файла с Диска, см. AttachedFile.
+            'embed_url' => $this->embedUrl(),
         ];
     }
 }

@@ -364,7 +364,7 @@ final readonly class CuratedAnswers
     private function signed(LessonAttachment $attachment): ?string
     {
         try {
-            return $attachment->temporaryUrl();
+            return $attachment->url();
         } catch (Throwable $exception) {
             Log::warning('Ссылка на файл источника не подписана.', ['exception' => $exception]);
 

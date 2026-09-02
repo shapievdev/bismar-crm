@@ -138,8 +138,12 @@ final class DocumentQuizTest extends TestCase
             ->assertJsonPath('data.passed', true)
             ->assertJsonPath('data.is_acknowledged', true)
             // Разбор приходит сразу: где ошибся, человек хочет знать в ту же
-            // секунду, когда увидел результат.
-            ->assertJsonCount(2, 'data.review.questions');
+            // секунду, когда увидел результат. А верные ответы — нет: сдача
+            // ключа не открывает, иначе первый же сдавший пересказал бы его
+            // остальным.
+            ->assertJsonCount(2, 'data.review.questions')
+            ->assertJsonPath('data.review.reveals_key', false)
+            ->assertJsonPath('data.review.questions.0.options.0.is_correct', null);
 
         $this->assertTrue($document->isAcknowledgedBy($reader));
     }
@@ -247,6 +251,52 @@ final class DocumentQuizTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.id', $attempt->getKey())
             ->assertJsonCount(1, 'data.review.questions');
+    }
+
+    /**
+     * Ведущему документ видно, кто проверку проходил, и что каждый отправил:
+     * доля по вопросу говорит о тексте документа, а попытка — о человеке.
+     */
+    public function test_the_author_reads_who_took_the_check_and_what_they_sent(): void
+    {
+        [$document, $quiz] = $this->documentWithQuiz(1);
+        $reader = $this->learner();
+
+        $this->actingAs($reader)
+            ->postJson(
+                route('lms.regulations.quiz.submit', $document),
+                ['answers' => $this->answers($quiz, correct: false)],
+            )
+            ->assertCreated();
+
+        $attempt = QuizAttempt::query()->sole();
+
+        $this->actingAs($this->author())
+            ->getJson(route('lms.regulations.quiz.statistics', $document))
+            ->assertOk()
+            ->assertJsonPath('data.people.0.id', $reader->getKey())
+            ->assertJsonPath('data.people.0.passed', false)
+            ->assertJsonPath('data.people.0.attempts.0.id', $attempt->getKey());
+
+        $this->actingAs($this->author())
+            ->getJson(route('lms.regulations.quiz.attempt', [$document, $attempt]))
+            ->assertOk()
+            ->assertJsonPath('data.review.reveals_key', true)
+            ->assertJsonPath('data.review.questions.0.is_correct', false);
+    }
+
+    /** Чужие ответы открывает право вести документ, а читателю его не давали. */
+    public function test_a_reader_may_not_read_someone_elses_attempt(): void
+    {
+        [$document, $quiz] = $this->documentWithQuiz(1);
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->assertCreated();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.regulations.quiz.attempt', [$document, QuizAttempt::query()->sole()]))
+            ->assertForbidden();
     }
 
     public function test_a_review_is_out_of_reach_when_the_document_is_closed(): void

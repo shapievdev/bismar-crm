@@ -7,6 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { attachmentIdAttribute } from '~/utils/editor/attachments'
 import { BlockId } from '~/utils/editor/blockId'
+import { DriveFile } from '~/utils/editor/driveFile'
 import { HtmlBlock } from '~/utils/editor/htmlBlock'
 import { VideoEmbed } from '~/utils/editor/videoEmbed'
 
@@ -61,6 +62,10 @@ export function useRichTextExtensions(options: { placeholder?: string } = {}) {
 
     HtmlBlock,
     VideoEmbed,
+
+    // Файл, оставшийся жить на Google Диске: хранится его номер, адрес рамки
+    // собирается при показе — см. utils/drive.ts.
+    DriveFile,
 
     // Имена блоков, на которые ссылается таблица урока. Без этого редактор
     // выбросил бы их при первой правке, и ссылки на абзацы оборвались бы.

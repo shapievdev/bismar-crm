@@ -105,7 +105,7 @@ export function useNewsApi() {
       $api(`/api/news/${slug}/quiz`, { method: 'DELETE' }),
 
     /** Пройти проверку. Сдал — новость считается прочитанной. */
-    submitQuiz: (slug: string, answers: Record<number, number[]>): Promise<{ data: NewsQuizResult }> =>
+    submitQuiz: (slug: string, answers: Record<number, number[] | string | string[][]>): Promise<{ data: NewsQuizResult }> =>
       $api<{ data: NewsQuizResult }>(`/api/news/${slug}/quiz/submit`, {
         method: 'POST',
         body: { answers },

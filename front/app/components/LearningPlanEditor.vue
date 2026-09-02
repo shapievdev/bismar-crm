@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError } from '~/composables/useAuth'
+import { formatDate } from '~/utils/numbers'
 import type { LearningPlanItem, PlannableItem, PlannableKind } from '~/types/lms'
 
 /**
@@ -49,22 +50,33 @@ const loadError = ref<string | null>(null)
 const saveError = ref<string | null>(null)
 const savedAt = ref<string | null>(null)
 
-/** Ключ шага — вид и номер вместе: курс №3 и документ №3 разные вещи. */
-function keyOf(step: { kind: string, id?: number, item_id?: number }): string {
-  return `${step.kind}:${step.id ?? step.item_id}`
+/**
+ * Ключ шага — вид и номер материала вместе: курс №3 и документ №3 разные вещи.
+ *
+ * Черновик и сохранённый шаг считаются по-разному, и в этом всё дело: у
+ * сохранённой строки два номера — свой (`id`) и номер материала (`item_id`), — и
+ * общая функция брала первый. Ключи расходились всегда: план выглядел
+ * несохранённым, а каждый шаг — новым, хотя прогресс сверху считался верно.
+ */
+function keyOf(step: Step): string {
+  return `${step.kind}:${step.id}`
+}
+
+function keyOfSaved(item: LearningPlanItem): string {
+  return `${item.kind}:${item.item_id}`
 }
 
 const plannedKeys = computed(() => new Set(draft.value.map(keyOf)))
 
 const isDirty = computed(() => {
-  const before = saved.value.map(keyOf)
+  const before = saved.value.map(keyOfSaved)
   const after = draft.value.map(keyOf)
 
   return before.length !== after.length || before.some((key, index) => key !== after[index])
 })
 
 function stepFor(step: Step): LearningPlanItem | undefined {
-  return saved.value.find(one => keyOf(one) === keyOf(step))
+  return saved.value.find(one => keyOfSaved(one) === keyOf(step))
 }
 
 /**
@@ -270,6 +282,48 @@ watch(() => props.learnerId, () => {
   }
 }, { immediate: true })
 
+/**
+ * Отметка о прохождении шага: то, ради чего в план и заходят.
+ *
+ * У курса «в работе» — честное состояние: уроки проходят по одному. У документа
+ * середины не бывает — он либо прочитан, либо нет.
+ */
+function markOf(item: LearningPlanItem): { label: string, style: string } {
+  if (item.is_completed) {
+    // Дата рядом: «пройдено» без «когда» — половина ответа, а второй вопрос об
+    // обучении всегда именно этот.
+    return {
+      label: item.completed_at ? `Пройдено ${formatDate(item.completed_at)}` : 'Пройдено',
+      style: 'badge--success',
+    }
+  }
+
+  if (item.is_started) {
+    return { label: `В работе — ${item.progress}%`, style: 'badge--warning' }
+  }
+
+  return { label: 'Не пройдено', style: '' }
+}
+
+function quizOf(step: Step): LearningPlanItem['quiz'] {
+  return stepFor(step)?.quiz ?? null
+}
+
+/** Как идёт проверка при документе — словами, а не таблицей на четыре числа. */
+function quizNote(quiz: NonNullable<LearningPlanItem['quiz']>): string {
+  const questions = `${quiz.questions} ${pluralise(quiz.questions, 'вопрос', 'вопроса', 'вопросов')}`
+
+  if (quiz.attempts === 0) {
+    return `проверка из ${questions}, попыток не было`
+  }
+
+  const tries = `${quiz.attempts} ${pluralise(quiz.attempts, 'попытка', 'попытки', 'попыток')}`
+
+  return quiz.passed
+    ? `проверка сдана на ${quiz.best_score}% (${tries})`
+    : `проверка не сдана, лучший результат ${quiz.best_score}% (${tries})`
+}
+
 function stepLink(step: Step): string {
   return step.kind === 'regulation' ? `/lms/documents/${step.slug}` : `/lms/${step.slug}`
 }
@@ -308,18 +362,27 @@ function stepLink(step: Step): string {
             <span class="step__number">{{ index + 1 }}</span>
 
             <span class="step__body">
-              <NuxtLink :to="stepLink(step)" class="step__title">
-                {{ step.title }}
-              </NuxtLink>
+              <span class="step__head">
+                <NuxtLink :to="stepLink(step)" class="step__title">
+                  {{ step.title }}
+                </NuxtLink>
+
+                <!-- Пройдено или нет — отметкой, а не строкой в конце: план
+                     открывают, чтобы увидеть это в первую секунду. -->
+                <span v-if="stepFor(step)" class="badge" :class="markOf(stepFor(step)!).style">
+                  {{ markOf(stepFor(step)!).label }}
+                </span>
+              </span>
 
               <span class="faint">
                 <!-- Вид называем прямо: в одном списке курс и документ, и по
                      названию их не различить. -->
-                {{ step.kind === 'regulation' ? 'Документ' : 'Курс' }} ·
-                <template v-if="stepFor(step)?.is_completed">пройден</template>
-                <template v-else-if="stepFor(step)?.is_started">пройдено {{ stepFor(step)?.progress }}%</template>
-                <template v-else-if="stepFor(step)">ещё не начат</template>
-                <template v-else>новый шаг, сохраните, чтобы назначить</template>
+                {{ step.kind === 'regulation' ? 'Документ' : 'Курс' }}
+                <template v-if="!stepFor(step)"> · новый шаг, сохраните, чтобы назначить</template>
+
+                <!-- Проверка при документе: «не ознакомлен» без неё выглядит
+                     ленью, а не несданным тестом. -->
+                <template v-if="quizOf(step)"> · {{ quizNote(quizOf(step)!) }}</template>
               </span>
 
               <!-- Материал могли закрыть уже после назначения: у себя сотрудник
@@ -524,6 +587,13 @@ function stepLink(step: Step): string {
   min-width: 0;
   gap: 0.1rem;
   font-size: 0.9rem;
+}
+
+.step__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .step__title {

@@ -117,8 +117,11 @@ const blockedBy = computed(() => lesson.value?.blocked_by ?? null)
 const actionError = ref<string | null>(null)
 const isWorking = ref(false)
 
-// Question id => chosen option ids.
-const answers = ref<Record<number, number[]>>({})
+/**
+ * Номер вопроса => выбранные варианты или написанный ответ: у письменного
+ * вопроса вариантов нет, а верность проверяет ИИ по схожести с эталоном.
+ */
+const answers = ref<Record<number, number[] | string | string[][]>>({})
 const attempt = ref<QuizAttempt | null>(null)
 
 const attemptsUsed = computed(() => lesson.value?.own_attempts?.length ?? 0)
@@ -128,13 +131,29 @@ const attemptsLeft = computed(() => {
   return max === null || max === undefined ? null : Math.max(0, max - attemptsUsed.value)
 })
 
-const answeredCount = computed(
-  () => Object.values(answers.value).filter(chosen => chosen.length > 0).length,
-)
+const answeredCount = computed(() => Object.values(answers.value).filter((answer) => {
+  if (typeof answer === 'string') {
+    return answer.trim() !== ''
+  }
+
+  // Таблица тронута, если заполнена хоть одна ячейка: полноту проверяет сервер.
+  if (Array.isArray(answer[0])) {
+    return (answer as string[][]).some(row => row.some(cell => cell.trim() !== ''))
+  }
+
+  return answer.length > 0
+}).length)
 const questionCount = computed(() => lesson.value?.quiz?.questions?.length ?? 0)
 
+/** Выбранные варианты: у письменного ответа и у таблицы их нет. */
+function chosenOptions(questionId: number): number[] {
+  const answer = answers.value[questionId]
+
+  return Array.isArray(answer) && !Array.isArray(answer[0]) ? answer as number[] : []
+}
+
 function toggleOption(questionId: number, optionId: number, isSingle: boolean) {
-  const current = answers.value[questionId] ?? []
+  const current = chosenOptions(questionId)
 
   answers.value[questionId] = isSingle
     ? [optionId]
@@ -144,7 +163,29 @@ function toggleOption(questionId: number, optionId: number, isSingle: boolean) {
 }
 
 function isChosen(questionId: number, optionId: number): boolean {
-  return (answers.value[questionId] ?? []).includes(optionId)
+  return chosenOptions(questionId).includes(optionId)
+}
+
+/** Строки таблицы: заполняет их сам компонент таблицы. */
+function tableRows(questionId: number): string[][] {
+  const answer = answers.value[questionId]
+
+  return Array.isArray(answer) && Array.isArray(answer[0]) ? answer as string[][] : []
+}
+
+function setTableRows(questionId: number, rows: string[][]) {
+  answers.value[questionId] = rows
+}
+
+/** Написанное своими словами — то же поле ответов, только строкой. */
+function written(questionId: number): string {
+  const answer = answers.value[questionId]
+
+  return typeof answer === 'string' ? answer : ''
+}
+
+function write(questionId: number, value: string) {
+  answers.value[questionId] = value
 }
 
 async function markDone() {
@@ -185,41 +226,6 @@ async function sendQuiz() {
 function retry() {
   attempt.value = null
   answers.value = {}
-}
-
-/**
- * Разбор прошлой попытки.
- *
- * К нему возвращаются: сдал с третьего раза, через месяц перечитываешь урок и
- * хочешь вспомнить, что тогда понял неверно. Поэтому не в свежем ответе, а по
- * запросу — и по одной попытке за раз, чтобы список не превращался в простыню.
- */
-const openedAttemptId = ref<number | null>(null)
-const openedReview = ref<QuizReview | null>(null)
-const isLoadingReview = ref(false)
-
-async function openReview(id: number) {
-  if (openedAttemptId.value === id) {
-    openedAttemptId.value = null
-    openedReview.value = null
-
-    return
-  }
-
-  openedAttemptId.value = id
-  openedReview.value = null
-  isLoadingReview.value = true
-
-  try {
-    openedReview.value = (await fetchAttempt(id)).data.review ?? null
-  }
-  catch {
-    actionError.value = 'Не удалось показать разбор попытки.'
-    openedAttemptId.value = null
-  }
-  finally {
-    isLoadingReview.value = false
-  }
 }
 
 function formatSize(bytes: number): string {
@@ -324,7 +330,12 @@ function formatSize(bytes: number): string {
           Материалы
         </h2>
         <ul class="files">
-          <li v-for="file in lesson.attachments" :key="file.id" class="file">
+          <li
+            v-for="file in lesson.attachments"
+            :key="file.id"
+            class="file"
+            :class="{ 'file--framed': file.embed_url }"
+          >
             <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
 
             <div class="file__body">
@@ -335,9 +346,19 @@ function formatSize(bytes: number): string {
                 rel="noopener noreferrer"
               >{{ file.name }}</a>
               <span v-if="file.description" class="file__description">{{ file.description }}</span>
+
+              <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
+                   читали здесь, а не уходили за ним в другую вкладку. Грузится
+                   рамка лениво — до неё ещё нужно долистать. -->
+              <DriveEmbed
+                v-if="file.embed_url"
+                :src="file.embed_url"
+                :title="file.name"
+                :open-url="file.url"
+              />
             </div>
 
-            <span class="faint file__size">{{ formatSize(file.size) }}</span>
+            <span v-if="file.source !== 'google_drive'" class="faint file__size">{{ formatSize(file.size) }}</span>
           </li>
         </ul>
       </section>
@@ -386,8 +407,37 @@ function formatSize(bytes: number): string {
               <span v-if="question.type === 'multiple'" class="badge">неск. ответов</span>
             </p>
 
+            <!-- Письменный ответ: своими словами, верность проверит ИИ по
+                 схожести с эталоном автора. -->
+            <textarea
+              v-if="question.type === 'long_text'"
+              class="input written"
+              rows="4"
+              :value="written(question.id)"
+              :disabled="!isEnrolled"
+              placeholder="Ответьте своими словами"
+              @input="write(question.id, ($event.target as HTMLTextAreaElement).value)"
+            />
+            <input
+              v-else-if="question.type === 'text'"
+              class="input written"
+              type="text"
+              :value="written(question.id)"
+              :disabled="!isEnrolled"
+              placeholder="Ответьте одной строкой"
+              @input="write(question.id, ($event.target as HTMLInputElement).value)"
+            >
+
+            <QuizTable
+              v-else-if="question.type === 'table' && question.table"
+              :table="question.table"
+              :model-value="tableRows(question.id)"
+              :disabled="!isEnrolled"
+              @update:model-value="rows => setTableRows(question.id, rows)"
+            />
+
             <label
-              v-for="option in question.options"
+              v-for="option in question.type === 'single' || question.type === 'multiple' ? question.options : []"
               :key="option.id"
               class="option"
               :class="{ 'option--chosen': isChosen(question.id, option.id) }"
@@ -413,37 +463,7 @@ function formatSize(bytes: number): string {
           </button>
         </template>
 
-        <details v-if="(lesson.own_attempts?.length ?? 0) > 0" class="history">
-          <summary>Мои попытки ({{ attemptsUsed }})</summary>
-          <ul>
-            <li v-for="past in lesson.own_attempts" :key="past.id">
-              <button
-                type="button"
-                class="history__row"
-                :aria-expanded="openedAttemptId === past.id"
-                @click="openReview(past.id)"
-              >
-                <span :class="past.passed ? 'pass' : 'fail'">{{ past.passed ? 'сдано' : 'не сдано' }}</span>
-                <span>{{ past.score }}%</span>
-                <span class="faint">
-                  {{ past.completed_at ? new Date(past.completed_at).toLocaleString('ru-RU') : '' }}
-                </span>
-                <span class="faint history__toggle">
-                  {{ openedAttemptId === past.id ? 'скрыть разбор' : 'разбор' }}
-                </span>
-              </button>
-
-              <p v-if="openedAttemptId === past.id && isLoadingReview" class="faint">
-                Загружаем разбор…
-              </p>
-              <QuizReviewPanel
-                v-else-if="openedAttemptId === past.id && openedReview"
-                :review="openedReview"
-                class="history__review"
-              />
-            </li>
-          </ul>
-        </details>
+        <QuizAttemptsHistory :attempts="lesson.own_attempts ?? []" />
       </section>
 
       <div v-else-if="isEnrolled && !isCompleted" class="block">
@@ -496,6 +516,11 @@ function formatSize(bytes: number): string {
 </template>
 
 <style scoped>
+.written {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
 .blocked {
   margin-top: 0.6rem;
 }
@@ -722,6 +747,11 @@ function formatSize(bytes: number): string {
   margin-bottom: 0.4rem;
 }
 
+/* У строки с рамкой просмотра значок встаёт к имени, а не к середине рамки. */
+.file--framed {
+  align-items: flex-start;
+}
+
 .file__body {
   display: flex;
   flex-direction: column;
@@ -826,55 +856,6 @@ function formatSize(bytes: number): string {
 .option--chosen {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
-}
-
-.history {
-  margin-top: 1.5rem;
-  font-size: 0.87rem;
-}
-
-.history summary {
-  cursor: pointer;
-  color: var(--color-text-muted);
-}
-
-.history ul {
-  margin: 0.6rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Строка попытки и её разбор — одним столбцом: разбор раскрывается под той
-   строкой, к которой относится. */
-.history li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.3rem 0;
-}
-
-.history__row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.9rem;
-  width: 100%;
-  padding: 0.2rem 0;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.history__toggle {
-  margin-left: auto;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
-.history__review {
-  padding-left: 0.2rem;
 }
 
 .pass { color: var(--color-success); }

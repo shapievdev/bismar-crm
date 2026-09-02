@@ -53,7 +53,13 @@ final class QuizReviewTest extends TestCase
         }
     }
 
-    public function test_passing_reveals_the_key(): void
+    /**
+     * Сдача ключа не открывает: сдавшему он и не нужен — планка равна всем
+     * верным ответам, то есть ключ и есть то, что он сам отправил, — а
+     * вывешенный после сдачи он превращается в готовые ответы для остальных
+     * (решение пользователя 2026-09-02).
+     */
+    public function test_passing_does_not_reveal_the_key(): void
     {
         [$lesson, $quiz] = $this->lessonWithQuiz(questions: 2);
 
@@ -61,14 +67,16 @@ final class QuizReviewTest extends TestCase
             ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
             ->assertCreated()
             ->assertJsonPath('data.passed', true)
-            ->assertJsonPath('data.review.reveals_key', true)
+            ->assertJsonPath('data.review.reveals_key', false)
+            // Свой ответ виден: человек знает, что выбрал, — новостью это не
+            // будет. Неизвестным остаётся только «а верен ли он».
             ->assertJsonPath('data.review.questions.0.is_correct', true);
 
         $options = $response->json('data.review.questions.0.options');
 
-        $this->assertTrue($options[0]['is_correct']);
+        $this->assertNull($options[0]['is_correct']);
         $this->assertTrue($options[0]['is_chosen']);
-        $this->assertFalse($options[1]['is_correct']);
+        $this->assertNull($options[1]['is_correct']);
     }
 
     /**
@@ -204,6 +212,111 @@ final class QuizReviewTest extends TestCase
         $this->actingAs($this->learner())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertForbidden();
+    }
+
+    /**
+     * За долями по вопросам стоят люди, и найти их можно только поимённо:
+     * «сдали двое из трёх» не говорит, с кем садиться и разбирать материал.
+     */
+    public function test_the_statistics_name_who_took_the_test(): void
+    {
+        [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
+
+        $failed = tap($this->learner())->update(['last_name' => 'Яковлев']);
+        $passed = tap($this->learner())->update(['last_name' => 'Абрамов']);
+
+        $this->answerAs($failed, $lesson, $this->wrongAnswers($quiz));
+        $this->answerAs($passed, $lesson, $this->correctAnswers($quiz));
+
+        $people = $this->actingAs($this->author())
+            ->getJson(route('lms.quiz.statistics', $lesson))
+            ->assertOk()
+            ->json('data.people');
+
+        // Не сдавшие идут первыми — ради них список и читают, а фамилия здесь
+        // как раз спорит с порядком.
+        $this->assertSame($failed->getKey(), $people[0]['id']);
+        $this->assertFalse($people[0]['passed']);
+        $this->assertCount(1, $people[0]['attempts']);
+
+        $this->assertSame($passed->getKey(), $people[1]['id']);
+        $this->assertTrue($people[1]['passed']);
+        $this->assertSame(100, $people[1]['best_score']);
+    }
+
+    /** Все попытки человека, а не первая: с чем он пришёл во второй раз — тоже разговор. */
+    public function test_the_statistics_list_every_attempt_of_a_person(): void
+    {
+        [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
+        $learner = $this->learner();
+
+        $this->answerAs($learner, $lesson, $this->wrongAnswers($quiz));
+        $this->answerAs($learner, $lesson, $this->correctAnswers($quiz));
+
+        $people = $this->actingAs($this->author())
+            ->getJson(route('lms.quiz.statistics', $lesson))
+            ->assertOk()
+            ->json('data.people');
+
+        $this->assertCount(1, $people);
+        $this->assertCount(2, $people[0]['attempts']);
+        $this->assertFalse($people[0]['attempts'][0]['passed'], 'Попытки идут не по порядку.');
+        $this->assertTrue($people[0]['attempts'][1]['passed']);
+    }
+
+    /**
+     * Автору верные ответы открыты и в чужой попытке: он их сам и написал, а
+     * без них не прочесть, чем сотрудник заменил верный вариант.
+     */
+    public function test_the_author_reads_the_review_of_a_learners_attempt(): void
+    {
+        [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
+        $learner = $this->learner();
+
+        $attempt = $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->wrongAnswers($quiz)])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($this->author())
+            ->getJson(route('lms.quiz.attempt', [$lesson, $attempt]))
+            ->assertOk()
+            ->assertJsonPath('data.id', $attempt)
+            ->assertJsonPath('data.passed', false)
+            ->assertJsonPath('data.review.reveals_key', true)
+            ->assertJsonPath('data.review.questions.0.is_correct', false)
+            ->assertJsonPath('data.review.questions.0.options.0.is_correct', true);
+    }
+
+    /** Право смотреть чужие ответы даёт материал, а сотруднику его не давали. */
+    public function test_a_learner_may_not_read_someone_elses_attempt(): void
+    {
+        [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
+
+        $attempt = $this->actingAs($this->learner())
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.quiz.attempt', [$lesson, $attempt]))
+            ->assertForbidden();
+    }
+
+    /** Правом на свой урок чужой не открыть: попытка не от этого теста — 404. */
+    public function test_an_attempt_of_another_quiz_is_not_found(): void
+    {
+        [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
+        [$other] = $this->lessonWithQuiz(questions: 1);
+
+        $attempt = $this->actingAs($this->learner())
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($this->author())
+            ->getJson(route('lms.quiz.attempt', [$other, $attempt]))
+            ->assertNotFound();
     }
 
     public function test_the_statistics_of_a_lesson_without_a_quiz_are_not_found(): void

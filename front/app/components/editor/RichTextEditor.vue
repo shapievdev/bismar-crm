@@ -132,6 +132,38 @@ function promptVideoUrl() {
   }
 }
 
+/**
+ * Файл с Google Диска прямо в текст.
+ *
+ * Копии у нас не остаётся и в список файлов он не попадает: это часть статьи, а
+ * не приложение к ней. Поправят его на Диске — изменится и то, что видно здесь.
+ */
+const drive = useGoogleDrive()
+const isPickingFromDrive = ref(false)
+
+async function insertFromDrive() {
+  uploadError.value = null
+  isPickingFromDrive.value = true
+
+  try {
+    for (const file of await drive.pick()) {
+      editor.value?.chain().focus().setDriveFile({
+        fileId: file.external_id,
+        mimeType: file.mime_type,
+        name: file.name,
+      }).run()
+    }
+  }
+  catch (caught) {
+    uploadError.value = caught instanceof Error && caught.message
+      ? caught.message
+      : 'Не удалось вставить файл с Google Диска.'
+  }
+  finally {
+    isPickingFromDrive.value = false
+  }
+}
+
 function isActive(name: string, attrs?: Record<string, unknown>): boolean {
   return editor.value?.isActive(name, attrs) ?? false
 }
@@ -219,6 +251,16 @@ function isActive(name: string, attrs?: Record<string, unknown>): boolean {
         </button>
         <button type="button" class="tool" title="Видео по ссылке" @click="promptVideoUrl">
           ▶
+        </button>
+        <button
+          v-if="drive.isConfigured.value"
+          type="button"
+          class="tool"
+          title="Файл с Google Диска"
+          :disabled="isPickingFromDrive"
+          @click="insertFromDrive"
+        >
+          🗂
         </button>
       </div>
 

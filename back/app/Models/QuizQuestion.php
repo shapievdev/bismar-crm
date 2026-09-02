@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
-#[Fillable(['quiz_id', 'text', 'type', 'points', 'position'])]
+#[Fillable(['quiz_id', 'text', 'type', 'expected_answer', 'table_definition', 'points', 'position'])]
 class QuizQuestion extends Model
 {
     /**
@@ -19,7 +19,12 @@ class QuizQuestion extends Model
      */
     protected function casts(): array
     {
-        return ['type' => QuestionType::class];
+        return [
+            'type' => QuestionType::class,
+            // Устройство таблицы: столбцы, строки, можно ли добавлять строки.
+            // Null у всех прочих видов вопроса — см. QuestionTable.
+            'table_definition' => 'array',
+        ];
     }
 
     /**

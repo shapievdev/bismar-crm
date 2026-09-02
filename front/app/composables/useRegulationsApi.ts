@@ -1,4 +1,5 @@
 import { toValidationError } from '~/composables/useAuth'
+import type { DriveFile } from '~/composables/useGoogleDrive'
 import type { ResourceResponse } from '~/types/auth'
 import type {
   CategoryPayload,
@@ -6,8 +7,10 @@ import type {
   LessonAttachment,
   PaginatedResponse,
   Quiz,
+  QuizAttempt,
   QuizOutcome,
   QuizPayload,
+  QuizStatistics,
   Regulation,
   RegulationCategory,
   RegulationPayload,
@@ -73,8 +76,20 @@ export function useRegulationsApi() {
     deleteQuiz: (slug: string): Promise<void> =>
       $api(`/api/lms/regulations/${slug}/quiz`, { method: 'DELETE' }),
 
+    /** Что проверка показывает тому, кто ведёт документ: какие вопросы заваливают. */
+    fetchQuizStatistics: (slug: string): Promise<ResourceResponse<QuizStatistics>> =>
+      $api<ResourceResponse<QuizStatistics>>(`/api/lms/regulations/${slug}/quiz/statistics`),
+
+    /** Ведущему документ: разбор попытки сотрудника — что он отправил. */
+    fetchQuizAttempt: (slug: string, attemptId: number): Promise<ResourceResponse<QuizAttempt>> =>
+      $api<ResourceResponse<QuizAttempt>>(`/api/lms/regulations/${slug}/quiz/attempts/${attemptId}`),
+
     /** Пройти проверку. Сдал — документ считается прочитанным. */
-    submitQuiz: (slug: string, answers: Record<number, number[]>): Promise<ResourceResponse<QuizOutcome>> =>
+    submitQuiz: (
+      slug: string,
+      // У письменного вопроса ответ — строка, у выбора — номера вариантов.
+      answers: Record<number, number[] | string | string[][]>,
+    ): Promise<ResourceResponse<QuizOutcome>> =>
       $api<ResourceResponse<QuizOutcome>>(`/api/lms/regulations/${slug}/quiz/submit`, {
         method: 'POST',
         body: { answers },
@@ -150,6 +165,20 @@ export function useRegulationsApi() {
         options,
       )
     },
+
+    /**
+     * Приложить файл, оставшийся жить на Google Диске, — как и у урока: уходит
+     * только его номер.
+     */
+    attachDriveFile: (
+      slug: string,
+      file: DriveFile,
+      description: string | null = null,
+    ): Promise<ResourceResponse<LessonAttachment>> =>
+      $api<ResourceResponse<LessonAttachment>>(`/api/lms/regulations/${slug}/attachments/drive`, {
+        method: 'POST',
+        body: { ...file, description },
+      }),
 
     updateAttachment: (slug: string, attachmentId: number, description: string | null) =>
       $api<ResourceResponse<LessonAttachment>>(`/api/lms/regulations/${slug}/attachments/${attachmentId}`, {

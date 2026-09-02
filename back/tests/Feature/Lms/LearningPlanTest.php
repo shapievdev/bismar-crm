@@ -9,6 +9,8 @@ use App\Jobs\SendPush;
 use App\Models\Category;
 use App\Models\Course;
 use App\Models\LearningPlanItem;
+use App\Models\Quiz;
+use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
 use App\Models\User;
@@ -403,6 +405,43 @@ final class LearningPlanTest extends TestCase
         $this->assertSame(1, RegulationAcknowledgement::query()->count());
     }
 
+    /**
+     * Пройденный шаг несёт дату: «пройдено» без «когда» — половина ответа, а
+     * второй вопрос об обучении всегда именно этот.
+     */
+    public function test_a_finished_step_says_when_it_was_finished(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->withLessons(1)->create();
+        $document = Regulation::factory()->published()->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($course),
+                $this->step($document),
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.completed_at', null)
+            ->assertJsonPath('data.1.completed_at', null);
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $course->lessons()->firstOrFail()))
+            ->assertOk();
+        $this->actingAs($learner)
+            ->postJson(route('lms.regulations.acknowledge', $document))
+            ->assertOk();
+
+        $plan = $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.show', $learner))
+            ->assertOk()
+            ->assertJsonPath('data.0.is_completed', true)
+            ->assertJsonPath('data.1.is_completed', true)
+            ->json('data');
+
+        $this->assertNotNull($plan[0]['completed_at']);
+        $this->assertNotNull($plan[1]['completed_at']);
+    }
+
     /* ---------- Что можно назначить ---------- */
 
     /**
@@ -480,6 +519,55 @@ final class LearningPlanTest extends TestCase
         $this->actingAs($this->learner())
             ->getJson(route('lms.plans.material', $this->learner()))
             ->assertForbidden();
+    }
+
+    /**
+     * У документа с проверкой «не ознакомлен» без подробностей выглядит ленью, а
+     * не несданным тестом, — поэтому в плане видно и то, как идёт проверка.
+     */
+    public function test_a_document_step_carries_the_quiz_outcome(): void
+    {
+        $learner = $this->learner();
+        $document = Regulation::factory()->published()->create();
+        $quiz = Quiz::factory()->withQuestions(2)->forRegulation($document)->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($document)]))
+            ->assertOk()
+            // Проверка есть, а попыток пока нет.
+            ->assertJsonPath('data.0.quiz.questions', 2)
+            ->assertJsonPath('data.0.quiz.attempts', 0)
+            ->assertJsonPath('data.0.quiz.passed', false)
+            ->assertJsonPath('data.0.is_completed', false);
+
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id, 'user_id' => $learner->id,
+            'score' => 50, 'passed' => false, 'answers' => [], 'completed_at' => now()->subHour(),
+        ]);
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id, 'user_id' => $learner->id,
+            'score' => 100, 'passed' => true, 'answers' => [], 'completed_at' => now(),
+        ]);
+
+        $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.show', $learner))
+            ->assertOk()
+            ->assertJsonPath('data.0.quiz.attempts', 2)
+            // Лучшая попытка, а не последняя: сдал — значит сдал.
+            ->assertJsonPath('data.0.quiz.best_score', 100)
+            ->assertJsonPath('data.0.quiz.passed', true);
+    }
+
+    /** У курса проверки в шаге нет: там тест висит на уроке. */
+    public function test_a_course_step_has_no_quiz_of_its_own(): void
+    {
+        $learner = $this->learner();
+        $course = Course::factory()->published()->withLessons(1)->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($course)]))
+            ->assertOk()
+            ->assertJsonPath('data.0.quiz', null);
     }
 
     /* ---------- Сотруднику сообщают об изменении ---------- */

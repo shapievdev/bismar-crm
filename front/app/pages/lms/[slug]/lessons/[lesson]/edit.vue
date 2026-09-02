@@ -15,8 +15,11 @@ const {
   uploadAttachment,
   updateAttachment,
   deleteAttachment,
+  attachDriveFile,
   saveAnswers,
   suggestAnswers,
+  fetchQuizStatistics,
+  fetchLessonAttempt,
 } = useLmsApi()
 
 const lessonId = computed(() => String(route.params.lesson))
@@ -306,6 +309,7 @@ async function removeQuiz() {
           :upload-file="(file, description, options) => uploadAttachment(lessonId, file, description, options)"
           :rename-file="updateAttachment"
           :remove-file="deleteAttachment"
+          :attach-drive-file="(file) => attachDriveFile(lessonId, file)"
           @changed="refresh"
         />
 
@@ -354,7 +358,12 @@ async function removeQuiz() {
 
     <!-- Разбор — только у сохранённого теста: пока его нет, считать нечего.
          Ключ здесь и так открыт: автор видит верные ответы в самом тесте. -->
-    <QuizStatisticsPanel v-if="lesson.quiz" :key="lesson.quiz.id" :lesson-id="lessonId" />
+    <QuizStatisticsPanel
+      v-if="lesson.quiz"
+      :key="lesson.quiz.id"
+      :load="async () => (await fetchQuizStatistics(lessonId)).data"
+      :load-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
+    />
 
     <section v-else class="add-quiz">
       <button type="button" class="button-plain" @click="showQuizBuilder = true">

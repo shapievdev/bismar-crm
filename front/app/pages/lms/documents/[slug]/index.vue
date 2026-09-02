@@ -49,7 +49,10 @@ const article = computed(() => withResolvedMedia(
 ))
 
 const documents = computed(() =>
-  (regulation.value?.attachments ?? []).filter(file => !file.opens_inline || file.description))
+  (regulation.value?.attachments ?? []).filter(file =>
+    // Файл с Диска в списке всегда: он не бывает случайной картинкой из статьи
+    // — его прикладывают руками и затем, чтобы его нашли.
+    file.source === 'google_drive' || !file.opens_inline || file.description))
 
 function day(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
@@ -89,7 +92,7 @@ const isSubmitting = ref(false)
 const quizError = ref<string | null>(null)
 const outcome = ref<QuizOutcome | null>(null)
 
-async function sendAnswers(answers: Record<number, number[]>) {
+async function sendAnswers(answers: Record<number, number[] | string | string[][]>) {
   isSubmitting.value = true
   quizError.value = null
 
@@ -203,12 +206,29 @@ async function toggleReaders() {
         Документы
       </h2>
       <ul class="files__list">
-        <li v-for="file in documents" :key="file.id" class="file">
+        <li
+          v-for="file in documents"
+          :key="file.id"
+          class="file"
+          :class="{ 'file--framed': file.embed_url }"
+        >
           <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
-          <a :href="file.url" target="_blank" rel="noopener noreferrer" class="file__link">
-            {{ file.name }}
-            <span v-if="file.description" class="faint file__note">{{ file.description }}</span>
-          </a>
+
+          <div class="file__body">
+            <a :href="file.url" target="_blank" rel="noopener noreferrer" class="file__link">
+              {{ file.name }}
+              <span v-if="file.description" class="faint file__note">{{ file.description }}</span>
+            </a>
+
+            <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
+                 читали здесь. Рамка грузится лениво. -->
+            <DriveEmbed
+              v-if="file.embed_url"
+              :src="file.embed_url"
+              :title="file.name"
+              :open-url="file.url"
+            />
+          </div>
         </li>
       </ul>
     </section>
@@ -269,23 +289,13 @@ async function toggleReaders() {
         </button>
       </section>
 
-      <!-- Прошлые попытки: сколько раз человек подходил и с каким счётом. -->
-      <p v-if="attempts.length" class="faint attempts">
-        Ваши попытки:
-        <template v-for="(attempt, index) in attempts" :key="attempt.id">
-          <template v-if="index">, </template>{{ attempt.score }}%
-          <template v-if="attempt.completed_at">({{ day(attempt.completed_at) }})</template>
-        </template>
-      </p>
+      <!-- Прошлые попытки с разбором каждой — как у теста урока. -->
+      <QuizAttemptsHistory :attempts="attempts" />
     </template>
   </article>
 </template>
 
 <style scoped>
-.attempts {
-  margin: 0.75rem 0 0;
-}
-
 .crumbs {
   display: flex;
   flex-wrap: wrap;
@@ -367,6 +377,20 @@ async function toggleReaders() {
   align-items: center;
   gap: 0.6rem;
   font-size: 0.9rem;
+}
+
+/* Со строкой рядом стоит значок, а под ней разворачивается рамка просмотра —
+   поэтому имя и рамка идут одним столбцом, а не в ряд со значком. */
+.file__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* У строки с рамкой значок встаёт к имени, а не к середине рамки. */
+.file--framed {
+  align-items: flex-start;
 }
 
 .person__body,

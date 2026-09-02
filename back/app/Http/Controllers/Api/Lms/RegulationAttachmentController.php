@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Actions\Lms\AttachDriveFile;
 use App\Actions\Lms\StoreRegulationAttachment;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Lms\AttachDriveFileRequest;
 use App\Http\Requests\Lms\StoreAttachmentRequest;
 use App\Http\Requests\Lms\UpdateAttachmentRequest;
 use App\Http\Resources\Lms\RegulationAttachmentResource;
@@ -33,6 +35,28 @@ final class RegulationAttachmentController extends Controller
         abort_if($file === null, HttpResponse::HTTP_UNPROCESSABLE_ENTITY);
 
         $attachment = $storeAttachment->handle($regulation, $file, $request->validated('description'));
+
+        return RegulationAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Приложить файл, лежащий на Google Диске. Устроено так же, как у урока,
+     * см. LessonAttachmentController::storeFromDrive.
+     */
+    public function storeFromDrive(
+        AttachDriveFileRequest $request,
+        Regulation $regulation,
+        AttachDriveFile $attach,
+    ): JsonResponse {
+        Gate::authorize('update', $regulation);
+
+        /** @var array{external_id: string, name: string, mime_type?: ?string, description?: ?string} $file */
+        $file = $request->validated();
+
+        /** @var RegulationAttachment $attachment */
+        $attachment = $attach->handle($regulation, $file);
 
         return RegulationAttachmentResource::make($attachment)
             ->response()

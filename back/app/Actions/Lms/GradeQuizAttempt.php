@@ -12,6 +12,8 @@ use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\AnswerSimilarity;
+use App\Support\Lms\QuestionTable;
 use Illuminate\Support\Facades\DB;
 
 final readonly class GradeQuizAttempt
@@ -19,13 +21,15 @@ final readonly class GradeQuizAttempt
     public function __construct(
         private CompleteLesson $completeLesson,
         private AcknowledgeRegulation $acknowledgeRegulation,
+        private AnswerSimilarity $similarity,
     ) {}
 
     /**
      * Grades a submission, records the attempt, and — if the learner passed —
      * does whatever passing means for the thing the quiz hangs off.
      *
-     * @param  array<int, list<int>>  $answers  Question id => chosen option ids.
+     * @param  array<int, list<int>|list<list<string>>|string>  $answers  Номер вопроса =>
+     *                                                                    выбранные варианты, написанный ответ или строки таблицы.
      *
      * @throws ConflictException
      */
@@ -43,23 +47,41 @@ final readonly class GradeQuizAttempt
 
         $totalPoints = $quiz->totalPoints();
         $earnedPoints = 0;
+        $scores = [];
 
         foreach ($quiz->questions as $question) {
-            if ($this->isAnsweredCorrectly($question, $answers[$question->id] ?? [])) {
+            $given = $answers[$question->id] ?? null;
+
+            $verdict = match (true) {
+                $question->type->isWritten() => $this->judgeWritten($question, is_string($given) ? $given : null),
+                $question->type->isTable() => $this->judgeTable($question, is_array($given) ? $given : []),
+                default => ['is_accepted' => $this->isAnsweredCorrectly($question, is_array($given) ? $given : [])],
+            };
+
+            if ($verdict['is_accepted']) {
                 $earnedPoints += $question->points;
             }
+
+            // Разбор оценки по каждому вопросу: у письменного — чем измерена
+            // схожесть и какая вышла. Без этого «не сдано» было бы приговором
+            // без объяснения.
+            $scores[$question->id] = [
+                'points' => $verdict['is_accepted'] ? $question->points : 0,
+                ...array_diff_key($verdict, ['is_accepted' => null]),
+            ];
         }
 
         $score = $totalPoints > 0 ? (int) round($earnedPoints / $totalPoints * 100) : 0;
         $passed = $score >= $quiz->passing_score;
 
-        return DB::transaction(function () use ($quiz, $learner, $answers, $score, $passed, $enrollment): QuizAttempt {
+        return DB::transaction(function () use ($quiz, $learner, $answers, $scores, $score, $passed, $enrollment): QuizAttempt {
             $attempt = QuizAttempt::create([
                 'quiz_id' => $quiz->getKey(),
                 'user_id' => $learner->getKey(),
                 'score' => $score,
                 'passed' => $passed,
                 'answers' => $answers,
+                'scores' => $scores,
                 'completed_at' => now(),
             ]);
 
@@ -96,6 +118,42 @@ final readonly class GradeQuizAttempt
             && $this->completeLesson->blockedBy($enrollment, $owner) === null) {
             $this->completeLesson->handle($enrollment, $owner);
         }
+    }
+
+    /**
+     * Письменный ответ проверяет ИИ: сравнивает написанное с эталоном автора по
+     * смыслу и зачитывает вопрос, если схожесть выше порога (решение
+     * пользователя 2026-09-02). Частичного зачёта нет — как и у выбора
+     * варианта: вопрос либо взят, либо нет.
+     *
+     * @return array{is_accepted: bool, similarity: float, threshold: float, measured_by: string}
+     */
+    private function judgeWritten(QuizQuestion $question, ?string $given): array
+    {
+        return $this->similarity->of($given, $question->expected_answer);
+    }
+
+    /**
+     * Таблица зачитывается по заполненности: верны ли в ней числа, приложение
+     * знать не может — это работа, которую читает человек. Правило целиком
+     * лежит в QuestionTable.
+     *
+     * @param  array<int|string, mixed>  $given
+     * @return array{is_accepted: bool, filled_cells: int, required_cells: int}
+     */
+    private function judgeTable(QuizQuestion $question, array $given): array
+    {
+        /** @var array<string, mixed>|null $definition */
+        $definition = $question->table_definition;
+
+        if ($definition === null) {
+            return ['is_accepted' => false, 'filled_cells' => 0, 'required_cells' => 0];
+        }
+
+        /** @var list<list<string>> $rows */
+        $rows = array_values(array_filter($given, is_array(...)));
+
+        return QuestionTable::judge(QuestionTable::normalise($definition), $rows);
     }
 
     /**

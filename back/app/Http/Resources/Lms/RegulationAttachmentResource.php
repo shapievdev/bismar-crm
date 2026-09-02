@@ -25,9 +25,17 @@ final class RegulationAttachmentResource extends JsonResource
             'mime_type' => $this->mime_type,
             'size' => $this->size,
 
+            // Наш файл или лежащий на Google Диске: экран рисует их по-разному,
+            // и это единственное, по чему он их различает.
+            'source' => $this->source->value,
+
             // Подписанная и недолгая: адрес годен на час, номер — навсегда.
-            // Статья хранит номер, а этот адрес подставляют на экране.
-            'url' => $this->temporaryUrl(),
+            // Статья хранит номер, а этот адрес подставляют на экране. У файла
+            // с Диска — он сам на Диске: туда идут за доступом.
+            'url' => $this->url(),
+
+            // Адрес для рамки — только у файла с Диска, см. AttachedFile.
+            'embed_url' => $this->embedUrl(),
             'opens_inline' => $this->opensInline(),
         ];
     }

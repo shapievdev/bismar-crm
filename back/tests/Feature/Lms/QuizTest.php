@@ -193,6 +193,126 @@ final class QuizTest extends TestCase
         $this->assertSame(1, Quiz::query()->count());
     }
 
+    /**
+     * Правка теста не стирает того, что люди уже отвечали.
+     *
+     * Попытка хранит ответы, разложенные по номерам вопросов и выбранных
+     * вариантов. Пока редактор присылает номера обратно, вопрос остаётся собой:
+     * сотрудник и через месяц видит в разборе, что именно он выбрал, а
+     * статистика вопроса не считает его нетронутым.
+     */
+    public function test_editing_a_quiz_keeps_the_answers_of_past_attempts(): void
+    {
+        $course = Course::factory()->withLessons(1)->create();
+        $lesson = $course->lessons()->firstOrFail();
+        $author = $this->author();
+
+        $payload = [
+            'title' => 'Итоговый тест',
+            'passing_score' => 100,
+            'questions' => [[
+                'text' => 'Сколько будет два плюс два?',
+                'type' => QuestionType::Single->value,
+                'points' => 1,
+                'options' => [
+                    ['text' => 'Четыре', 'is_correct' => true],
+                    ['text' => 'Пять', 'is_correct' => false],
+                ],
+            ]],
+        ];
+
+        $saved = $this->actingAs($author)
+            ->putJson(route('lms.quiz.save', $lesson), $payload)
+            ->assertCreated()
+            ->json('data.questions.0');
+
+        $right = collect($saved['options'])->firstWhere('is_correct', true);
+
+        $learner = $this->learner();
+
+        $attempt = $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lesson), [
+                'answers' => [$saved['id'] => [$right['id']]],
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        // Автор поправил формулировку и дописал второй вопрос — с номерами
+        // того, что уже было, как их присылает редактор.
+        $payload['questions'][0]['id'] = $saved['id'];
+        $payload['questions'][0]['text'] = 'Сколько будет 2 + 2?';
+        $payload['questions'][0]['options'] = array_map(
+            static fn (array $option, int $index): array => $option + ['id' => $saved['options'][$index]['id']],
+            $payload['questions'][0]['options'],
+            array_keys($payload['questions'][0]['options']),
+        );
+        $payload['questions'][] = [
+            'text' => 'Второй вопрос',
+            'type' => QuestionType::Single->value,
+            'points' => 1,
+            'options' => [
+                ['text' => 'Да', 'is_correct' => true],
+                ['text' => 'Нет', 'is_correct' => false],
+            ],
+        ];
+
+        $this->actingAs($author)
+            ->putJson(route('lms.quiz.save', $lesson), $payload)
+            ->assertOk()
+            ->assertJsonCount(2, 'data.questions')
+            // Правленый вопрос — тот же самый, а не его двойник с новым номером.
+            ->assertJsonPath('data.questions.0.id', $saved['id'])
+            ->assertJsonPath('data.questions.0.options.0.id', $right['id']);
+
+        $this->actingAs($learner)
+            ->getJson(route('lms.attempts.show', $attempt))
+            ->assertOk()
+            ->assertJsonPath('data.review.questions.0.is_answered', true)
+            ->assertJsonPath('data.review.questions.0.is_correct', true)
+            ->assertJsonPath('data.review.questions.0.selected_option_ids', [$right['id']])
+            // Дописанный после попытки вопрос числится неотвеченным: его и не
+            // показывали.
+            ->assertJsonPath('data.review.questions.1.is_answered', false);
+
+        $this->actingAs($author)
+            ->getJson(route('lms.quiz.statistics', $lesson))
+            ->assertOk()
+            ->assertJsonPath('data.questions.0.answered', 1)
+            ->assertJsonPath('data.questions.0.correct', 1);
+    }
+
+    /** Снятый вопрос уходит совсем: иначе он жил бы в тесте вечно. */
+    public function test_a_question_dropped_from_the_editor_is_removed(): void
+    {
+        $course = Course::factory()->withLessons(1)->create();
+        $lesson = $course->lessons()->firstOrFail();
+        $quiz = Quiz::factory()->withQuestions(2)->forLesson($lesson)->create();
+
+        $kept = $quiz->questions()->with('options')->orderBy('position')->firstOrFail();
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.quiz.save', $lesson), [
+                'title' => $quiz->title,
+                'passing_score' => 100,
+                'questions' => [[
+                    'id' => $kept->getKey(),
+                    'text' => $kept->text,
+                    'type' => $kept->type->value,
+                    'points' => $kept->points,
+                    'options' => $kept->options->map(fn ($option): array => [
+                        'id' => $option->id,
+                        'text' => $option->text,
+                        'is_correct' => (bool) $option->is_correct,
+                    ])->all(),
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.questions')
+            ->assertJsonPath('data.questions.0.id', $kept->getKey());
+
+        $this->assertSame(1, $quiz->questions()->count());
+    }
+
     public function test_a_question_without_a_correct_option_is_rejected(): void
     {
         $course = Course::factory()->withLessons(1)->create();
