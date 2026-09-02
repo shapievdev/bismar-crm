@@ -75,6 +75,25 @@ final class GoogleSettingsTest extends TestCase
             ->assertJsonPath('data.is_configured', true);
     }
 
+    /**
+     * Секрет OAuth-клиента в поле ключа API не принимается.
+     *
+     * Ошибка лёгкая — в консоли Google оба значения лежат у одного клиента, —
+     * а цена высокая: сохранённое здесь уезжает в браузер каждому вошедшему, и
+     * секрет перестал бы быть секретом (случилось 2026-09-03).
+     */
+    public function test_a_client_secret_is_refused_where_the_api_key_belongs(): void
+    {
+        $this->actingAs($this->administrator())
+            ->putJson(route('integrations.google.update'), [
+                'client_id' => '123.apps.googleusercontent.com',
+                'api_key' => 'GOCSPX-8fLkQ2mNvR7tYuIoP1aSdFgH',
+            ])
+            ->assertJsonValidationErrorFor('api_key');
+
+        $this->assertSame(0, GoogleSetting::query()->count());
+    }
+
     /** Настроить интеграцию — решение о компании, а не право с галочкой. */
     public function test_an_ordinary_employee_cannot_change_the_keys(): void
     {

@@ -127,7 +127,9 @@ const origin = computed(() => (import.meta.client ? window.location.origin : '')
         placeholder="AIza…"
       />
       <p class="hint">
-        Им открывается само окно выбора файла.
+        Им открывается само окно выбора файла. Начинается с <code>AIza</code> —
+        не путайте с секретом OAuth-клиента (<code>GOCSPX-…</code>): тот лежит в консоли
+        рядом, но он тайна, а это поле видно каждому сотруднику.
         <template v-if="settings?.effective.api_key && !settings.api_key">
           Сейчас применяется значение из переменных окружения сервера.
         </template>
@@ -177,8 +179,12 @@ const origin = computed(() => (import.meta.client ? window.location.origin : '')
           клиента OAuth».
         </li>
         <li>
-          <b>OAuth consent screen</b>: если почта компании на Google Workspace, выберите
-          <b>Internal</b> — тогда проверка приложения в Google не потребуется.
+          <b>OAuth consent screen → Audience</b>. Если почта компании на Google Workspace,
+          выберите <b>Internal</b>. Если это обычные адреса на gmail.com, тип будет
+          <b>External</b>, и приложение останется в режиме <i>Testing</i> — открыть его
+          смогут только внесённые в <i>Test users</i>. Чтобы им пользовались все,
+          нажмите <b>Publish app</b>: разрешение <code>drive.file</code> — самое узкое,
+          и проверки Google для него не требуется.
         </li>
       </ol>
 
