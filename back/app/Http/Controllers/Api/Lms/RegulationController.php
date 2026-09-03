@@ -77,7 +77,16 @@ final class RegulationController extends Controller
         /** @var User $reader */
         $reader = $request->user();
 
-        $regulation->load('author', 'category', 'attachments', 'experts', 'quiz.questions.options');
+        // Проверяющий едет вместе с проверкой — как и у урока: «ждёт проверки»
+        // без имени звучит как «ждёт неизвестно чего».
+        $regulation->load(
+            'author',
+            'category',
+            'attachments',
+            'experts',
+            'quiz.questions.options',
+            'quiz.examiner:id,last_name,first_name,middle_name',
+        );
 
         if ($reader->can('update', $regulation)) {
             $regulation->loadCount('acknowledgements', 'members');
@@ -149,6 +158,7 @@ final class RegulationController extends Controller
         $attempts = $regulation->quiz === null ? [] : $regulation->quiz
             ->attempts()
             ->where('user_id', $reader->getKey())
+            ->with('reviewer:id,last_name,first_name,middle_name')
             ->latest('completed_at')
             ->limit(10)
             ->get()
@@ -157,6 +167,13 @@ final class RegulationController extends Controller
                 'score' => $attempt->score,
                 'passed' => $attempt->passed,
                 'completed_at' => $attempt->completed_at?->toIso8601String(),
+
+                // Состояние аттестации — то же, что у урока, см. LearningController.
+                'review_status' => $attempt->review_status->value,
+                'review_status_label' => $attempt->review_status->label(),
+                'review_comment' => $attempt->review_comment,
+                'reviewed_at' => $attempt->reviewed_at?->toIso8601String(),
+                'reviewed_by' => $attempt->reviewer?->name,
             ])->all();
 
         return $regulation

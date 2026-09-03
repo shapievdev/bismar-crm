@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Lms;
 
 use App\Enums\QuestionType;
+use App\Enums\QuizKind;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizOption;
@@ -53,6 +54,11 @@ final readonly class SaveQuiz
                     // при всех верных ответах, и подделать это запросом нельзя.
                     'passing_score' => Quiz::PASSING_SCORE,
                     'max_attempts' => $attributes['max_attempts'] ?? null,
+
+                    // Кто проверяет работы. Согласованность вида с вопросами и
+                    // с проверяющим разобрана на входе — см. SaveQuizRequest.
+                    'kind' => QuizKind::tryFrom((string) ($attributes['kind'] ?? '')) ?? QuizKind::Standard,
+                    'examiner_id' => $attributes['examiner_id'] ?? null,
                 ],
             );
 

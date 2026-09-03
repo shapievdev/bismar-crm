@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Lms;
 
 use App\Enums\QuestionType;
+use App\Enums\QuizKind;
 use App\Support\Lms\QuestionTable;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -22,6 +23,18 @@ final class SaveQuizRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:1000'],
             'passing_score' => ['required', 'integer', 'min:1', 'max:100'],
             'max_attempts' => ['nullable', 'integer', 'min:1', 'max:100'],
+
+            // Кто выносит приговор: приложение или человек. Пустое — обычный
+            // тест: так отвечают все, кто заведён до появления аттестации.
+            'kind' => ['sometimes', Rule::enum(QuizKind::class)],
+
+            // Проверяющий должен работать в компании: уволенному сдавать
+            // работу некуда, и очередь у него никто не разберёт.
+            'examiner_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('users', 'id')->whereNull('dismissed_at'),
+            ],
 
             'questions' => ['required', 'array', 'min:1'],
 
@@ -76,6 +89,8 @@ final class SaveQuizRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            $this->checkKind($validator);
+
             /** @var array<int, array{type?: string, expected_answer?: ?string, table?: array<string, mixed>, options?: array<int, array{is_correct?: bool}>}> $questions */
             $questions = $this->input('questions', []);
 
@@ -155,5 +170,55 @@ final class SaveQuizRequest extends FormRequest
                 }
             }
         });
+    }
+
+    /**
+     * Согласован ли вид теста с тем, что в нём спрашивают.
+     *
+     * Три правила, и все они об одном: у теста должен быть тот, кто способен
+     * его проверить.
+     *
+     * Таблица допустима только на аттестации: приложение не знает, верны ли в
+     * ней числа, и зачёт по заполненности был бы вежливой формой отказа от
+     * проверки. Проверяющий, наоборот, нужен только там: у обычного теста
+     * проверять нечего, и назначенный человек ждал бы работ, которые к нему
+     * никогда не придут.
+     */
+    private function checkKind(Validator $validator): void
+    {
+        $kind = QuizKind::tryFrom((string) $this->input('kind', QuizKind::Standard->value))
+            ?? QuizKind::Standard;
+
+        /** @var array<int, array{type?: string}> $questions */
+        $questions = $this->input('questions', []);
+
+        $examiner = $this->input('examiner_id');
+
+        if ($kind->isAttestation() && $examiner === null) {
+            $validator->errors()->add(
+                'examiner_id',
+                'Выберите, кто будет проверять работы: у аттестации должен быть адресат.',
+            );
+        }
+
+        if (! $kind->isAttestation() && $examiner !== null) {
+            $validator->errors()->add(
+                'examiner_id',
+                'Обычный тест проверяет приложение — назначать проверяющего некуда.',
+            );
+        }
+
+        if ($kind->isAttestation()) {
+            return;
+        }
+
+        foreach ($questions as $index => $question) {
+            if (($question['type'] ?? null) === QuestionType::Table->value) {
+                $validator->errors()->add(
+                    "questions.{$index}.type",
+                    'Таблицу можно спросить только на аттестации: приложение не знает, верны ли в ней числа.',
+                );
+            }
+        }
     }
 }

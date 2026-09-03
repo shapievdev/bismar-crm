@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\Chat\ParticipantController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
+use App\Http\Controllers\Api\Lms\AttestationController;
 use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseAccessController;
 use App\Http\Controllers\Api\Lms\CourseController;
@@ -204,6 +205,26 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
     Route::get('quiz-attempts/{attempt}', [LearningController::class, 'showAttempt'])
         ->middleware($view)
         ->name('attempts.show');
+
+    /*
+     * Работы, сданные на аттестацию.
+     *
+     * Права на маршруте нет намеренно: доступ даёт не роль, а назначение —
+     * автор теста выбрал, кому сдают работы. Чужую очередь так не открыть,
+     * отбор идёт по вошедшему (см. AttestationController).
+     */
+    Route::prefix('attestations')->as('attestations.')->group(function () use ($update): void {
+        Route::get('/', [AttestationController::class, 'index'])->name('index');
+        Route::get('pending-count', [AttestationController::class, 'pendingCount'])->name('pending-count');
+
+        // Кого назначить проверяющим — спрашивает тот, кто собирает тест,
+        // поэтому право здесь то же, что на правку материала.
+        Route::get('candidates', [AttestationController::class, 'candidates'])
+            ->middleware($update)
+            ->name('candidates');
+        Route::get('{attempt}', [AttestationController::class, 'show'])->name('show');
+        Route::post('{attempt}/verdict', [AttestationController::class, 'store'])->name('verdict');
+    });
 
     // Catalogue.
     Route::get('courses', [CourseController::class, 'index'])->middleware($view)->name('courses.index');

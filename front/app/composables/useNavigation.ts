@@ -23,6 +23,7 @@ export function useNavigation() {
   const route = useRoute()
   const messenger = useMessenger()
   const { fetchPendingCount } = useNewsApi()
+  const { fetchPendingAttestations } = useLmsApi()
 
   /**
    * Сколько новостей ждут ознакомления. Считает сервер: значок висит на каждой
@@ -32,12 +33,33 @@ export function useNavigation() {
    */
   const pendingNews = useState('nav.pending-news', () => 0)
 
+  /**
+   * Сколько работ ждут вашей проверки.
+   *
+   * По этому же числу решается, показывать ли вкладку «Аттестация»: назначения
+   * есть не у всех, и пустой раздел в меню — обещание, за которым ничего нет.
+   * Разобранные работы в счёт не идут, но вкладка остаётся видна тому, у кого
+   * они были: к ним возвращаются.
+   */
+  const pendingAttestations = useState('nav.pending-attestations', () => 0)
+  const hasAttestations = useState('nav.has-attestations', () => false)
+
   async function refreshBadges(): Promise<void> {
     try {
       pendingNews.value = (await fetchPendingCount()).data.count
     }
     catch {
       pendingNews.value = 0
+    }
+
+    try {
+      const pending = (await fetchPendingAttestations()).data.pending
+
+      pendingAttestations.value = pending
+      hasAttestations.value = hasAttestations.value || pending > 0
+    }
+    catch {
+      pendingAttestations.value = 0
     }
   }
 
@@ -115,5 +137,5 @@ export function useNavigation() {
     return item.matches(route.path)
   }
 
-  return { items, current, isCurrent, pendingNews, refreshBadges }
+  return { items, current, isCurrent, pendingNews, pendingAttestations, hasAttestations, refreshBadges }
 }

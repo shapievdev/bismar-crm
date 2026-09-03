@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Lms;
 
+use App\Enums\AttestationStatus;
 use App\Exceptions\ConflictException;
 use App\Models\Enrollment;
 use App\Models\Lesson;
@@ -45,6 +46,13 @@ final readonly class GradeQuizAttempt
             throw new ConflictException('Попытки закончились.');
         }
 
+        // Одна работа на проверке за раз: вторая, отправленная в ожидании
+        // вердикта, только удвоит очередь проверяющему, а сотруднику не
+        // ответит быстрее.
+        if ($this->isAwaitingReview($quiz, $learner)) {
+            throw new ConflictException('Прошлая работа ещё на проверке — дождитесь ответа.');
+        }
+
         $totalPoints = $quiz->totalPoints();
         $earnedPoints = 0;
         $scores = [];
@@ -72,9 +80,20 @@ final readonly class GradeQuizAttempt
         }
 
         $score = $totalPoints > 0 ? (int) round($earnedPoints / $totalPoints * 100) : 0;
-        $passed = $score >= $quiz->passing_score;
 
-        return DB::transaction(function () use ($quiz, $learner, $answers, $scores, $score, $passed, $enrollment): QuizAttempt {
+        /*
+         * У аттестации приложение баллы считает, но приговора не выносит.
+         *
+         * Считает — потому что проверяющему полезно видеть, что сошлось само:
+         * выбор вариантов и близость письменного ответа к эталону. Не выносит —
+         * потому что главное в такой работе таблица, а верны ли в ней числа,
+         * приложение не знает. Сказать «сдано» по заполненности значило бы
+         * подписаться под тем, чего никто не читал.
+         */
+        $isAttestation = $quiz->isAttestation();
+        $passed = ! $isAttestation && $score >= $quiz->passing_score;
+
+        return DB::transaction(function () use ($quiz, $learner, $answers, $scores, $score, $passed, $isAttestation, $enrollment): QuizAttempt {
             $attempt = QuizAttempt::create([
                 'quiz_id' => $quiz->getKey(),
                 'user_id' => $learner->getKey(),
@@ -83,6 +102,7 @@ final readonly class GradeQuizAttempt
                 'answers' => $answers,
                 'scores' => $scores,
                 'completed_at' => now(),
+                'review_status' => $isAttestation ? AttestationStatus::Pending : AttestationStatus::Auto,
             ]);
 
             if ($passed) {
@@ -91,6 +111,24 @@ final readonly class GradeQuizAttempt
 
             return $attempt;
         });
+    }
+
+    /**
+     * Ждёт ли предыдущая работа этого человека вердикта.
+     *
+     * У обычного теста такого состояния не бывает вовсе, поэтому и спрашивать
+     * базу незачем.
+     */
+    private function isAwaitingReview(Quiz $quiz, User $learner): bool
+    {
+        if (! $quiz->isAttestation()) {
+            return false;
+        }
+
+        return $quiz->attempts()
+            ->where('user_id', $learner->getKey())
+            ->where('review_status', AttestationStatus::Pending)
+            ->exists();
     }
 
     /**

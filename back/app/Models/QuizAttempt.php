@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\AttestationStatus;
 use App\Models\Contracts\PartOfCourse;
 use App\Models\Contracts\PartOfRegulation;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['quiz_id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at'])]
+#[Fillable([
+    'quiz_id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at',
+    'review_status', 'reviewed_by', 'reviewed_at', 'review_comment',
+])]
 class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
 {
     /**
@@ -50,7 +54,26 @@ class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
             'scores' => 'array',
             'passed' => 'boolean',
             'completed_at' => 'datetime',
+            'review_status' => AttestationStatus::class,
+            'reviewed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Кто вынес вердикт. Null, пока работа не проверена или проверять её
+     * некому — у обычного теста.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    /** Ждёт ли работа человека прямо сейчас. */
+    public function isAwaitingReview(): bool
+    {
+        return $this->review_status->isPending();
     }
 
     /**

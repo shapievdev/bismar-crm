@@ -2,6 +2,12 @@
 const { can, isAdmin, isSuperAdmin } = useAuth()
 const route = useRoute()
 
+/*
+ * Сколько работ ждёт проверки и есть ли они вообще. Считает навигация — она
+ * спрашивает сервер один раз на вход, а не каждая страница по отдельности.
+ */
+const { pendingAttestations, hasAttestations } = useNavigation()
+
 interface NavLink {
   to: string
   label: string
@@ -33,6 +39,15 @@ const links = computed<NavLink[]>(() => {
       // сам. Первое идёт раньше: с него начинают.
       { to: '/lms/plan', label: 'Мой план', visible: true },
       { to: '/lms/my', label: 'Мои материалы', visible: true },
+      // Вкладка есть у того, кому сдают работы: назначение — не право с
+      // галочкой, и пустой раздел в меню обещал бы то, чего за ним нет.
+      {
+        to: '/lms/attestations',
+        label: pendingAttestations.value > 0
+          ? `Аттестация · ${pendingAttestations.value}`
+          : 'Аттестация',
+        visible: hasAttestations.value,
+      },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
       { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
       {

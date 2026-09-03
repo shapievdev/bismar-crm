@@ -92,6 +92,23 @@ const isSubmitting = ref(false)
 const quizError = ref<string | null>(null)
 const outcome = ref<QuizOutcome | null>(null)
 
+/**
+ * Последняя работа, ушедшая на аттестацию, и её состояние.
+ *
+ * Ожидание живёт дольше одного захода: отправили вчера, ответ пришёл сегодня —
+ * и человек должен увидеть его, просто открыв документ. Поэтому берётся не
+ * итог отправки, а последняя попытка с сервера.
+ */
+const lastAttempt = computed(() => attempts.value[0] ?? null)
+
+const awaitingAttestation = computed(() =>
+  lastAttempt.value?.review_status === 'pending' ? lastAttempt.value : null)
+
+const judgedAttestation = computed(() =>
+  lastAttempt.value?.review_status === 'passed' || lastAttempt.value?.review_status === 'failed'
+    ? lastAttempt.value
+    : null)
+
 async function sendAnswers(answers: Record<number, number[] | string | string[][]>) {
   isSubmitting.value = true
   quizError.value = null
@@ -259,6 +276,14 @@ async function toggleReaders() {
         </p>
       </section>
 
+      <!-- Работа ушла человеку: пока он не ответил, отвечать заново нечего. -->
+      <section v-else-if="quiz && awaitingAttestation" class="card confirm">
+        <h2 class="files__title">
+          {{ quiz.title }}
+        </h2>
+        <AttestationStatusPanel :attempt="awaitingAttestation" :examiner="quiz.examiner?.name" />
+      </section>
+
       <!-- Проверка вместо кнопки: сдал — значит прочитал. -->
       <QuizRunner
         v-else-if="quiz"
@@ -266,12 +291,19 @@ async function toggleReaders() {
         :is-submitting="isSubmitting"
         :error-message="quizError"
         :result="outcome"
-        rule="Документ зачтётся, когда все ответы будут верными."
+        :rule="quiz.kind === 'attestation'
+          ? `Работу читает ${quiz.examiner?.name ?? 'назначенный проверяющий'}: документ зачтётся после его ответа.`
+          : 'Документ зачтётся, когда все ответы будут верными.'"
         passed-note="Документ отмечен как прочитанный."
         failed-note="Перечитайте документ и попробуйте снова."
         @submit="sendAnswers"
         @retry="outcome = null"
       />
+
+      <!-- Ответ проверяющего, когда он уже пришёл: отказ с причиной или зачёт. -->
+      <section v-if="quiz && judgedAttestation" class="card confirm">
+        <AttestationStatusPanel :attempt="judgedAttestation" :examiner="quiz.examiner?.name" />
+      </section>
 
       <section v-else class="card confirm">
         <p v-if="confirmError" class="alert alert--danger" role="alert">

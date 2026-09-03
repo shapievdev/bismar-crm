@@ -115,7 +115,9 @@ final class LearningController extends Controller
             abort(HttpResponse::HTTP_NOT_FOUND);
         }
 
-        $lesson->load('attachments', 'quiz.questions.options');
+        // Проверяющий едет вместе с тестом: сотруднику важно знать, кому уйдёт
+        // работа, — «ждёт проверки» без имени звучит как «ждёт неизвестно чего».
+        $lesson->load('attachments', 'quiz.questions.options', 'quiz.examiner:id,last_name,first_name,middle_name');
 
         // Строки таблицы едут вместе с уроком: редактор правит их на той же
         // странице, а читателю они показывают, что урок разбирает.
@@ -148,6 +150,7 @@ final class LearningController extends Controller
         $lesson->setAttribute('own_attempts', $lesson->quiz === null ? [] : $lesson->quiz
             ->attempts()
             ->where('user_id', $request->user()?->getKey())
+            ->with('reviewer:id,last_name,first_name,middle_name')
             ->latest('completed_at')
             ->limit(10)
             ->get()
@@ -156,6 +159,15 @@ final class LearningController extends Controller
                 'score' => $attempt->score,
                 'passed' => $attempt->passed,
                 'completed_at' => $attempt->completed_at?->toIso8601String(),
+
+                // Состояние аттестации: дошла ли работа, ответили ли, а если не
+                // зачли — то почему. У обычного теста это всегда «оценено
+                // приложением», и экран такую строку не показывает.
+                'review_status' => $attempt->review_status->value,
+                'review_status_label' => $attempt->review_status->label(),
+                'review_comment' => $attempt->review_comment,
+                'reviewed_at' => $attempt->reviewed_at?->toIso8601String(),
+                'reviewed_by' => $attempt->reviewer?->name,
             ])->all());
 
         return LessonResource::make($lesson);

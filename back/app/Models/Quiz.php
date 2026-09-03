@@ -4,18 +4,44 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\QuizKind;
 use Database\Factories\QuizFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
-#[Fillable(['quizzable_type', 'quizzable_id', 'title', 'description', 'passing_score', 'max_attempts'])]
+#[Fillable(['quizzable_type', 'quizzable_id', 'title', 'description', 'passing_score', 'max_attempts', 'kind', 'examiner_id'])]
 class Quiz extends Model
 {
     /** @use HasFactory<QuizFactory> */
     use HasFactory;
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return ['kind' => QuizKind::class];
+    }
+
+    /** Проверяет ли работу человек, а не приложение. */
+    public function isAttestation(): bool
+    {
+        return $this->kind->isAttestation();
+    }
+
+    /**
+     * Кому сдают работу. Null у обычного теста — там проверять некому и нечего.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function examiner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'examiner_id');
+    }
 
     /**
      * Планка теста — сто процентов: урок и документ зачитываются, когда все

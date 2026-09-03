@@ -131,6 +131,23 @@ const attemptsLeft = computed(() => {
   return max === null || max === undefined ? null : Math.max(0, max - attemptsUsed.value)
 })
 
+/* ---------- Аттестация ---------- */
+
+const isAttestation = computed(() => lesson.value?.quiz?.kind === 'attestation')
+
+/**
+ * Последняя работа этого человека — свежая с сервера или только что
+ * отправленная.
+ *
+ * Своя нужна потому, что состояние аттестации живёт дольше одного захода:
+ * работу отправили вчера, а ответ пришёл сегодня — и человек должен увидеть
+ * его, просто открыв урок.
+ */
+const lastAttempt = computed(() => attempt.value ?? lesson.value?.own_attempts?.[0] ?? null)
+
+/** Пока работа на проверке, отвечать заново нечего — и незачем. */
+const isAwaitingReview = computed(() => lastAttempt.value?.review_status === 'pending')
+
 const answeredCount = computed(() => Object.values(answers.value).filter((answer) => {
   if (typeof answer === 'string') {
     return answer.trim() !== ''
@@ -369,7 +386,14 @@ function formatSize(bytes: number): string {
               {{ lesson.quiz.title }}
             </h2>
             <p class="muted quiz__rules">
-              Урок зачтётся, когда все ответы будут верными.
+              <template v-if="isAttestation">
+                Работу читает
+                {{ lesson.quiz.examiner?.name ?? 'назначенный проверяющий' }}:
+                урок зачтётся после его ответа, а не сразу.
+              </template>
+              <template v-else>
+                Урок зачтётся, когда все ответы будут верными.
+              </template>
               <template v-if="attemptsLeft !== null">
                 Осталось попыток: {{ attemptsLeft }}.
               </template>
@@ -381,7 +405,19 @@ function formatSize(bytes: number): string {
           </span>
         </header>
 
-        <div v-if="attempt" class="result" :class="attempt.passed ? 'result--pass' : 'result--fail'">
+        <!-- У аттестации приговора на месте нет: вместо «сдан/не сдан» — что
+             стало с работой и что теперь будет. -->
+        <AttestationStatusPanel
+          v-if="isAttestation && lastAttempt"
+          :attempt="lastAttempt"
+          :examiner="lesson.quiz.examiner?.name"
+        />
+
+        <div
+          v-else-if="attempt"
+          class="result"
+          :class="attempt.passed ? 'result--pass' : 'result--fail'"
+        >
           <strong>{{ attempt.passed ? 'Тест сдан' : 'Тест не сдан' }}</strong>
           <span>Ваш результат — {{ attempt.score }}%</span>
           <button
@@ -395,10 +431,12 @@ function formatSize(bytes: number): string {
         </div>
 
         <!-- Разбор сразу под результатом: «68%, не сдано» без него отправляет
-             человека пересдавать с тем же знанием, с каким он пришёл. -->
-        <QuizReviewPanel v-if="attempt?.review" :review="attempt.review" />
+             человека пересдавать с тем же знанием, с каким он пришёл. У
+             аттестации разбора нет: работу читает человек, и его слово придёт
+             отдельно. -->
+        <QuizReviewPanel v-if="!isAttestation && attempt?.review" :review="attempt.review" />
 
-        <template v-if="!isCompleted && !attempt?.passed">
+        <template v-if="!isCompleted && !attempt?.passed && !isAwaitingReview">
           <div v-for="(question, index) in lesson.quiz.questions ?? []" :key="question.id" class="question">
             <p class="question__text">
               <span class="question__num">{{ index + 1 }}.</span>
@@ -458,7 +496,7 @@ function formatSize(bytes: number): string {
             :disabled="isWorking || !isEnrolled || answeredCount === 0 || attemptsLeft === 0"
             @click="sendQuiz"
           >
-            {{ isWorking ? 'Проверяем…' : 'Отправить ответы' }}
+            {{ isWorking ? 'Отправляем…' : isAttestation ? 'Отправить на аттестацию' : 'Отправить ответы' }}
           </button>
         </template>
 

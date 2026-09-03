@@ -31,6 +31,14 @@ final class QuizResource extends JsonResource
             'description' => $this->description,
             'passing_score' => $this->passing_score,
             'max_attempts' => $this->max_attempts,
+
+            // Кто выносит приговор. Сотруднику это тоже видно, и намеренно: он
+            // должен понимать, ответят ему сразу или работа уйдёт человеку.
+            'kind' => $this->kind->value,
+            'examiner' => $this->examiner_id === null ? null : [
+                'id' => $this->examiner_id,
+                'name' => $this->whenLoaded('examiner', fn () => $this->examiner?->name),
+            ],
             'questions' => $this->whenLoaded('questions', fn () => $this->questions->map(
                 fn ($question): array => [
                     'id' => $question->id,

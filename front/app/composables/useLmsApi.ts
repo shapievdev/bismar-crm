@@ -3,6 +3,7 @@ import type { DriveFile } from '~/composables/useGoogleDrive'
 import type { ResourceResponse } from '~/types/auth'
 import type {
   AnswerSourceKind,
+  Attestation,
   Category,
   CategoryPayload,
   ConsultantAnswer,
@@ -151,6 +152,34 @@ export function useLmsApi() {
     /** Разбор своей прошлой попытки: что выбрал и где ошибся. */
     fetchAttempt: (id: number): Promise<ResourceResponse<QuizAttempt>> =>
       $api<ResourceResponse<QuizAttempt>>(`/api/lms/quiz-attempts/${id}`),
+
+    /* ---------- Аттестация: работы, которые читает человек ---------- */
+
+    /** Очередь проверяющего: сперва ждущие ответа, потом разобранные. */
+    fetchAttestations: (): Promise<ResourceResponse<Attestation[]>> =>
+      $api<ResourceResponse<Attestation[]>>('/api/lms/attestations'),
+
+    /** Одна работа целиком — с ответами и открытым ключом. */
+    fetchAttestation: (attemptId: number): Promise<ResourceResponse<Attestation>> =>
+      $api<ResourceResponse<Attestation>>(`/api/lms/attestations/${attemptId}`),
+
+    /** Зачесть или не зачесть. Отказ без объяснения сервер не примет. */
+    judgeAttestation: (
+      attemptId: number,
+      body: { is_accepted: boolean, comment: string | null },
+    ): Promise<ResourceResponse<Attestation>> =>
+      $api<ResourceResponse<Attestation>>(`/api/lms/attestations/${attemptId}/verdict`, {
+        method: 'POST',
+        body,
+      }).catch(toValidationError),
+
+    /** Сколько работ ждёт ответа — для значка в навигации. */
+    fetchPendingAttestations: (): Promise<{ data: { pending: number } }> =>
+      $api<{ data: { pending: number } }>('/api/lms/attestations/pending-count'),
+
+    /** Кого можно назначить проверяющим. */
+    searchExaminers: (search = ''): Promise<ResourceResponse<CoursePerson[]>> =>
+      $api<ResourceResponse<CoursePerson[]>>('/api/lms/attestations/candidates', { query: { search } }),
 
     /** Автору: какой вопрос заваливают и что выбирают вместо верного. */
     fetchQuizStatistics: (lessonId: number | string): Promise<ResourceResponse<QuizStatistics>> =>

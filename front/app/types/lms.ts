@@ -141,6 +141,18 @@ export interface QuizQuestion {
   table?: QuestionTable | null
 }
 
+/**
+ * Кто проверяет работу.
+ *
+ * Обычный тест мерит приложение: ключ у выбора, эталон у письменного ответа.
+ * Аттестацию читает назначенный человек — потому в ней и можно спрашивать
+ * таблицами, которые приложению нечем проверить.
+ */
+export type QuizKind = 'standard' | 'attestation'
+
+/** Что стало с отправленной работой. */
+export type AttestationStatus = 'auto' | 'pending' | 'passed' | 'failed'
+
 export interface Quiz {
   id: number
   title: string
@@ -148,6 +160,9 @@ export interface Quiz {
   passing_score: number
   max_attempts: number | null
   questions?: QuizQuestion[]
+  kind: QuizKind
+  /** Кому уходят работы. Null у обычного теста. */
+  examiner: { id: number, name?: string | null } | null
 }
 
 export interface CourseModule {
@@ -340,6 +355,34 @@ export interface QuizAttempt {
   completed_at: string | null
   /** Разбор — только там, где попытку показывают одну. В списке прошлых нет. */
   review?: QuizReview | null
+
+  /**
+   * Что стало с работой. У обычного теста всегда `auto` и экрану ни о чём не
+   * говорит; у аттестации — то единственное, ради чего человек возвращается на
+   * страницу: дошла ли работа, ответили ли, а если не зачли — почему.
+   */
+  review_status?: AttestationStatus
+  review_status_label?: string
+  review_comment?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: string | null
+}
+
+/** Строка в очереди проверяющего: кто, что и когда сдал. */
+export interface Attestation {
+  id: number
+  status: AttestationStatus
+  status_label: string
+  score: number
+  completed_at: string | null
+  learner: { id: number | null, name: string | null }
+  quiz: { id: number | null, title: string | null }
+  material: { kind: 'lesson' | 'document', title: string, course: string | null, url: string | null } | null
+  reviewed_at: string | null
+  reviewed_by?: string | null
+  comment: string | null
+  /** Ответы целиком — только когда работу открыли. */
+  review?: QuizReview | null
 }
 
 export interface QuizReviewOption {
@@ -482,6 +525,10 @@ export interface QuizPayload {
   description: string | null
   passing_score: number
   max_attempts: number | null
+  /** Кто выносит приговор: приложение или назначенный человек. */
+  kind?: QuizKind
+  /** Проверяющий — только у аттестации; у обычного теста строго null. */
+  examiner_id?: number | null
   questions: {
     /**
      * Номер уже существующего вопроса. Им вопрос остаётся собой при правке: по

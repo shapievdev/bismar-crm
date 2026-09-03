@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { SelectOption } from '~/components/ui/Select.vue'
 import type { ValidationErrors } from '~/composables/useAuth'
-import type { QuestionTable, QuestionType, Quiz, QuizPayload } from '~/types/lms'
+import type { CoursePerson, QuestionTable, QuestionType, Quiz, QuizPayload } from '~/types/lms'
 
 const props = defineProps<{
   quiz: Quiz | null
@@ -23,13 +23,26 @@ const emit = defineEmits<{
   remove: []
 }>()
 
-const questionTypes: SelectOption<QuestionType>[] = [
+const allQuestionTypes: SelectOption<QuestionType>[] = [
   { value: 'single', label: 'Один ответ' },
   { value: 'multiple', label: 'Несколько ответов' },
   { value: 'text', label: 'Короткий ответ' },
   { value: 'long_text', label: 'Развёрнутый ответ' },
   { value: 'table', label: 'Таблица' },
 ]
+
+/**
+ * Таблицу предлагают только на аттестации.
+ *
+ * Приложению нечем проверить, верны ли в ней числа: зачёт по заполненности —
+ * вежливая форма отказа от проверки. Поэтому в обычном тесте такого вида
+ * вопроса просто нет в списке, а не отвергается сервером после сохранения.
+ */
+const questionTypes = computed<SelectOption<QuestionType>[]>(() =>
+  draft.value.kind === 'attestation'
+    ? allQuestionTypes
+    : allQuestionTypes.filter(type => type.value !== 'table'),
+)
 
 /** Заполняют таблицу: ни вариантов, ни эталона — зачёт по заполненности. */
 function isTable(type: QuestionType): boolean {
@@ -92,6 +105,8 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
       description: null,
       passing_score: props.fixedPassingScore ?? 70,
       max_attempts: null,
+      kind: 'standard',
+      examiner_id: null,
       questions: [blankQuestion()],
     }
   }
@@ -101,6 +116,8 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
     description: quiz.description,
     passing_score: props.fixedPassingScore ?? quiz.passing_score,
     max_attempts: quiz.max_attempts,
+    kind: quiz.kind ?? 'standard',
+    examiner_id: quiz.examiner?.id ?? null,
     questions: (quiz.questions ?? []).map(question => ({
       id: question.id,
       text: question.text,
@@ -172,6 +189,9 @@ function markCorrect(questionIndex: number, optionIndex: number) {
 function payload(): QuizPayload {
   return {
     ...draft.value,
+    // Проверяющий уходит только с аттестацией: у обычного теста проверять
+    // нечего, и сервер такой пары не примет.
+    examiner_id: draft.value.kind === 'attestation' ? draft.value.examiner_id ?? null : null,
     questions: draft.value.questions.map((question) => {
       const common = {
         // Номер едет обратно всегда: без него сервер заведёт вопрос заново, и
@@ -218,6 +238,65 @@ function onTypeChange(questionIndex: number) {
 function errorFor(path: string): string | null {
   return props.errors[path]?.[0] ?? null
 }
+
+/* ---------- Кому сдают работы ---------- */
+
+const { searchExaminers } = useLmsApi()
+
+/**
+ * Выбранный проверяющий — целиком, а не одним номером.
+ *
+ * В черновике живёт номер, его и ждёт сервер. Но имя человека взять неоткуда:
+ * подсказка поиска гаснет после выбора, а тест мог быть сохранён вчера. Поэтому
+ * имя приходит с самим тестом и держится здесь, пока его не сменили.
+ */
+const examiner = ref<{ id: number, name: string }| null>(
+  props.quiz?.examiner?.id
+    ? { id: props.quiz.examiner.id, name: props.quiz.examiner.name ?? 'Выбран' }
+    : null,
+)
+
+watch(() => props.quiz, (quiz) => {
+  examiner.value = quiz?.examiner?.id
+    ? { id: quiz.examiner.id, name: quiz.examiner.name ?? 'Выбран' }
+    : null
+})
+
+const examinerSearch = useDebouncedSearch<CoursePerson>(
+  async term => (await searchExaminers(term)).data,
+)
+
+function chooseExaminer(person: CoursePerson) {
+  examiner.value = { id: person.id, name: person.name }
+  draft.value.examiner_id = person.id
+  examinerSearch.clear()
+}
+
+function dropExaminer() {
+  examiner.value = null
+  draft.value.examiner_id = null
+}
+
+/**
+ * Смена вида теста.
+ *
+ * Обычный тест не хранит проверяющего, а таблицы в нём спросить нельзя — и то и
+ * другое чинится молча, чтобы автор не получал отказ сервера за то, чего он уже
+ * не выбирает.
+ */
+function onKindChange() {
+  if (draft.value.kind === 'attestation') {
+    return
+  }
+
+  dropExaminer()
+
+  draft.value.questions.forEach((question) => {
+    if (question.type === 'table') {
+      question.type = 'long_text'
+    }
+  })
+}
 </script>
 
 <template>
@@ -243,6 +322,73 @@ function errorFor(path: string): string | null {
       Тест зачитывает урок: он считается пройденным, когда сотрудник ответил
       верно на все вопросы. Проходной балл поэтому не настраивается.
     </p>
+
+    <!-- Вид теста стоит первым: от него зависит и что можно спросить, и кто
+         будет отвечать за приговор. -->
+    <fieldset class="kind">
+      <legend class="kind__legend">
+        Кто проверяет
+      </legend>
+
+      <label class="kind__choice" :class="{ 'kind__choice--on': draft.kind !== 'attestation' }">
+        <input v-model="draft.kind" type="radio" value="standard" @change="onKindChange">
+        <span>
+          <b>Обычный тест</b>
+          <span class="kind__hint">
+            Ответ сразу: выбор сверяется с ключом, написанное своими словами — с эталоном по смыслу.
+            Таблицу спросить нельзя — приложению нечем проверить, верны ли в ней числа.
+          </span>
+        </span>
+      </label>
+
+      <label class="kind__choice" :class="{ 'kind__choice--on': draft.kind === 'attestation' }">
+        <input v-model="draft.kind" type="radio" value="attestation" @change="onKindChange">
+        <span>
+          <b>Аттестация</b>
+          <span class="kind__hint">
+            Работу читает назначенный человек и решает, зачесть ли. Можно спрашивать таблицами.
+            Урок зачтётся только после его ответа.
+          </span>
+        </span>
+      </label>
+    </fieldset>
+
+    <div v-if="draft.kind === 'attestation'" class="field examiner">
+      <label for="quiz-examiner">Кто проверяет работы</label>
+
+      <p v-if="examiner" class="examiner__chosen">
+        <span>{{ examiner.name }}</span>
+        <button type="button" class="button-ghost button-sm" @click="dropExaminer">
+          Сменить
+        </button>
+      </p>
+
+      <template v-else>
+        <input
+          id="quiz-examiner"
+          v-model="examinerSearch.query.value"
+          type="search"
+          placeholder="Начните вводить фамилию"
+          autocomplete="off"
+        >
+
+        <p v-if="examinerSearch.isSearching.value" class="muted examiner__note">
+          Ищем…
+        </p>
+
+        <ul v-else-if="examinerSearch.results.value.length" class="examiner__results">
+          <li v-for="person in examinerSearch.results.value" :key="person.id">
+            <button type="button" class="examiner__option" @click="chooseExaminer(person)">
+              {{ person.name }}
+            </button>
+          </li>
+        </ul>
+      </template>
+
+      <p v-if="errorFor('examiner_id')" class="field__error">
+        {{ errorFor('examiner_id') }}
+      </p>
+    </div>
 
     <div class="row">
       <div class="field">
@@ -395,6 +541,89 @@ function errorFor(path: string): string | null {
 </template>
 
 <style scoped>
+/* Вид теста — выбор из двух, и каждый со своим объяснением: за словами
+   «обычный» и «аттестация» стоит разное устройство, а не разные названия. */
+.kind {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: none;
+}
+
+.kind__legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.kind__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.kind__choice--on {
+  border-color: var(--color-accent);
+  background: var(--color-surface-sunken);
+}
+
+.kind__hint {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.examiner {
+  margin-bottom: 1rem;
+  max-width: 26rem;
+}
+
+.examiner__chosen {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.examiner__note {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+}
+
+.examiner__results {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.examiner__option {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.examiner__option:hover {
+  background: var(--control-surface-hover);
+}
+
 .reference {
   display: block;
   margin: 0.5rem 0 0;

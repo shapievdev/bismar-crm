@@ -6,6 +6,7 @@ namespace Tests\Feature\Lms;
 
 use App\Enums\Permission;
 use App\Enums\QuestionType;
+use App\Enums\QuizKind;
 use App\Models\Course;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
@@ -85,6 +86,10 @@ final class TableQuestionTest extends TestCase
             ->putJson(route('lms.quiz.save', $course->lessons()->first()), [
                 'title' => 'Постоянные расходы',
                 'passing_score' => 100,
+                // Таблицу спрашивают только на аттестации: приложению нечем
+                // проверить, верны ли в ней числа, — см. AttestationTest.
+                'kind' => QuizKind::Attestation->value,
+                'examiner_id' => $this->learner()->getKey(),
                 'questions' => [[
                     'text' => 'Разнесите расходы по типу',
                     'type' => QuestionType::Table->value,
@@ -367,6 +372,8 @@ final class TableQuestionTest extends TestCase
             ->putJson(route('lms.quiz.save', $course->lessons()->first()), [
                 'title' => 'Расходы',
                 'passing_score' => 100,
+                'kind' => QuizKind::Attestation->value,
+                'examiner_id' => $this->learner()->getKey(),
                 'questions' => [[
                     'text' => 'Разнесите расходы по типу',
                     'type' => QuestionType::Table->value,
