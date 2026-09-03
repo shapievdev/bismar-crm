@@ -23,6 +23,43 @@ defineProps<{
 const frame = useTemplateRef<HTMLIFrameElement>('frame')
 
 /**
+ * Развёрнута ли рамка.
+ *
+ * На узком экране — нет, и это не экономия, а проходимость: рамка высотой в
+ * экран перегораживает урок, а палец, попавший в неё, листает документ вместо
+ * страницы. Выйти из такой ловушки можно только промахнувшись мимо, и человек
+ * скорее решит, что страница сломалась. Поэтому на телефоне сначала карточка с
+ * именем файла, а документ — по нажатию.
+ *
+ * На большом экране рамка открыта сразу: там она стоит в колонке, страница
+ * листается полями, и прятать содержимое незачем.
+ */
+const isOpen = ref(true)
+
+/**
+ * Умеет ли браузер разворачивать рамку во весь экран.
+ *
+ * Safari на телефоне не умеет: полный экран там есть только у видео. Кнопка,
+ * которая молча ничего не делает, хуже отсутствующей.
+ */
+const canGoFullscreen = ref(false)
+
+onMounted(() => {
+  const narrow = window.matchMedia('(max-width: 48rem)')
+
+  const apply = () => {
+    isOpen.value = !narrow.matches
+  }
+
+  apply()
+  narrow.addEventListener('change', apply)
+
+  canGoFullscreen.value = document.fullscreenEnabled === true
+
+  onBeforeUnmount(() => narrow.removeEventListener('change', apply))
+})
+
+/**
  * Во весь экран.
  *
  * Лист A4 в колонке урока читается мелко, а увести человека на Диск — значит
@@ -36,7 +73,7 @@ function expand() {
 
 <template>
   <div class="drive">
-    <div class="drive__pane">
+    <div v-if="isOpen" class="drive__pane">
       <iframe
         ref="frame"
         :src="src"
@@ -50,12 +87,22 @@ function expand() {
     </div>
 
     <p class="faint drive__note">
-      <button type="button" class="drive__expand" @click="expand">
+      <button type="button" class="drive__action" @click="isOpen = !isOpen">
+        {{ isOpen ? 'Свернуть' : 'Показать документ' }}
+      </button>
+
+      <button
+        v-if="isOpen && canGoFullscreen"
+        type="button"
+        class="drive__action"
+        @click="expand"
+      >
         Во весь экран
       </button>
-      · Рамку можно растянуть за нижний край. Файл на Google Диске.
+
+      <span>Файл на Google Диске.</span>
       <a :href="openUrl" target="_blank" rel="noopener noreferrer">Открыть на Диске</a>
-      — там же просят доступ, если файл не открывается.
+      <span>— там же просят доступ, если файл не открывается.</span>
     </p>
   </div>
 </template>
@@ -87,6 +134,30 @@ function expand() {
   background: var(--color-surface-sunken);
 }
 
+/*
+ * Пальцем ручку не потянешь — она рассчитана на курсор и на телефоне только
+ * съедает угол документа. Спрашиваем не про ширину экрана, а про способ ввода:
+ * планшет с мышью вправе её иметь.
+ */
+@media (pointer: coarse) {
+  .drive__pane {
+    resize: none;
+  }
+}
+
+/*
+ * На узком экране лист целиком не нужен: рамка в полтора экрана высотой
+ * превращает урок в бесконечную прокрутку. Высота — по экрану, и внутри
+ * документа своя прокрутка.
+ */
+@media (max-width: 48rem) {
+  .drive__pane {
+    aspect-ratio: auto;
+    height: 70vh;
+    min-height: 20rem;
+  }
+}
+
 .drive__frame {
   display: block;
   width: 100%;
@@ -103,9 +174,9 @@ function expand() {
   font-size: 0.82rem;
 }
 
-/* Кнопка выглядит ссылкой: она стоит в строке подписи, и рамка вокруг неё
+/* Кнопки выглядят ссылками: они стоят в строке подписи, и рамка вокруг них
    спорила бы с самой рамкой просмотра. */
-.drive__expand {
+.drive__action {
   padding: 0;
   border: none;
   background: none;
@@ -116,7 +187,15 @@ function expand() {
   cursor: pointer;
 }
 
-.drive__expand:hover {
+.drive__action:hover {
   color: var(--color-accent);
+}
+
+/* На телефоне «Показать документ» — главное действие в строке, и промахнуться
+   по нему пальцем не должно быть легко. */
+@media (max-width: 48rem) {
+  .drive__action {
+    padding: 0.35rem 0;
+  }
 }
 </style>
