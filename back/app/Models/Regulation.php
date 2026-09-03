@@ -64,6 +64,16 @@ class Regulation extends Model
     }
 
     /**
+     * Кто выбросил материал в корзину. Null у живого — и у того, кого вернули.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function remover(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
+    }
+
+    /**
      * @return BelongsTo<User, $this>
      */
     public function author(): BelongsTo

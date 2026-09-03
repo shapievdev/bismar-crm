@@ -27,6 +27,7 @@ import type {
   QuizAttempt,
   QuizPayload,
   QuizStatistics,
+  TrashedMaterial,
   StatusOption,
   SuggestedAnswer,
 } from '~/types/lms'
@@ -152,6 +153,23 @@ export function useLmsApi() {
     /** Разбор своей прошлой попытки: что выбрал и где ошибся. */
     fetchAttempt: (id: number): Promise<ResourceResponse<QuizAttempt>> =>
       $api<ResourceResponse<QuizAttempt>>(`/api/lms/quiz-attempts/${id}`),
+
+    /* ---------- Корзина: удалённое, но ещё не стёртое ---------- */
+
+    fetchTrash: (): Promise<ResourceResponse<TrashedMaterial[]>> =>
+      $api<ResourceResponse<TrashedMaterial[]>>('/api/lms/trash'),
+
+    /** Вернуть на место — со всем, что за ним стояло. */
+    restoreTrashed: (kind: 'course' | 'document', id: number): Promise<unknown> =>
+      $api(`/api/lms/trash/${kind === 'course' ? 'courses' : 'documents'}/${id}/restore`, {
+        method: 'POST',
+      }),
+
+    /** Стереть насовсем. Возвращать после этого нечего — только администратору. */
+    purgeTrashed: (kind: 'course' | 'document', id: number): Promise<unknown> =>
+      $api(`/api/lms/trash/${kind === 'course' ? 'courses' : 'documents'}/${id}`, {
+        method: 'DELETE',
+      }),
 
     /* ---------- Аттестация: работы, которые читает человек ---------- */
 

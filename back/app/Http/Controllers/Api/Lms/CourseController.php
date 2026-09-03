@@ -105,9 +105,12 @@ final class CourseController extends Controller
         return CourseResource::make($saveCourse->update($course, $attributes));
     }
 
-    public function destroy(Course $course): Response
+    public function destroy(Request $request, Course $course): Response
     {
         // Soft delete: a course carries learner progress worth recovering.
+        // Удалённое лежит в корзине, и первый вопрос у всякого, кто её
+        // открывает, — чьих рук дело; дата без имени на него не отвечает.
+        $course->forceFill(['deleted_by' => $request->user()?->getKey()])->save();
         $course->delete();
 
         return response()->noContent();

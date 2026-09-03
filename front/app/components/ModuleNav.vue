@@ -50,6 +50,8 @@ const links = computed<NavLink[]>(() => {
       },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
       { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
+      // Корзина — тому, кто вправе удалять: остальным в ней нечего искать.
+      { to: '/lms/trash', label: 'Корзина', visible: can('courses.delete') },
       {
         to: '/lms/documents/categories',
         label: 'Категории документов',

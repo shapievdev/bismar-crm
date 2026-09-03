@@ -368,6 +368,24 @@ export interface QuizAttempt {
   reviewed_by?: string | null
 }
 
+/**
+ * Строка в корзине: удалённый курс или документ.
+ *
+ * Курсы и документы лежат вместе, потому что вопрос у человека один — «куда
+ * делось то, что я вчера видел», — и помнить, чем оно было, чтобы найти
+ * пропажу, ему незачем.
+ */
+export interface TrashedMaterial {
+  id: number
+  kind: 'course' | 'document'
+  title: string
+  author: string | null
+  deleted_at: string | null
+  deleted_by: string | null
+  /** Сколько уроков уйдёт, если стереть насовсем. Null у документа. */
+  lessons: number | null
+}
+
 /** Строка в очереди проверяющего: кто, что и когда сдал. */
 export interface Attestation {
   id: number

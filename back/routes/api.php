@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\Lms\RegulationCategoryController;
 use App\Http\Controllers\Api\Lms\RegulationController;
 use App\Http\Controllers\Api\Lms\RegulationPeopleController;
 use App\Http\Controllers\Api\Lms\RegulationQuizController;
+use App\Http\Controllers\Api\Lms\TrashController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
 use App\Http\Controllers\Api\News\NewsController;
@@ -308,6 +309,29 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
     Route::middleware($delete)->group(function (): void {
         Route::delete('modules/{module}', [CourseStructureController::class, 'destroyModule'])->name('modules.destroy');
         Route::delete('lessons/{lesson}', [CourseStructureController::class, 'destroyLesson'])->name('lessons.destroy');
+
+        /*
+         * Корзина. Право то же, что на удаление: кто вправе выбросить, тот
+         * вправе и достать обратно.
+         *
+         * Стереть насовсем — только администратору: это единственное действие
+         * во всей базе знаний, после которого возвращать нечего.
+         */
+        Route::prefix('trash')->as('trash.')->group(function (): void {
+            Route::get('/', [TrashController::class, 'index'])->name('index');
+
+            Route::post('courses/{course}/restore', [TrashController::class, 'restoreCourse'])
+                ->name('courses.restore');
+            Route::post('documents/{document}/restore', [TrashController::class, 'restoreDocument'])
+                ->name('documents.restore');
+
+            Route::middleware(EnsureAdministrator::class)->group(function (): void {
+                Route::delete('courses/{course}', [TrashController::class, 'purgeCourse'])
+                    ->name('courses.purge');
+                Route::delete('documents/{document}', [TrashController::class, 'purgeDocument'])
+                    ->name('documents.purge');
+            });
+        });
     });
 });
 

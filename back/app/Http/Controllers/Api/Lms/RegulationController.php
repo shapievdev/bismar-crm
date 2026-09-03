@@ -126,12 +126,14 @@ final class RegulationController extends Controller
         );
     }
 
-    public function destroy(Regulation $regulation): Response
+    public function destroy(Request $request, Regulation $regulation): Response
     {
         Gate::authorize('delete', $regulation);
 
         // Мягко: за регламентом стоят отметки об ознакомлении, и случайное
-        // удаление не должно уносить их с собой.
+        // удаление не должно уносить их с собой. Кто выбросил — видно в
+        // корзине, см. TrashController.
+        $regulation->forceFill(['deleted_by' => $request->user()?->getKey()])->save();
         $regulation->delete();
 
         return response()->noContent();
