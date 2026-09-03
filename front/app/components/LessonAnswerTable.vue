@@ -527,10 +527,14 @@ defineExpose({ showSuggestions })
 <style scoped>
 /*
  * Таблица возглавляет свою колонку: отбивка сверху и черта под чужим
- * содержимым ей больше не нужны, а ширину задаёт колонка.
+ * содержимым ей больше не нужны, а ширину задаёт колонка. Карточка — как у
+ * разделов слева: иначе она единственная на странице лежала бы прямо на фоне.
  */
 .answers {
   min-width: 0;
+  padding: 1.35rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .answers__header {
@@ -543,7 +547,8 @@ defineExpose({ showSuggestions })
 
 .answers__header h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.05rem;
+  font-weight: 550;
 }
 
 .muted {
