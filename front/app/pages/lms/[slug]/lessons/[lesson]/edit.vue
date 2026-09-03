@@ -85,6 +85,30 @@ const generalError = ref<string | null>(null)
 const isSaving = ref(false)
 const savedAt = ref<string | null>(null)
 
+/**
+ * Расходится ли форма с тем, что лежит на сервере.
+ *
+ * Сравнивается не со слепком, снятым при загрузке, а с самим уроком: страница
+ * перечитывает его не только после сохранения — например, когда удалили файл, —
+ * и слепок пришлось бы обновлять в каждом таком месте, не забыв ни одного.
+ * С этим сравнением состояние чинится само: пришли свежие данные — расхождение
+ * пересчиталось.
+ */
+const isDirty = computed(() => {
+  const saved = lesson.value
+
+  if (!saved) {
+    return false
+  }
+
+  return form.value.title !== (saved.title ?? '')
+    || (form.value.video_url ?? '') !== (saved.video_url ?? '')
+    || (form.value.duration_minutes ?? null) !== (saved.duration_minutes ?? null)
+    // Адреса вложений в сравнении не участвуют: они подставляются на входе и
+    // снимаются на выходе, а в записи хранятся одни номера.
+    || JSON.stringify(withoutResolvedMedia(document.value)) !== JSON.stringify(saved.content_json ?? null)
+})
+
 const quizErrors = ref<ValidationErrors>({})
 const isSavingQuiz = ref(false)
 const showQuizBuilder = ref(Boolean(lesson.value?.quiz))
@@ -290,11 +314,16 @@ async function removeQuiz() {
         </p>
       </div>
 
-          <div class="actions">
+          <!-- Липкая полоса: редактор высокий, и до кнопки приходилось
+               прокручивать статью обратно вверх. Черта под ней появляется
+               только с несохранёнными правками — иначе полоса выглядела бы
+               рамкой вокруг пустого места. -->
+          <div class="actions" :class="{ 'actions--dirty': isDirty }">
             <button type="submit" class="button-primary" :disabled="isSaving">
               {{ isSaving ? 'Сохраняем…' : 'Сохранить урок' }}
             </button>
-            <span v-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
+            <span v-if="isDirty" class="muted">Есть несохранённые правки</span>
+            <span v-else-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
           </div>
         </form>
 
@@ -496,10 +525,40 @@ async function removeQuiz() {
   font-size: 0.825rem;
 }
 
+/*
+ * Кнопка сохранения не уезжает вверх.
+ *
+ * Редактор статьи высотой в экран и больше: дописав абзац внизу, автор
+ * прокручивал всю карточку обратно, чтобы сохранить. Полоса прижата к низу
+ * окна, пока карточка на экране, и растянута на её поля — иначе под полосой
+ * просвечивал бы текст.
+ */
 .actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
+  margin: 0 -1.5rem -1.5rem;
+  padding: 0.9rem 1.5rem;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.actions--dirty {
+  border-top: 1px solid var(--color-border);
+}
+
+/*
+ * На телефоне снизу висит панель разделов, и полоса легла бы прямо на неё.
+ * Поднимаем её на высоту панели вместе с безопасной зоной — см. MobileDock.
+ */
+@media (max-width: 60rem) {
+  .actions {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .editor-skeleton {
