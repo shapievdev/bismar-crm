@@ -330,35 +330,34 @@ function formatSize(bytes: number): string {
           Материалы
         </h2>
         <ul class="files">
-          <li
-            v-for="file in lesson.attachments"
-            :key="file.id"
-            class="file"
-            :class="{ 'file--framed': file.embed_url }"
-          >
-            <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
+          <li v-for="file in lesson.attachments" :key="file.id" class="file">
+            <div class="file__row">
+              <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
 
-            <div class="file__body">
-              <a
-                :href="file.url"
-                class="file__name"
-                :target="file.opens_inline ? '_blank' : undefined"
-                rel="noopener noreferrer"
-              >{{ file.name }}</a>
-              <span v-if="file.description" class="file__description">{{ file.description }}</span>
+              <div class="file__body">
+                <a
+                  :href="file.url"
+                  class="file__name"
+                  :target="file.opens_inline ? '_blank' : undefined"
+                  rel="noopener noreferrer"
+                >{{ file.name }}</a>
+                <span v-if="file.description" class="file__description">{{ file.description }}</span>
+              </div>
 
-              <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
-                   читали здесь, а не уходили за ним в другую вкладку. Грузится
-                   рамка лениво — до неё ещё нужно долистать. -->
-              <DriveEmbed
-                v-if="file.embed_url"
-                :src="file.embed_url"
-                :title="file.name"
-                :open-url="file.url"
-              />
+              <span v-if="file.source !== 'google_drive'" class="faint file__size">{{ formatSize(file.size) }}</span>
             </div>
 
-            <span v-if="file.source !== 'google_drive'" class="faint file__size">{{ formatSize(file.size) }}</span>
+            <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
+                 читали здесь, а не уходили за ним в другую вкладку. Рамка стоит
+                 под строкой, а не в ней: рядом со значком ей осталась бы
+                 колонка в две трети ширины, и лист A4 в ней не прочесть.
+                 Грузится лениво — до неё ещё нужно долистать. -->
+            <DriveEmbed
+              v-if="file.embed_url"
+              :src="file.embed_url"
+              :title="file.name"
+              :open-url="file.url"
+            />
           </li>
         </ul>
       </section>
@@ -738,18 +737,18 @@ function formatSize(bytes: number): string {
 }
 
 .file {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
   padding: 0.6rem 0.8rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   margin-bottom: 0.4rem;
 }
 
-/* У строки с рамкой просмотра значок встаёт к имени, а не к середине рамки. */
-.file--framed {
-  align-items: flex-start;
+/* Значок, имя и размер — в ряд; рамка просмотра, если она есть, — под ними во
+   всю ширину. */
+.file__row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
 }
 
 .file__body {

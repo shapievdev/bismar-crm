@@ -206,29 +206,25 @@ async function toggleReaders() {
         Документы
       </h2>
       <ul class="files__list">
-        <li
-          v-for="file in documents"
-          :key="file.id"
-          class="file"
-          :class="{ 'file--framed': file.embed_url }"
-        >
-          <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
+        <li v-for="file in documents" :key="file.id" class="file">
+          <div class="file__row">
+            <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
 
-          <div class="file__body">
             <a :href="file.url" target="_blank" rel="noopener noreferrer" class="file__link">
               {{ file.name }}
               <span v-if="file.description" class="faint file__note">{{ file.description }}</span>
             </a>
-
-            <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
-                 читали здесь. Рамка грузится лениво. -->
-            <DriveEmbed
-              v-if="file.embed_url"
-              :src="file.embed_url"
-              :title="file.name"
-              :open-url="file.url"
-            />
           </div>
+
+          <!-- Файл с Диска раскрыт сразу: его затем и прикладывают, чтобы
+               читали здесь. Рамка стоит под строкой, а не рядом со значком:
+               иначе листу A4 остаётся колонка в две трети ширины. -->
+          <DriveEmbed
+            v-if="file.embed_url"
+            :src="file.embed_url"
+            :title="file.name"
+            :open-url="file.url"
+          />
         </li>
       </ul>
     </section>
@@ -373,24 +369,17 @@ async function toggleReaders() {
 
 .person,
 .file {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
   font-size: 0.9rem;
 }
 
-/* Со строкой рядом стоит значок, а под ней разворачивается рамка просмотра —
-   поэтому имя и рамка идут одним столбцом, а не в ряд со значком. */
-.file__body {
+/* Значок и имя — в ряд; рамка просмотра, если она есть, — под ними во всю
+   ширину, иначе листу A4 достаётся колонка в две трети. Строка файла и строка
+   человека устроены одинаково, поэтому и правило одно. */
+.person,
+.file__row {
   display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-/* У строки с рамкой значок встаёт к имени, а не к середине рамки. */
-.file--framed {
-  align-items: flex-start;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .person__body,
