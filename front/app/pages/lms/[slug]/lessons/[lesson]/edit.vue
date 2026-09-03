@@ -50,10 +50,48 @@ const document = ref<JSONContent | null>(
   withResolvedMedia(lesson.value?.content_json ?? null, lesson.value?.attachments ?? []),
 )
 
-// A save refetches the lesson, and deleting a file refreshes the attachment
-// list — either way the document needs its addresses resolved again.
+/**
+ * Расходится ли форма с тем, что лежит на сервере.
+ *
+ * Сравнивается не со слепком, снятым при загрузке, а с самим уроком: страница
+ * перечитывает его не только после сохранения — например, когда удалили файл, —
+ * и слепок пришлось бы обновлять в каждом таком месте, не забыв ни одного.
+ * С этим сравнением состояние чинится само: пришли свежие данные — расхождение
+ * пересчиталось.
+ */
+const isDirty = computed(() => {
+  const saved = lesson.value
+
+  if (!saved) {
+    return false
+  }
+
+  return form.value.title !== (saved.title ?? '')
+    || (form.value.video_url ?? '') !== (saved.video_url ?? '')
+    || (form.value.duration_minutes ?? null) !== (saved.duration_minutes ?? null)
+    // Адреса вложений в сравнении не участвуют: они подставляются на входе и
+    // снимаются на выходе, а в записи хранятся одни номера.
+    || JSON.stringify(withoutResolvedMedia(document.value)) !== JSON.stringify(saved.content_json ?? null)
+})
+
+/**
+ * A save refetches the lesson, and deleting a file refreshes the attachment
+ * list — either way the document needs its addresses resolved again.
+ *
+ * Но перечитанный урок не должен затирать ненаписанное. Урок перечитывается не
+ * только после сохранения: удалили файл, добавили расшифровку — и статья
+ * возвращалась к последней сохранённой, унося абзац, который автор писал прямо
+ * сейчас. Ошибка тихая и обиднее многих: ничего не мигнуло, текст просто исчез.
+ *
+ * Поэтому при несохранённых правках остаётся написанное автором, а обновляются
+ * в нём только адреса вложений — ради них обновление и затевалось.
+ */
 watch(lesson, (value) => {
-  document.value = withResolvedMedia(value?.content_json ?? null, value?.attachments ?? [])
+  const attachments = value?.attachments ?? []
+
+  document.value = isDirty.value
+    ? withResolvedMedia(document.value, attachments)
+    : withResolvedMedia(value?.content_json ?? null, attachments)
 })
 
 /**
@@ -84,30 +122,6 @@ const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
 const savedAt = ref<string | null>(null)
-
-/**
- * Расходится ли форма с тем, что лежит на сервере.
- *
- * Сравнивается не со слепком, снятым при загрузке, а с самим уроком: страница
- * перечитывает его не только после сохранения — например, когда удалили файл, —
- * и слепок пришлось бы обновлять в каждом таком месте, не забыв ни одного.
- * С этим сравнением состояние чинится само: пришли свежие данные — расхождение
- * пересчиталось.
- */
-const isDirty = computed(() => {
-  const saved = lesson.value
-
-  if (!saved) {
-    return false
-  }
-
-  return form.value.title !== (saved.title ?? '')
-    || (form.value.video_url ?? '') !== (saved.video_url ?? '')
-    || (form.value.duration_minutes ?? null) !== (saved.duration_minutes ?? null)
-    // Адреса вложений в сравнении не участвуют: они подставляются на входе и
-    // снимаются на выходе, а в записи хранятся одни номера.
-    || JSON.stringify(withoutResolvedMedia(document.value)) !== JSON.stringify(saved.content_json ?? null)
-})
 
 const quizErrors = ref<ValidationErrors>({})
 const isSavingQuiz = ref(false)
