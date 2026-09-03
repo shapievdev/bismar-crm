@@ -51,6 +51,7 @@ interface PickerBuilderApi {
   addView: (view: DocsViewApi) => PickerBuilderApi
   setOAuthToken: (token: string) => PickerBuilderApi
   setDeveloperKey: (key: string) => PickerBuilderApi
+  setAppId: (projectNumber: string) => PickerBuilderApi
   setLocale: (locale: string) => PickerBuilderApi
   setTitle: (title: string) => PickerBuilderApi
   enableFeature: (feature: string) => PickerBuilderApi
@@ -217,20 +218,34 @@ export function useGoogleDrive() {
     const [token, picker] = await Promise.all([requestToken(), loadPicker()])
 
     return new Promise<DriveFile[]>((resolve) => {
-      const view = new picker.DocsView(picker.ViewId.DOCS)
-        // Папки видны и выбираются: инструкции на Диске чаще лежат папкой, а
-        // не одним файлом, и прикреплять их по одному — работа на полдня.
-        .setIncludeFolders(true)
-        .setSelectFolderEnabled(true)
-        // Общие диски компании — то же самое, что свои: файл, к которому
-        // человека пустили, для него ничем не отличается от собственного.
-        .setEnableDrives(true)
-        .setOwnedByMe(false)
+      /**
+       * Папки видны и выбираются во всех вкладках: инструкции на Диске чаще
+       * лежат папкой, а не одним файлом, и прикреплять их по одной — работа на
+       * полдня.
+       */
+      const folders = (view: DocsViewApi): DocsViewApi =>
+        view.setIncludeFolders(true).setSelectFolderEnabled(true)
+
+      /*
+       * Три вкладки, а не одна. Файл, который человек ищет, лежит в одном из
+       * трёх мест, и какое из них его — знает он, а не мы: свой Диск, отданное
+       * ему в доступ, общие диски компании. Одна вкладка «общих дисков» здесь и
+       * стояла — и показывала пустоту тому, у кого файлы свои.
+       */
+      const myDrive = folders(new picker.DocsView(picker.ViewId.DOCS))
+      const sharedWithMe = folders(new picker.DocsView(picker.ViewId.DOCS)).setOwnedByMe(false)
+      const sharedDrives = folders(new picker.DocsView(picker.ViewId.DOCS)).setEnableDrives(true)
 
       new picker.PickerBuilder()
-        .addView(view)
+        .addView(myDrive)
+        .addView(sharedWithMe)
+        .addView(sharedDrives)
         .setOAuthToken(token)
         .setDeveloperKey(apiKey.value)
+        // Номер проекта — первая часть номера клиента. При разрешении
+        // `drive.file` Google требует его, чтобы понимать, какому приложению
+        // открывать выбранный файл.
+        .setAppId(clientId.value.split('-')[0] ?? '')
         .setLocale('ru')
         .setTitle('Выберите файл на Google Диске')
         .enableFeature(picker.Feature.MULTISELECT_ENABLED)
