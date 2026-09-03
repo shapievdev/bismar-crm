@@ -36,22 +36,24 @@ function expand() {
 
 <template>
   <div class="drive">
-    <iframe
-      ref="frame"
-      :src="src"
-      :title="title"
-      class="drive__frame"
-      loading="lazy"
-      allow="autoplay"
-      allowfullscreen
-      referrerpolicy="strict-origin-when-cross-origin"
-    />
+    <div class="drive__pane">
+      <iframe
+        ref="frame"
+        :src="src"
+        :title="title"
+        class="drive__frame"
+        loading="lazy"
+        allow="autoplay"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
+      />
+    </div>
 
     <p class="faint drive__note">
       <button type="button" class="drive__expand" @click="expand">
         Во весь экран
       </button>
-      · Файл на Google Диске.
+      · Рамку можно растянуть за нижний край. Файл на Google Диске.
       <a :href="openUrl" target="_blank" rel="noopener noreferrer">Открыть на Диске</a>
       — там же просят доступ, если файл не открывается.
     </p>
@@ -64,17 +66,32 @@ function expand() {
 }
 
 /*
- * Высота от окна, а не от содержимого: чужую страницу внутри рамки не измерить.
- * Считана под лист A4 — в такой рамке он читается целиком, не превращаясь в
- * почтовую марку; кому мало, тот разворачивает на весь экран.
+ * Высота — по бумаге, а не по окну браузера.
+ *
+ * HTML-блок тянется по своему содержимому, но он наш: документ внутри сам
+ * сообщает высоту. Диск чужой, померить его нечем, и всякое число здесь —
+ * догадка. Лучшая догадка — пропорции листа: страница помещается целиком и
+ * читается в том же размере, в каком её напечатали бы. Ограничения высотой
+ * экрана нет намеренно — от него рамка и выходила приземистой.
+ *
+ * Ручка внизу справа остаётся человеку: таблицу тянут вширь, договор — вниз, и
+ * спорить с этим бессмысленно.
  */
-.drive__frame {
-  display: block;
-  width: 100%;
-  height: min(85vh, 50rem);
+.drive__pane {
+  aspect-ratio: 1 / 1.3;
+  min-height: 30rem;
+  resize: vertical;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface-sunken);
+}
+
+.drive__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
 .drive__note {
