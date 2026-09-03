@@ -318,7 +318,11 @@ async function remove(attachment: LessonAttachment) {
           <button type="button" class="button-ghost button-sm" @click="startEditing(file)">
             Подписать
           </button>
-          <button type="button" class="button-danger button-sm" @click="remove(file)">
+          <!-- Приглушённая, как соседние: красной кнопка в каждой строке
+               списка кричит громче всего, что на странице есть, — а удаление
+               здесь не главное действие, а последнее. Цвет она берёт под
+               курсором, когда до неё и правда потянулись. -->
+          <button type="button" class="button-ghost button-sm item__remove" @click="remove(file)">
             Удалить
           </button>
         </div>
@@ -332,29 +336,41 @@ async function remove(attachment: LessonAttachment) {
 </template>
 
 <style scoped>
+/*
+ * Раздел — карточка, а не кусок страницы, отчёркнутый линией.
+ *
+ * Внутри всё равно лежат карточки файлов, и волосяная черта вокруг них ничего
+ * не держала: страница читалась сплошной лентой, где непонятно, что к чему
+ * относится. Карточка отвечает на это одним видом.
+ */
 .attachments {
-  max-width: 46rem;
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border);
+  margin-top: 1.25rem;
+  padding: 1.35rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .attachments__head {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .attachments__title {
   flex: 1;
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 550;
 }
 
+/* Подсказка не тянется во всю карточку: строка длиной в полсотни слов не
+   читается, а проглядывается. */
 .hint {
-  margin: 0.4rem 0 0.9rem;
-  font-size: 0.85rem;
+  max-width: 62ch;
+  margin: 0.45rem 0 1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .visually-hidden {
@@ -369,13 +385,16 @@ async function remove(attachment: LessonAttachment) {
   border: 0;
 }
 
+/* Карточка файла лежит на карточке раздела, поэтому она темнее фоном, а не
+   обведена: две рамки одна в другой дробят и без того плотный список. */
 .pending,
 .item {
   display: flex;
   align-items: flex-start;
   gap: 0.85rem;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.4rem;
+  background: var(--color-surface-sunken);
 }
 
 .pending__body,
@@ -415,6 +434,10 @@ async function remove(attachment: LessonAttachment) {
   display: flex;
   gap: 0.35rem;
   flex-shrink: 0;
+}
+
+.item__remove:hover {
+  color: var(--color-danger);
 }
 
 .item__edit {

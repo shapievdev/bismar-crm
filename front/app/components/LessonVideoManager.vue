@@ -141,29 +141,34 @@ async function remove(lessonId: number | string) {
 </template>
 
 <style scoped>
+/* Раздел — карточка, как и файлы с расшифровками: страница редактора читается
+   стопкой блоков, а не сплошной лентой с отчёркиваниями. */
 .video-manager {
-  max-width: 46rem;
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border);
+  margin-top: 1.25rem;
+  padding: 1.35rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .video-manager__head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .video-manager__title {
   flex: 1;
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 550;
 }
 
 .hint {
-  margin: 0.4rem 0 0.9rem;
-  font-size: 0.85rem;
+  max-width: 62ch;
+  margin: 0.45rem 0 1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .visually-hidden {

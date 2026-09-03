@@ -407,9 +407,9 @@ async function removeQuiz() {
  */
 .workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
   align-items: start;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 .workbench__material {
@@ -444,10 +444,15 @@ async function removeQuiz() {
   }
 }
 
+/* Сама статья — такая же карточка, как разделы под ней: у страницы получается
+   один ритм сверху донизу, а не форма враспор и блоки в рамках. */
 .form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  padding: 1.35rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .row {
@@ -507,10 +512,14 @@ async function removeQuiz() {
   font-size: 0.85rem;
 }
 
+/* Последняя карточка на странице: у теста ещё нет ничего, кроме приглашения
+   его завести, — но выглядеть он должен как остальные разделы, а не как
+   потерянная кнопка под чертой. */
 .add-quiz {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border);
+  margin-top: 1.25rem;
+  padding: 1.35rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .button-plain {

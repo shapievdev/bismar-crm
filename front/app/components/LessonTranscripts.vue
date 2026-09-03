@@ -327,22 +327,26 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* Раздел — карточка, как видео и файлы. */
 .transcripts {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--color-border);
+  margin-top: 1.25rem;
+  padding: 1.35rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
 .transcripts__header h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.05rem;
+  font-weight: 550;
 }
 
 .muted {
-  margin: 0.25rem 0 1rem;
+  margin: 0.45rem 0 1rem;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
-  max-width: 34rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-width: 62ch;
 }
 
 .units {
