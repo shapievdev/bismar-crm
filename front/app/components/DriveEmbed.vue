@@ -20,7 +20,18 @@ defineProps<{
   openUrl: string
 }>()
 
-const frame = useTemplateRef<HTMLIFrameElement>('frame')
+/**
+ * Разворачивается не сама рамка, а обёртка вокруг неё.
+ *
+ * Внутри рамки живёт Google, и кнопки «закрыть» у него нет. Развернув рамку, мы
+ * отдали бы весь экран чужой странице, а выход остался бы только у системной
+ * кнопки «назад» — на телефоне человек из такого просмотра просто не выбирается.
+ * Обёртка же наша: в ней и живёт крестик.
+ */
+const pane = useTemplateRef<HTMLElement>('pane')
+
+/** Развёрнута ли обёртка сейчас: по этому показывается крестик. */
+const isFullscreen = ref(false)
 
 /**
  * Развёрнута ли рамка.
@@ -56,7 +67,18 @@ onMounted(() => {
 
   canGoFullscreen.value = document.fullscreenEnabled === true
 
-  onBeforeUnmount(() => narrow.removeEventListener('change', apply))
+  // Выйти можно не только крестиком — клавишей Esc, кнопкой «назад», жестом, —
+  // поэтому состояние читается у браузера, а не запоминается при нажатии.
+  const sync = () => {
+    isFullscreen.value = document.fullscreenElement === pane.value
+  }
+
+  document.addEventListener('fullscreenchange', sync)
+
+  onBeforeUnmount(() => {
+    narrow.removeEventListener('change', apply)
+    document.removeEventListener('fullscreenchange', sync)
+  })
 })
 
 /**
@@ -67,15 +89,30 @@ onMounted(() => {
  * открытой, документ становится размером с монитор.
  */
 function expand() {
-  frame.value?.requestFullscreen?.()
+  pane.value?.requestFullscreen?.()
+}
+
+function collapse() {
+  void document.exitFullscreen?.()
 }
 </script>
 
 <template>
   <div class="drive">
-    <div v-if="isOpen" class="drive__pane">
+    <div v-if="isOpen" ref="pane" class="drive__pane">
+      <!-- Крестик появляется только на полном экране: в странице у рамки и так
+           есть «Свернуть», а поверх документа лишняя кнопка только мешала бы. -->
+      <button
+        v-if="isFullscreen"
+        type="button"
+        class="drive__close"
+        aria-label="Выйти из полноэкранного режима"
+        @click="collapse"
+      >
+        ✕
+      </button>
+
       <iframe
-        ref="frame"
         :src="src"
         :title="title"
         class="drive__frame"
@@ -125,6 +162,7 @@ function expand() {
  * спорить с этим бессмысленно.
  */
 .drive__pane {
+  position: relative;
   aspect-ratio: 1 / 1.3;
   min-height: 30rem;
   resize: vertical;
@@ -132,6 +170,46 @@ function expand() {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface-sunken);
+}
+
+/* На полном экране обёртка занимает его целиком: пропорции листа и рамка со
+   скруглением здесь ни к чему. */
+.drive__pane:fullscreen {
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  resize: none;
+}
+
+/*
+ * Крестик поверх документа.
+ *
+ * Размер — под палец, а не под курсор: выходят из полного экрана чаще всего на
+ * телефоне, где системной кнопки «назад» под рукой может и не быть. Тень вместо
+ * подложки в цвет темы: под ним чужая страница, и какого она цвета, мы не знаем.
+ */
+.drive__close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 1;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 62%);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+}
+
+.drive__close:hover {
+  background: rgb(0 0 0 / 80%);
 }
 
 /*
