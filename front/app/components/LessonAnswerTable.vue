@@ -745,10 +745,13 @@ defineExpose({ showSuggestions })
   flex: 1 1 9rem;
 }
 
+/* Переносится: колонка узкая, и две кнопки в строке в неё не всегда влезают —
+   без переноса вторая уезжала за край карточки. */
 .actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.6rem;
   margin-top: 1.25rem;
 }
 </style>
