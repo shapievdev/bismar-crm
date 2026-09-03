@@ -42,7 +42,7 @@ final class ConsultantTest extends TestCase
         $this->actingAs($this->learner())
             ->postJson(route('lms.ask'), ['question' => 'Как поменять картридж в принтере бухгалтерии'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В материалах базы знаний об этом ничего нет.')
+            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.')
             ->assertJsonPath('data.sources', []);
 
         $this->assertFalse($transport->wasCalled(), 'Модель спросили, хотя материалов не нашлось.');

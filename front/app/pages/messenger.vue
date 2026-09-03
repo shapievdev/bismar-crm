@@ -462,7 +462,7 @@ function pickFiles(event: Event): void {
   const heavy = chosen.find(file => file.size > MAX_FILE_BYTES)
 
   if (heavy) {
-    attachError.value = `«${heavy.name}» тяжелее ${MAX_FILE_BYTES / 1024 / 1024} МБ — такое кладут в материалы урока.`
+    attachError.value = `«${heavy.name}» тяжелее ${MAX_FILE_BYTES / 1024 / 1024} МБ — такое кладут в файлы урока.`
 
     return
   }

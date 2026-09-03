@@ -131,7 +131,7 @@ async function move(siblings: Category[], index: number, delta: number) {
         </h1>
         <p class="page-subtitle">
           Дерево разделов базы знаний. Категории вкладываются друг в друга;
-          удаление поднимает подкатегории на уровень выше, а материалы остаются.
+          удаление поднимает подкатегории на уровень выше, а курсы остаются.
         </p>
       </div>
 
@@ -182,7 +182,7 @@ async function move(siblings: Category[], index: number, delta: number) {
     <UiEmptyState
       v-else-if="!categories.length"
       title="Категорий пока нет"
-      description="Категории помогают разложить материалы по темам."
+      description="Категории помогают разложить курсы по темам."
     >
       <button type="button" class="button-primary" @click="startCreate">
         Создать первую
@@ -206,7 +206,7 @@ async function move(siblings: Category[], index: number, delta: number) {
 
         <span class="badge">
           {{ row.category.courses_count ?? 0 }}
-          {{ pluralise(row.category.courses_count ?? 0, 'материал', 'материала', 'материалов') }}
+          {{ pluralise(row.category.courses_count ?? 0, 'курс', 'курса', 'курсов') }}
         </span>
 
         <div class="row__actions">

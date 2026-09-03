@@ -77,7 +77,7 @@ function quizLink(quiz: LearningQuizRow): string | null {
 }
 
 function quizWhere(quiz: LearningQuizRow): string {
-  const material = quiz.material ?? 'материал удалён'
+  const material = quiz.material ?? 'источник удалён'
 
   return quiz.kind === 'lesson'
     ? `Урок «${material}»${quiz.course_title ? ` · ${quiz.course_title}` : ''}`
@@ -122,7 +122,7 @@ const regulationRows = computed<BarRow[]>(() => (data.value?.regulations ?? []).
           Обучение
         </h1>
         <p class="page-subtitle">
-          Сколько собрано материала и как его проходят. Уволенные в счёт не идут — отчёт о тех, кого можно спросить.
+          Сколько собрано курсов и документов и как их проходят. Уволенные в счёт не идут — отчёт о тех, кого можно спросить.
         </p>
       </div>
     </header>

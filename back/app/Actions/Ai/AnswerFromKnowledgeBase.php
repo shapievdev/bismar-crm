@@ -49,7 +49,7 @@ final readonly class AnswerFromKnowledgeBase
      * Досюда доходят только вопросы, по которым не нашлось ни ответа, ни
      * близкого, ни даже урока с подходящим названием.
      */
-    private const NOTHING_FOUND = 'В материалах базы знаний об этом ничего нет.';
+    private const NOTHING_FOUND = 'В базе знаний об этом ничего нет.';
 
     public function __construct(
         private Client $client,

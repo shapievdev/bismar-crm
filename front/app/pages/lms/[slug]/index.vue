@@ -142,7 +142,7 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
           title="Курс пока пуст"
           :description="can('courses.update')
             ? 'Добавьте модули и уроки в редакторе.'
-            : 'Материалы ещё готовятся.'"
+            : 'Уроки ещё готовятся.'"
         >
           <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-primary">
             Открыть редактор
@@ -200,7 +200,7 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
             Ответственные
           </h2>
           <p class="about__text">
-            Напишите им, если в материалах курса не нашлось ответа.
+            Напишите им, если в курсе не нашлось ответа.
           </p>
           <ul class="experts">
             <li v-for="person in course.experts" :key="person.id" class="experts__item">

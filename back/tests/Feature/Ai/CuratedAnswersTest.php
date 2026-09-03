@@ -94,7 +94,7 @@ final class CuratedAnswersTest extends TestCase
         $this->actingAs($this->learner())
             ->postJson(route('lms.ask'), ['question' => 'Сколько сохнет второй слой краски?'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В материалах базы знаний об этом ничего нет.');
+            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.');
 
         $this->assertFalse($transport->wasCalled());
     }

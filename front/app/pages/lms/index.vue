@@ -160,7 +160,7 @@ function branchCount(node: Category): number {
 }
 
 function materialsLabel(count: number): string {
-  return `${count} ${pluralise(count, 'материал', 'материала', 'материалов')}`
+  return `${count} ${pluralise(count, 'курс', 'курса', 'курсов')}`
 }
 
 function sectionsLabel(count: number): string {
@@ -191,21 +191,21 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
           База знаний
         </h1>
         <p class="page-subtitle">
-          Материалы команды по категориям. Прогресс сохраняется сам, записываться не нужно.
+          Курсы команды по категориям. Прогресс сохраняется сам, записываться не нужно.
         </p>
 
         <!-- Число найденного — строкой, а не плиткой: оно уточняет список, а не
              спорит с ним за внимание. Свои «в процессе» и «пройдено» человек
-             смотрит у себя, на «Моих материалах», — там они и живут. -->
+             смотрит у себя, на «Моих курсах», — там они и живут. -->
         <p v-if="total" class="faint counted">
-          {{ total }} {{ pluralise(total, 'материал', 'материала', 'материалов') }}
+          {{ total }} {{ pluralise(total, 'курс', 'курса', 'курсов') }}
           <template v-if="currentCategory"> в этом разделе</template>
         </p>
       </div>
 
       <div class="head__actions">
         <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
-          Новый материал
+          Новый курс
         </NuxtLink>
       </div>
     </header>
@@ -288,13 +288,13 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 
     <UiEmptyState
       v-else-if="!visibleCourses.length"
-      title="Материалов пока нет"
+      title="Курсов пока нет"
       :description="search || category
         ? 'Попробуйте изменить запрос или категорию.'
-        : 'Как только появятся материалы, они будут здесь.'"
+        : 'Как только появятся курсы, они будут здесь.'"
     >
       <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
-        Создать первый материал
+        Создать первый курс
       </NuxtLink>
     </UiEmptyState>
 

@@ -137,7 +137,7 @@ final class RelatedMaterialTest extends TestCase
             ->getJson(route('ai.questions.index', ['outcome' => ConsultantOutcome::Suggested->value]))
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.answered_from_label', 'Близкий материал');
+            ->assertJsonPath('data.0.answered_from_label', 'Близкое по теме');
     }
 
     /**
@@ -194,7 +194,7 @@ final class RelatedMaterialTest extends TestCase
         $this->actingAs($this->learner())
             ->postJson(route('lms.ask'), ['question' => 'Как поменять картридж в принтере бухгалтерии'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В материалах базы знаний об этом ничего нет.')
+            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.')
             ->assertJsonPath('data.related', []);
 
         $this->assertFalse($transport->wasCalled(), 'Модель спросили, хотя не нашлось даже близкого.');

@@ -57,7 +57,7 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
   <div class="review">
     <p v-if="!review.reveals_key" class="review__note">
       Верные ответы откроются, когда закончатся попытки. Сейчас видно, в каких
-      вопросах ошибка, — к ним и стоит вернуться в материале.
+      вопросах ошибка, — к ним и стоит вернуться.
     </p>
 
     <ol class="review__list">

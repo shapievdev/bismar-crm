@@ -157,7 +157,7 @@ function when(value: string | null): string {
                     Не зачесть
                   </button>
                   <NuxtLink v-if="work.material?.url" :to="work.material.url" class="link faint">
-                    Открыть материал
+                    {{ work.material.kind === 'document' ? 'Открыть документ' : 'Открыть урок' }}
                   </NuxtLink>
                 </div>
               </div>

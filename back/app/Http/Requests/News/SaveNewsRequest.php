@@ -108,7 +108,7 @@ final class SaveNewsRequest extends FormRequest
                     if (! LinkedMaterial::isLinkableBy($material, $actor)) {
                         $validator->errors()->add(
                             "links.{$index}.id",
-                            'Такого материала нет или он вам не виден.',
+                            'Такого курса или документа нет, или он вам не виден.',
                         );
                     }
                 }

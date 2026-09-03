@@ -228,11 +228,11 @@ async function remove(item: ConsultantQuestion): Promise<void> {
       </div>
       <div class="summary__card">
         <span class="summary__value">{{ summary['nothing-found'] }}</span>
-        <span class="summary__label">Материал не найден</span>
+        <span class="summary__label">Источник не найден</span>
       </div>
       <div class="summary__card">
         <span class="summary__value">{{ summary.unused }}</span>
-        <span class="summary__label">Материал не использован</span>
+        <span class="summary__label">Источник не использован</span>
       </div>
       <div class="summary__card">
         <span class="summary__value">{{ summary.suggested }}</span>

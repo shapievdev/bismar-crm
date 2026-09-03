@@ -40,7 +40,7 @@ final class ConsultantPrivacyTest extends TestCase
         $this->actingAs($this->learner())
             ->postJson(route('lms.ask'), ['question' => 'Что делать, если клиент говорит дорого?'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В материалах базы знаний об этом ничего нет.')
+            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.')
             ->assertJsonPath('data.sources', []);
 
         $this->assertFalse($transport->wasCalled(), 'Закрытый материал ушёл в модель постороннему.');
@@ -160,7 +160,7 @@ final class ConsultantPrivacyTest extends TestCase
         $this->actingAs($this->administrator())
             ->postJson(route('lms.ask'), ['question' => 'Что делать, если клиент говорит дорого?'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В материалах базы знаний об этом ничего нет.');
+            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.');
 
         $this->assertFalse($transport->wasCalled());
     }

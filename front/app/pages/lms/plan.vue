@@ -53,7 +53,7 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
     <UiEmptyState
       v-else-if="!steps.length"
       title="Плана пока нет"
-      description="Когда вам что-нибудь назначат, оно появится здесь по порядку. Пока можно выбрать материал самому."
+      description="Когда вам что-нибудь назначат, оно появится здесь по порядку. Пока можно выбрать курс самому."
     >
       <NuxtLink to="/lms" class="button-primary">
         Открыть каталог

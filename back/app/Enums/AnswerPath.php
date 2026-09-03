@@ -32,7 +32,7 @@ enum AnswerPath: string
         return match ($this) {
             self::Curated => 'Таблица урока',
             self::Passages => 'Текст урока',
-            self::Related => 'Близкий материал',
+            self::Related => 'Близкое по теме',
         };
     }
 }

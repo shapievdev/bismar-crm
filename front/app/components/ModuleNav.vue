@@ -27,7 +27,7 @@ const links = computed<NavLink[]>(() => {
 
   if (path.startsWith('/lms')) {
     return [
-      { to: '/lms', label: 'Материалы', visible: true, matches: (p: string) => p === '/lms' },
+      { to: '/lms', label: 'Курсы', visible: true, matches: (p: string) => p === '/lms' },
       // Рядом с материалами: по одному учатся, по другому работают.
       {
         to: '/lms/documents',
@@ -38,7 +38,7 @@ const links = computed<NavLink[]>(() => {
       // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
       // сам. Первое идёт раньше: с него начинают.
       { to: '/lms/plan', label: 'Мой план', visible: true },
-      { to: '/lms/my', label: 'Мои материалы', visible: true },
+      { to: '/lms/my', label: 'Мои курсы', visible: true },
       // Вкладка есть у того, кому сдают работы: назначение — не право с
       // галочкой, и пустой раздел в меню обещал бы то, чего за ним нет.
       {

@@ -113,7 +113,7 @@ final class UpdateLearningPlanRequest extends FormRequest
                     if (array_diff($ids, $found) !== []) {
                         $validator->errors()->add(
                             'items',
-                            'В плане есть материал, которого вы не видите.',
+                            'В плане есть курс или документ, которого вы не видите.',
                         );
 
                         return;

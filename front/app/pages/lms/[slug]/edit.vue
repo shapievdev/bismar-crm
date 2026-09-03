@@ -74,7 +74,7 @@ async function submit(payload: CoursePayload) {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось сохранить материал.'
+      generalError.value = 'Не удалось сохранить курс.'
     }
   }
   finally {
@@ -96,7 +96,7 @@ async function remove() {
 
   const confirmed = await confirm({
     title: `Удалить «${title}»?`,
-    message: 'Материал уйдёт со всеми уроками и приложенными файлами.',
+    message: 'Курс уйдёт со всеми уроками и приложенными файлами.',
     confirmLabel: 'Удалить',
     danger: true,
   })
@@ -113,7 +113,7 @@ async function remove() {
     await router.replace('/lms')
   }
   catch {
-    generalError.value = 'Не удалось удалить материал.'
+    generalError.value = 'Не удалось удалить курс.'
     isDeleting.value = false
   }
 }
@@ -123,10 +123,10 @@ async function remove() {
   <section v-if="data">
     <header class="page-header">
       <h1 class="page-title">
-        Редактирование материала
+        Редактирование курса
       </h1>
       <NuxtLink :to="`/lms/${slug}`" class="back">
-        ← К материалу
+        ← К курсу
       </NuxtLink>
     </header>
 
@@ -155,7 +155,7 @@ async function remove() {
           :disabled="isDeleting"
           @click="remove"
         >
-          {{ isDeleting ? 'Удаляем…' : 'Удалить материал' }}
+          {{ isDeleting ? 'Удаляем…' : 'Удалить курс' }}
         </button>
       </template>
     </CourseForm>

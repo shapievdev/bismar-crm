@@ -523,7 +523,7 @@ function dropLink(found: LinkedMaterialResult) {
       </ul>
 
       <div class="field">
-        <label class="field-label" for="material-search">Найти материал</label>
+        <label class="field-label" for="material-search">Найти курс или документ</label>
         <input
           id="material-search"
           v-model="material.query.value"

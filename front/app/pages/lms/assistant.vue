@@ -418,7 +418,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
           Консультант
         </h1>
         <p class="page-subtitle">
-          Отвечает только по опубликованным материалам базы знаний и указывает, откуда взял каждое утверждение.
+          Отвечает только по опубликованной базе знаний и указывает, откуда взял каждое утверждение.
         </p>
       </div>
     </header>
@@ -577,7 +577,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
             </span>
 
             <span v-else-if="exchange.requested" class="faint">
-              Заявка отправлена — авторы дополнят материал, и ответ придёт сюда же.
+              Заявка отправлена — авторы дополнят базу знаний, и ответ придёт сюда же.
             </span>
 
             <!-- Не помог: предлагаем заявку, но не требуем её. -->
@@ -638,7 +638,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
         v-model="question"
         class="input composer__field"
         rows="1"
-        placeholder="Ваш вопрос по материалам…"
+        placeholder="Ваш вопрос по базе знаний…"
         maxlength="1000"
         :disabled="pending"
         @keydown="onKeydown"

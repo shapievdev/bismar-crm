@@ -310,7 +310,7 @@ async function saveExperts(next: CoursePerson[]) {
         <span class="field-label">Состояние</span>
         <label class="choice">
           <input v-model="form.status" type="radio" value="draft">
-          Черновик — виден только тем, кто правит материалы
+          Черновик — виден только тем, кто правит документы
         </label>
         <label class="choice">
           <input v-model="form.status" type="radio" value="published">

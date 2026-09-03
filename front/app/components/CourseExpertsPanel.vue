@@ -54,7 +54,7 @@ async function save(next: CoursePerson[]) {
 <template>
   <CoursePeoplePanel
     title="Ответственные за курс"
-    note="Их видно в курсе, и на них ссылается консультант, когда ответа в материалах не нашлось."
+    note="Их видно в курсе, и на них ссылается консультант, когда ответа в базе знаний не нашлось."
     :people="experts"
     :is-loading="isLoading"
     :is-saving="isSaving"

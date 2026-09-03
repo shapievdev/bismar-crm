@@ -104,7 +104,7 @@ function asDraft(items: LearningPlanItem[]): Step[] {
   return items.map(step => ({
     kind: step.kind,
     id: step.item_id,
-    title: step.title ?? 'Материал удалён',
+    title: step.title ?? 'Шаг удалён',
     slug: step.slug ?? '',
   }))
 }

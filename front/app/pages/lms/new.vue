@@ -3,7 +3,7 @@ import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth
 import type { CoursePayload } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.create' })
-useHead({ title: 'Новый материал' })
+useHead({ title: 'Новый курс' })
 
 const { createCourse, fetchStatuses, fetchCategories } = useLmsApi()
 const router = useRouter()
@@ -47,7 +47,7 @@ async function submit(payload: CoursePayload) {
       errors.value = caught.errors
     }
     else {
-      generalError.value = 'Не удалось создать материал.'
+      generalError.value = 'Не удалось создать курс.'
     }
   }
   finally {
@@ -60,7 +60,7 @@ async function submit(payload: CoursePayload) {
   <section>
     <header class="page-header">
       <h1 class="page-title">
-        Новый материал
+        Новый курс
       </h1>
       <NuxtLink to="/lms" class="back">
         ← К базе знаний

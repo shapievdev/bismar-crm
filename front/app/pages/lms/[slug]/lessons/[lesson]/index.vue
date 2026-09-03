@@ -344,7 +344,7 @@ function formatSize(bytes: number): string {
 
       <section v-if="lesson.attachments?.length" class="block">
         <h2 class="block__title">
-          Материалы
+          Файлы
         </h2>
         <ul class="files">
           <li v-for="file in lesson.attachments" :key="file.id" class="file">

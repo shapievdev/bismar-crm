@@ -70,7 +70,7 @@ final class QuestionLogTest extends TestCase
     public function test_material_the_model_ignored_is_recorded_apart(): void
     {
         $this->publishedLesson('Разбор возражений', 'Клиент говорит «дорого» — выслушайте и уточните.');
-        $this->fakeModel(FakeAnthropicTransport::replying('В материалах базы знаний об этом ничего нет.'));
+        $this->fakeModel(FakeAnthropicTransport::replying('В базе знаний об этом ничего нет.'));
 
         $this->actingAs($this->learner())
             ->postJson(route('lms.ask'), ['question' => 'что делать при возражении дорого'])
