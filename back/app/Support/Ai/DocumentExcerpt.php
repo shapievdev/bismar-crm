@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
  * правило, по которому работают. Отдельный класс, а не пустые поля в общем:
  * модели он подаётся другими словами, и читателю ведёт по другому адресу.
  */
-final readonly class DocumentExcerpt implements Source
+final readonly class DocumentExcerpt implements Excerpt
 {
     public function __construct(
         public int $documentId,
@@ -41,6 +41,11 @@ final readonly class DocumentExcerpt implements Source
             $this->location === null ? '' : ' ('.$this->location->label().')',
             $this->text,
         );
+    }
+
+    public function segment(): int
+    {
+        return $this->segmentId;
     }
 
     public function key(): string

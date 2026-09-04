@@ -10,7 +10,10 @@ use App\Enums\CourseVisibility;
 use App\Enums\Permission;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Ai\Embedder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\Support\FakeAnthropicTransport;
@@ -120,6 +123,32 @@ final class DocumentsInTheBaseTest extends TestCase
         $this->assertStringContainsString('тридцати дней', $response->json('data.sources.0.quote'));
     }
 
+    /**
+     * Смысловая пересортировка не спотыкается о документ.
+     *
+     * Она сравнивает вектор вопроса с вектором куска, и до появления документов
+     * куски бывали только урочными — что и было записано в типах. Документ
+     * ронял её с ошибкой, а обычные проверки этого не ловили: без настроенных
+     * эмбеддингов пересортировка возвращается сразу, не дойдя до сравнения.
+     * Здесь она включена нарочно (случилось 2026-09-03).
+     */
+    public function test_the_semantic_reranking_survives_a_document(): void
+    {
+        $this->fakeEmbeddings();
+
+        $this->publishedDocument(
+            'Правила возврата товара',
+            'Возврат оформляется в течение четырнадцати дней при наличии чека.',
+        );
+
+        $this->fakeModel(FakeAnthropicTransport::replying('Четырнадцать дней [источник 1].'));
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.ask'), ['question' => 'В какой срок оформляется возврат товара'])
+            ->assertOk()
+            ->assertJsonPath('data.sources.0.kind', 'document');
+    }
+
     /* ---------- helpers ---------- */
 
     private function publishedDocument(string $title, string $text): Regulation
@@ -146,6 +175,32 @@ final class DocumentsInTheBaseTest extends TestCase
                 'content' => [['type' => 'text', 'text' => $text]],
             ]],
         ];
+    }
+
+    /**
+     * Векторы, посчитанные без сети: координата на слово. Достаточно, чтобы
+     * пересортировка отработала целиком, — а именно она и проверяется.
+     */
+    private function fakeEmbeddings(): void
+    {
+        config(['ai.api_key' => 'test-key', 'ai.embedding_model' => 'test-embeddings']);
+
+        Http::fake(['*/v1/embeddings' => function (Request $request) {
+            /** @var list<string> $inputs */
+            $inputs = $request->data()['input'];
+
+            return Http::response(['data' => array_map(static function (string $text): array {
+                $vector = array_fill(0, Embedder::DIMENSIONS, 0.0);
+
+                foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($text)) ?: [] as $word) {
+                    if ($word !== '') {
+                        $vector[abs(crc32($word)) % Embedder::DIMENSIONS] = 1.0;
+                    }
+                }
+
+                return ['embedding' => $vector];
+            }, $inputs)]);
+        }]);
     }
 
     private function fakeModel(FakeAnthropicTransport $transport): FakeAnthropicTransport

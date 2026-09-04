@@ -319,8 +319,8 @@ final readonly class KnowledgeBase
      * нашли слова. Консультант при этом работает хуже, но работает: молчать
      * из-за отказа вспомогательного сервиса он не должен.
      *
-     * @param  list<LessonExcerpt>  $candidates
-     * @return list<LessonExcerpt>
+     * @param  list<Excerpt>  $candidates
+     * @return list<Excerpt>
      */
     private function reranked(string $question, array $candidates, int $limit): array
     {
@@ -341,13 +341,13 @@ final readonly class KnowledgeBase
         }
 
         $vectors = TranscriptSegment::query()
-            ->whereIn('id', array_map(static fn (LessonExcerpt $e): int => $e->segmentId, $candidates))
+            ->whereIn('id', array_map(static fn (Excerpt $e): int => $e->segment(), $candidates))
             ->pluck('embedding', 'id');
 
         $scored = [];
 
         foreach ($candidates as $position => $candidate) {
-            $vector = Vector::unpack($vectors[$candidate->segmentId] ?? null);
+            $vector = Vector::unpack($vectors[$candidate->segment()] ?? null);
 
             // Фрагмент без вектора не выбрасывается: он попадает в конец, но
             // остаётся доступным, пока пересчёт не дошёл до него.
@@ -362,7 +362,7 @@ final readonly class KnowledgeBase
             ?: $a['position'] <=> $b['position']);
 
         return array_map(
-            static fn (array $row): LessonExcerpt => $row['excerpt'],
+            static fn (array $row): Excerpt => $row['excerpt'],
             array_slice($scored, 0, $limit),
         );
     }
@@ -494,7 +494,7 @@ final readonly class KnowledgeBase
 
     /**
      * @param  list<array{lexeme: string, weight: float}>  $words
-     * @return list<LessonExcerpt>
+     * @return list<Excerpt>
      */
     private function matching(
         array $words,
@@ -570,7 +570,7 @@ final readonly class KnowledgeBase
         );
 
         return array_map(
-            fn (object $row): Source => $this->excerpt($row, $excerptChars),
+            fn (object $row): Excerpt => $this->excerpt($row, $excerptChars),
             $rows,
         );
     }
@@ -581,7 +581,7 @@ final readonly class KnowledgeBase
      * Различает их только эта строчка. Дальше, где ответ собирается и где
      * сверяются ссылки, важно лишь то, что источник умеет назвать себя.
      */
-    private function excerpt(object $row, int $excerptChars): Source
+    private function excerpt(object $row, int $excerptChars): Excerpt
     {
         $location = new SourceLocation(
             kind: AnswerSource::from((string) $row->source_kind),

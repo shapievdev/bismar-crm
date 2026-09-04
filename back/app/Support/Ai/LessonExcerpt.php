@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
  * Кусок расшифровки: реплика из записи, абзац документа или блок статьи. Место
  * при нём такое же точное, как у строки таблицы, — секунда, страница, абзац.
  */
-final readonly class LessonExcerpt implements Source
+final readonly class LessonExcerpt implements Excerpt
 {
     public function __construct(
         public int $lessonId,
@@ -48,6 +48,11 @@ final readonly class LessonExcerpt implements Source
             $this->location === null ? '' : ' ('.$this->location->label().')',
             $this->text,
         );
+    }
+
+    public function segment(): int
+    {
+        return $this->segmentId;
     }
 
     public function key(): string
