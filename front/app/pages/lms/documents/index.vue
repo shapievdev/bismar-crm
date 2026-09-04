@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { RegulationCategory } from '~/types/lms'
+
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 useHead({ title: 'Документы' })
 
@@ -8,60 +10,128 @@ const { fetchRegulations, fetchCategories } = useRegulationsApi()
 const route = useRoute()
 const router = useRouter()
 
-const search = ref('')
-
 /**
- * Выбранная категория живёт в адресе: на неё возвращаются крошками с самого
- * документа, и без этого «вернуться в раздел» вело бы к полному списку.
+ * Отбор по состоянию.
+ *
+ * Одна вкладка — одно состояние, и её подпись всегда правдива. Устроено так же,
+ * как в каталоге курсов: разделы базы знаний должны читаться одинаково, иначе
+ * человек, перешедший из курсов, ищет знакомые кнопки и не находит.
  */
-const category = ref<string>(typeof route.query.category === 'string' ? route.query.category : '')
+type Tab = 'published' | 'drafts' | 'archived'
 
-const { data, pending, error, refresh } = await useAsyncData(
+const STATUS_BY_TAB: Record<Tab, string> = {
+  published: 'published',
+  drafts: 'draft',
+  archived: 'archived',
+}
+
+const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
+const category = ref(typeof route.query.category === 'string' ? route.query.category : '')
+const tab = ref<Tab>(
+  ['published', 'drafts', 'archived'].includes(String(route.query.tab))
+    ? route.query.tab as Tab
+    : 'published',
+)
+
+const page = ref(pageFromQuery(route.query.page))
+
+const { data: categoryData } = await useAsyncData(
+  'lms.regulation-categories',
+  () => fetchCategories(),
+)
+
+const { data, pending, error } = await useAsyncData(
   'lms.regulations',
   () => fetchRegulations({
     search: search.value || undefined,
     category: category.value || undefined,
+    status: STATUS_BY_TAB[tab.value],
+    page: page.value > 1 ? page.value : undefined,
   }),
-  { watch: [category] },
+  { watch: [search, tab, category, page] },
 )
 
-watchEffect(() => {
-  router.replace({ query: category.value ? { category: category.value } : {} })
+// Сузили список — прежняя страница ушла из-под ног: четвёртая страница всего
+// раздела редко бывает четвёртой страницей одной категории.
+watch([search, tab, category], () => {
+  page.value = 1
 })
 
-const { data: categoryData } = await useAsyncData('lms.regulation-categories', () => fetchCategories())
+watchEffect(() => {
+  router.replace({
+    query: {
+      ...(search.value ? { search: search.value } : {}),
+      ...(category.value ? { category: category.value } : {}),
+      ...(tab.value === 'published' ? {} : { tab: tab.value }),
+      ...(page.value > 1 ? { page: String(page.value) } : {}),
+    },
+  })
+})
 
-const regulations = computed(() => data.value?.data ?? [])
-const categories = computed(() => categoryData.value?.data ?? [])
+const documents = computed(() => data.value?.data ?? [])
+const categoryTree = computed<RegulationCategory[]>(() => categoryData.value?.data ?? [])
 
-/** Плоский список для фильтра: список не умеет вкладываться. */
-const options = computed(() => {
-  const flat: { value: string, label: string }[] = [{ value: '', label: 'Все категории' }]
+const total = computed(() => data.value?.meta.total ?? 0)
+const currentPage = computed(() => data.value?.meta.current_page ?? 1)
+const lastPage = computed(() => data.value?.meta.last_page ?? 1)
 
-  const walk = (nodes: typeof categories.value, depth: number) => {
-    for (const node of nodes) {
-      flat.push({ value: node.slug, label: `${'— '.repeat(depth)}${node.name}` })
-      walk(node.children ?? [], depth + 1)
-    }
+const grid = useTemplateRef<HTMLElement>('grid')
+
+function goToPage(next: number) {
+  const target = Math.min(Math.max(1, next), lastPage.value)
+
+  if (target === page.value) {
+    return
   }
 
-  walk(categories.value, 0)
+  page.value = target
 
-  return flat
-})
+  // Иначе следующая страница открывается посередине — там, где бросили прошлую.
+  grid.value?.scrollIntoView({ block: 'start' })
+}
 
-/** Дорога от корня раздела до выбранной категории — то, что рисуют крошки. */
-const trail = computed(() => categoryTrail(categories.value, category.value))
+function pageFromQuery(value: unknown): number {
+  const parsed = Number(value)
 
-let timer: ReturnType<typeof setTimeout> | undefined
+  return Number.isInteger(parsed) && parsed > 1 ? parsed : 1
+}
 
-// С задержкой: спрашивать сервер на каждую букву незачем.
-watch(search, () => {
-  clearTimeout(timer)
-  timer = setTimeout(() => void refresh(), 300)
-})
+/** Дорога от корня до выбранной категории — считает общая утилита. */
+const currentPath = computed(() => categoryTrail(categoryTree.value, category.value))
 
-onBeforeUnmount(() => clearTimeout(timer))
+const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
+
+/** Что предлагается здесь: верхний уровень или разделы текущего. */
+const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
+
+/**
+ * Всё, что лежит под категорией, вместе с ней самой.
+ *
+ * Выбор категории показывает и вложенное в неё, поэтому плитка обязана обещать
+ * то же число, которое даст нажатие.
+ */
+function branchCount(node: RegulationCategory): number {
+  return (node.regulations_count ?? 0)
+    + (node.children ?? []).reduce((sum, child) => sum + branchCount(child), 0)
+}
+
+function documentsLabel(count: number): string {
+  return `${count} ${pluralise(count, 'документ', 'документа', 'документов')}`
+}
+
+function sectionsLabel(count: number): string {
+  return `${count} ${pluralise(count, 'раздел', 'раздела', 'разделов')}`
+}
+
+/**
+ * Черновики и архив — только тем, кто правит документы: читателю сервер их всё
+ * равно не отдаёт, и вкладка обещала бы пустоту.
+ */
+const tabs: { id: Tab, label: string, visible: boolean }[] = [
+  { id: 'published', label: 'Опубликованные', visible: true },
+  { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
+  { id: 'archived', label: 'В архиве', visible: can('courses.update') },
+]
 </script>
 
 <template>
@@ -74,43 +144,54 @@ onBeforeUnmount(() => clearTimeout(timer))
         <p class="page-subtitle">
           Правила, по которым работают. Каждое — на одну страницу, с отметкой об ознакомлении.
         </p>
+
+        <p v-if="total" class="faint counted">
+          {{ documentsLabel(total) }}
+          <template v-if="currentCategory"> в этом разделе</template>
+        </p>
       </div>
 
-      <NuxtLink v-if="can('courses.create')" to="/lms/documents/new" class="button-primary">
-        Новый документ
-      </NuxtLink>
+      <div class="head__actions">
+        <NuxtLink v-if="can('courses.create')" to="/lms/documents/new" class="button-primary">
+          Новый документ
+        </NuxtLink>
+      </div>
     </header>
 
-    <div class="filters">
+    <div class="toolbar">
+      <div class="tabs" role="tablist">
+        <button
+          v-for="item in tabs.filter(t => t.visible)"
+          :key="item.id"
+          type="button"
+          role="tab"
+          class="tab"
+          :class="{ 'tab--active': tab === item.id }"
+          :aria-selected="tab === item.id"
+          @click="tab = item.id"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+
       <input
         v-model.trim="search"
-        class="input"
         type="search"
-        placeholder="Название или описание"
+        class="input search"
+        placeholder="Поиск по документам…"
         aria-label="Поиск по документам"
       >
-
-      <!-- Свой список, а не нативный: открытый <select> рисует система, и
-           выпадает он чужими шрифтами и цветами поверх нашей страницы. -->
-      <UiSelect
-        v-model="category"
-        :options="options"
-        class="filters__category"
-        placeholder="Все категории"
-        search-placeholder="Найти категорию…"
-      />
     </div>
 
-    <!-- Где я: корень раздела и категории по дороге сюда. Последняя не ссылка —
-         на ней и стоим. -->
-    <nav v-if="trail.length" class="crumbs" aria-label="Где я">
-      <button type="button" class="crumbs__link" @click="category = ''">
-        Документы
+    <nav v-if="categoryTree.length" class="crumbs" aria-label="Категории">
+      <span v-if="!category" class="crumbs__current">Все категории</span>
+      <button v-else type="button" class="crumbs__link" @click="category = ''">
+        Все категории
       </button>
 
-      <template v-for="(node, index) in trail" :key="node.slug">
+      <template v-for="(node, index) in currentPath" :key="node.slug">
         <span class="crumbs__separator" aria-hidden="true">/</span>
-        <span v-if="index === trail.length - 1" class="faint" aria-current="page">
+        <span v-if="index === currentPath.length - 1" class="crumbs__current" aria-current="page">
           {{ node.name }}
         </span>
         <button v-else type="button" class="crumbs__link" @click="category = node.slug">
@@ -119,57 +200,133 @@ onBeforeUnmount(() => clearTimeout(timer))
       </template>
     </nav>
 
+    <div v-if="sections.length" class="tiles">
+      <button
+        v-for="node in sections"
+        :key="node.slug"
+        type="button"
+        class="card card--raised tile"
+        @click="category = node.slug"
+      >
+        <span class="tile__name">{{ node.name }}</span>
+
+        <span v-if="node.description" class="tile__description">{{ node.description }}</span>
+
+        <span class="tile__meta">
+          {{ documentsLabel(branchCount(node)) }}
+          <template v-if="node.children?.length">
+            · {{ sectionsLabel(node.children.length) }}
+          </template>
+        </span>
+      </button>
+    </div>
+
     <p v-if="error" class="alert alert--danger" role="alert">
       Не удалось загрузить документы.
     </p>
 
-    <div v-else-if="pending" class="stack">
-      <div v-for="n in 3" :key="n" class="card row">
-        <div class="skeleton skeleton-line" />
+    <div v-else-if="pending" class="grid">
+      <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
+        <div class="skeleton skeleton-line skeleton-line--short" />
+        <div class="skeleton skeleton-line skeleton-line--title" />
+        <div class="skeleton skeleton-line skeleton-line--half" />
       </div>
     </div>
 
     <UiEmptyState
-      v-else-if="!regulations.length"
+      v-else-if="!documents.length"
       title="Документов пока нет"
-      :description="can('courses.create')
-        ? 'Заведите первый — он будет виден всем, кто читает базу знаний.'
-        : 'Когда правила появятся, они будут здесь.'"
+      :description="search || category
+        ? 'Попробуйте изменить запрос или категорию.'
+        : 'Заведите первый — он будет виден всем, кто читает базу знаний.'"
     >
       <NuxtLink v-if="can('courses.create')" to="/lms/documents/new" class="button-primary">
         Новый документ
       </NuxtLink>
     </UiEmptyState>
 
-    <div v-else class="stack">
+    <div v-else ref="grid" class="grid">
       <NuxtLink
-        v-for="item in regulations"
+        v-for="item in documents"
         :key="item.id"
         :to="`/lms/documents/${item.slug}`"
-        class="card row"
+        class="card card--raised document"
       >
-        <div class="row__body">
-          <span class="row__title">{{ item.title }}</span>
-          <span v-if="item.summary" class="faint">{{ item.summary }}</span>
-          <span v-if="item.category" class="faint row__category">{{ item.category.name }}</span>
+        <!-- Состояние сверху, как на карточке курса: сперва видно, что это за
+             документ, потом уже как он называется. -->
+        <div class="document__badges">
+          <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
+          <span v-if="item.is_private" class="badge" title="Виден только допущенным">Закрыт</span>
+          <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
+          <span v-if="item.category" class="badge">{{ item.category.name }}</span>
         </div>
 
-        <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
-        <span v-if="item.is_private" class="badge" title="Виден только допущенным">Закрыт</span>
-        <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
+        <h2 class="document__title">
+          {{ item.title }}
+        </h2>
+
+        <p v-if="item.summary" class="document__summary">
+          {{ item.summary }}
+        </p>
       </NuxtLink>
     </div>
+
+    <nav v-if="lastPage > 1" class="pager" aria-label="Страницы документов">
+      <button
+        type="button"
+        class="button-secondary button-sm"
+        :disabled="currentPage <= 1 || pending"
+        @click="goToPage(currentPage - 1)"
+      >
+        ← Назад
+      </button>
+
+      <span class="pager__position" aria-live="polite">
+        Страница {{ currentPage }} из {{ lastPage }}
+      </span>
+
+      <button
+        type="button"
+        class="button-secondary button-sm"
+        :disabled="currentPage >= lastPage || pending"
+        @click="goToPage(currentPage + 1)"
+      >
+        Вперёд →
+      </button>
+    </nav>
   </section>
 </template>
 
 <style scoped>
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.counted {
+  margin: 0.4rem 0 0;
+}
+
+.head__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.head__actions a {
+  text-decoration: none;
+}
+
+/* Где я в дереве и дорога обратно наверх. */
 .crumbs {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 1rem;
-  font-size: 0.87rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.92rem;
 }
 
 .crumbs__link {
@@ -179,92 +336,244 @@ onBeforeUnmount(() => clearTimeout(timer))
   color: var(--color-text-muted);
   font: inherit;
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .crumbs__link:hover {
   color: var(--color-text);
-  text-decoration: underline;
+}
+
+.crumbs__current {
+  font-weight: 550;
 }
 
 .crumbs__separator {
   color: var(--color-text-faint);
 }
 
-.head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+/* Категории — вход в материал, поэтому им дано место, а не строчка списка. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
 
-.head a {
-  text-decoration: none;
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 1rem 1.15rem;
+  border: 0;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Двигается только тень: перекрашивать поверхность на наведении — верный
+     способ столкнуть подпись с её же фоном. */
+  transition: box-shadow 0.15s ease;
 }
 
-.filters {
+.tile:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.tile__name {
+  font-size: 1rem;
+  font-weight: 550;
+}
+
+.tile__description {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.tile__meta {
+  margin-top: auto;
+  padding-top: 0.35rem;
+  color: var(--color-text-faint);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar {
   display: flex;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
 
-.filters__category {
-  flex: 0 0 14rem;
+.tabs {
+  display: flex;
+  gap: 0.4rem;
 }
 
-.stack {
+.tab {
+  padding: 0.5rem 1.05rem;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Выбранной вкладке нужен свой ховер: базовое правило перекрасило бы её
+   подпись в цвет текста страницы, и на заливке она бы исчезла. */
+.tab:hover:not(.tab--active) {
+  color: var(--color-text);
+}
+
+.tab--active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.tab--active:hover {
+  background: var(--color-accent-hover);
+}
+
+.search {
+  width: auto;
+  min-width: 15rem;
+  flex: 0 1 22rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.document {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.9rem 1.1rem;
+  gap: 0.5rem;
+  padding: 1.25rem 1.35rem 1.4rem;
   color: inherit;
   text-decoration: none;
   transition: box-shadow 0.15s ease;
 }
 
-.row:hover {
+.document:hover {
   box-shadow: var(--shadow-md);
 }
 
-.row__body {
+.document__badges {
   display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  gap: 0.1rem;
-  font-size: 0.9rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
-.row__title {
+.document__title {
+  margin: 0;
+  font-size: 1.05rem;
   font-weight: 550;
 }
 
-.row__category {
-  font-size: 0.825rem;
+.document__summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  /* Три строки: длинное описание не должно поднимать карточку над соседями. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.pager__position {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 9rem;
+  text-align: center;
+}
+
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1.25rem 1.35rem 1.4rem;
 }
 
 .skeleton-line {
-  width: 100%;
-  height: 1.5rem;
+  height: 0.7rem;
 }
 
-@media (max-width: 40rem) {
-  .filters {
+.skeleton-line--short { width: 35%; }
+.skeleton-line--title { width: 75%; height: 1.1rem; }
+.skeleton-line--half { width: 60%; }
+
+@media (max-width: 48rem) {
+  .head {
     flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
   }
 
-  .filters__category {
+  .head__actions a {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex-shrink: 0;
+  }
+
+  .search {
     flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .row { transition: none; }
+  /* По две в ряд на телефоне: одна плитка во всю ширину вытолкнула бы сам
+     материал за пределы экрана. */
+  .tiles {
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.5rem;
+  }
+
+  .tile {
+    padding: 0.8rem 0.9rem;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { RegulationCategory } from '~/types/lms'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 useHead({ title: 'Категории документов' })
 
 const { fetchCategories, createCategory, updateCategory, deleteCategory } = useRegulationsApi()
+const { can } = useAuth()
 
 const { data, pending, error, refresh } = await useAsyncData(
   'lms.regulation-categories.manage',
@@ -14,7 +14,7 @@ const { data, pending, error, refresh } = await useAsyncData(
 
 const categories = computed(() => data.value?.data ?? [])
 
-/** Плоский список для правки: дерево рисуется отступом, а не вложенностью. */
+/** The tree flattened for display; nesting is shown by indentation. */
 const flat = computed(() => {
   const rows: { category: RegulationCategory, depth: number }[] = []
 
@@ -30,307 +30,329 @@ const flat = computed(() => {
   return rows
 })
 
-const errors = ref<ValidationErrors>({})
-const generalError = ref<string | null>(null)
-const isSaving = ref(false)
+/** Siblings share a parent, so only they can be reordered against each other. */
+function siblingsOf(parentId: number | null): RegulationCategory[] {
+  const rows = flat.value.map(row => row.category)
 
-/* ---------- Новая ---------- */
-
-const draft = reactive({ name: '', description: '', parent_id: null as number | null })
-
-async function add() {
-  isSaving.value = true
-  errors.value = {}
-  generalError.value = null
-
-  try {
-    await createCategory({
-      name: draft.name,
-      description: draft.description || null,
-      parent_id: draft.parent_id,
-    })
-
-    draft.name = ''
-    draft.description = ''
-    draft.parent_id = null
-    await refresh()
-  }
-  catch (caught) {
-    if (caught instanceof ApiValidationError) {
-      errors.value = caught.errors
-    }
-    else {
-      generalError.value = 'Не удалось создать категорию.'
-    }
-  }
-  finally {
-    isSaving.value = false
-  }
+  return rows.filter(item => item.parent_id === parentId)
 }
-
-/* ---------- Правка ---------- */
 
 const editingSlug = ref<string | null>(null)
-const editing = reactive({ name: '', description: '', parent_id: null as number | null })
+const isCreating = ref(false)
+const draft = reactive<{ name: string, description: string, parent_id: number | null }>({
+  name: '',
+  description: '',
+  parent_id: null,
+})
+const busy = ref(false)
+const actionError = ref<string | null>(null)
 
-function startEditing(category: RegulationCategory) {
-  editingSlug.value = category.slug
-  editing.name = category.name
-  editing.description = category.description ?? ''
-  editing.parent_id = category.parent_id
-  errors.value = {}
+async function run(operation: () => Promise<unknown>) {
+  busy.value = true
+  actionError.value = null
+
+  try {
+    await operation()
+    await refresh()
+    isCreating.value = false
+    editingSlug.value = null
+  }
+  catch (caught) {
+    const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
+    actionError.value = failure.data?.errors?.name?.[0]
+      ?? failure.data?.message
+      ?? 'Не удалось сохранить категорию.'
+  }
+  finally {
+    busy.value = false
+  }
 }
 
-async function saveEditing() {
-  if (editingSlug.value === null) {
+function startCreate() {
+  isCreating.value = true
+  editingSlug.value = null
+  draft.name = ''
+  draft.description = ''
+  draft.parent_id = null
+}
+
+function startEdit(category: RegulationCategory) {
+  editingSlug.value = category.slug
+  isCreating.value = false
+  draft.name = category.name
+  draft.description = category.description ?? ''
+  draft.parent_id = category.parent_id
+}
+
+function save() {
+  const body = {
+    name: draft.name,
+    description: draft.description || null,
+    parent_id: draft.parent_id,
+  }
+
+  return run(() => editingSlug.value
+    ? updateCategory(editingSlug.value, body)
+    : createCategory(body))
+}
+
+/** Reordering swaps positions, which the API takes directly. */
+async function move(siblings: RegulationCategory[], index: number, delta: number) {
+  const current = siblings[index]
+  const neighbour = siblings[index + delta]
+
+  if (!current || !neighbour) {
     return
   }
 
-  isSaving.value = true
-  errors.value = {}
-
-  try {
-    await updateCategory(editingSlug.value, {
-      name: editing.name,
-      description: editing.description || null,
-      parent_id: editing.parent_id,
+  await run(async () => {
+    await updateCategory(current.slug, {
+      name: current.name,
+      description: current.description,
+      parent_id: current.parent_id,
+      position: neighbour.position,
     })
-
-    editingSlug.value = null
-    await refresh()
-  }
-  catch (caught) {
-    if (caught instanceof ApiValidationError) {
-      errors.value = caught.errors
-    }
-    else {
-      generalError.value = 'Не удалось сохранить категорию.'
-    }
-  }
-  finally {
-    isSaving.value = false
-  }
-}
-
-async function remove(category: RegulationCategory) {
-  generalError.value = null
-
-  try {
-    await deleteCategory(category.slug)
-    await refresh()
-  }
-  catch {
-    generalError.value = 'Не удалось удалить категорию.'
-  }
+    await updateCategory(neighbour.slug, {
+      name: neighbour.name,
+      description: neighbour.description,
+      parent_id: neighbour.parent_id,
+      position: current.position,
+    })
+  })
 }
 </script>
 
 <template>
   <section>
     <header class="head">
-      <h1 class="page-title">
-        Категории документов
-      </h1>
-      <p class="page-subtitle">
-        Своё дерево, не общее с учебными категориями: здесь ищут, по какому правилу работать.
-      </p>
-    </header>
+      <div>
+        <h1 class="page-title">
+          Категории документов
+        </h1>
+        <p class="page-subtitle">
+          Дерево разделов документов — своё, не общее с курсами: в тех ищут, чему
+          научиться, в этих — по какому правилу работать. Категории вкладываются
+          друг в друга; удаление поднимает подкатегории на уровень выше, а
+          документы остаются.
+        </p>
+      </div>
 
-    <p v-if="generalError" class="alert alert--danger" role="alert">
-      {{ generalError }}
-    </p>
+      <div class="head__actions">
+        <button type="button" class="button-primary" @click="startCreate">
+          Новая категория
+        </button>
+      </div>
+    </header>
 
     <p v-if="error" class="alert alert--danger" role="alert">
       Не удалось загрузить категории.
     </p>
 
-    <div v-else-if="pending" class="skeleton skeleton-line" />
+    <p v-if="actionError" class="alert alert--danger" role="alert">
+      {{ actionError }}
+    </p>
+
+    <form v-if="isCreating || editingSlug" class="card editor" @submit.prevent="save">
+      <div class="editor__fields">
+        <input v-model.trim="draft.name" class="input" placeholder="Название" required>
+        <input v-model.trim="draft.description" class="input" placeholder="Описание (необязательно)">
+        <CategoryTreeSelect
+          v-model="draft.parent_id"
+          :categories="categories"
+          :exclude-id="editingSlug ? categories.flatMap(c => [c, ...(c.children ?? [])]).find(c => c.slug === editingSlug)?.id : null"
+        />
+      </div>
+
+      <div class="editor__actions">
+        <button type="submit" class="button-primary" :disabled="busy || !draft.name">
+          Сохранить
+        </button>
+        <button
+          type="button"
+          class="button-ghost"
+          @click="isCreating = false; editingSlug = null"
+        >
+          Отмена
+        </button>
+      </div>
+    </form>
+
+    <p v-if="pending" class="muted">
+      Загрузка…
+    </p>
 
     <UiEmptyState
-      v-else-if="!flat.length"
+      v-else-if="!categories.length"
       title="Категорий пока нет"
-      description="Заведите первую — документ без категории тоже живёт, но искать его труднее."
-    />
+      description="Категории помогают разложить документы по темам."
+    >
+      <button type="button" class="button-primary" @click="startCreate">
+        Создать первую
+      </button>
+    </UiEmptyState>
 
-    <ul v-else class="tree">
-      <li v-for="row in flat" :key="row.category.id" class="card node">
-        <template v-if="editingSlug === row.category.slug">
-          <form class="node__form" novalidate @submit.prevent="saveEditing">
-            <input v-model.trim="editing.name" class="input" maxlength="120" aria-label="Название">
-            <input v-model.trim="editing.description" class="input" maxlength="1000" placeholder="Описание — необязательно">
-            <CategoryTreeSelect
-              v-model="editing.parent_id"
-              :categories="categories"
-              :exclude-id="row.category.id"
-            />
-            <p v-if="errors.name?.length || errors.parent_id?.length" class="field-error">
-              {{ errors.name?.[0] ?? errors.parent_id?.[0] }}
-            </p>
-            <div class="node__actions">
-              <button type="submit" class="button-primary button-sm" :disabled="isSaving">
-                Сохранить
-              </button>
-              <button type="button" class="button-ghost button-sm" @click="editingSlug = null">
-                Отмена
-              </button>
-            </div>
-          </form>
-        </template>
-
-        <template v-else>
-          <span class="node__body" :style="{ paddingLeft: `${row.depth * 1.25}rem` }">
-            <span class="node__name">{{ row.category.name }}</span>
-            <span v-if="row.category.description" class="faint">{{ row.category.description }}</span>
+    <ul v-else class="list">
+      <li
+        v-for="row in flat"
+        :key="row.category.slug"
+        class="card row"
+        :style="{ marginLeft: `${row.depth * 1.5}rem` }"
+      >
+        <div class="row__body">
+          <span class="row__name">
+            <span v-if="row.depth > 0" class="faint" aria-hidden="true">└ </span>
+            {{ row.category.name }}
           </span>
+          <span v-if="row.category.description" class="faint">{{ row.category.description }}</span>
+        </div>
 
-          <span class="faint node__count">{{ row.category.regulations_count ?? 0 }}</span>
+        <span class="badge">
+          {{ row.category.regulations_count ?? 0 }}
+          {{ pluralise(row.category.regulations_count ?? 0, 'документ', 'документа', 'документов') }}
+        </span>
 
-          <span class="node__actions">
-            <button type="button" class="button-ghost button-sm" @click="startEditing(row.category)">
-              Переименовать
-            </button>
-            <button type="button" class="button-danger button-sm" @click="remove(row.category)">
-              Удалить
-            </button>
-          </span>
-        </template>
+        <div class="row__actions">
+          <button
+            type="button"
+            class="button-ghost button-sm"
+            :disabled="busy || siblingsOf(row.category.parent_id).indexOf(row.category) === 0"
+            @click="move(siblingsOf(row.category.parent_id), siblingsOf(row.category.parent_id).indexOf(row.category), -1)"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            class="button-ghost button-sm"
+            :disabled="busy || siblingsOf(row.category.parent_id).indexOf(row.category) === siblingsOf(row.category.parent_id).length - 1"
+            @click="move(siblingsOf(row.category.parent_id), siblingsOf(row.category.parent_id).indexOf(row.category), 1)"
+          >
+            ↓
+          </button>
+          <button type="button" class="button-secondary button-sm" :disabled="busy" @click="startEdit(row.category)">
+            Изменить
+          </button>
+          <button
+            v-if="can('courses.delete')"
+            type="button"
+            class="button-danger button-sm"
+            :disabled="busy"
+            @click="run(() => deleteCategory(row.category.slug))"
+          >
+            Удалить
+          </button>
+        </div>
       </li>
     </ul>
-
-    <section class="card add">
-      <h2 class="add__title">
-        Новая категория
-      </h2>
-
-      <form class="add__form" novalidate @submit.prevent="add">
-        <div class="field">
-          <label class="field-label" for="name">Название</label>
-          <input id="name" v-model.trim="draft.name" class="input" maxlength="120">
-          <p v-if="errors.name?.length" class="field-error">
-            {{ errors.name[0] }}
-          </p>
-        </div>
-
-        <div class="field">
-          <label class="field-label" for="description">
-            Описание <span class="field-optional">— необязательно</span>
-          </label>
-          <input id="description" v-model.trim="draft.description" class="input" maxlength="1000">
-        </div>
-
-        <div class="field">
-          <label class="field-label" for="parent">
-            Внутри <span class="field-optional">— если это подкатегория</span>
-          </label>
-          <CategoryTreeSelect id="parent" v-model="draft.parent_id" :categories="categories" />
-        </div>
-
-        <button type="submit" class="button-primary" :disabled="isSaving || !draft.name">
-          Добавить
-        </button>
-      </form>
-    </section>
   </section>
 </template>
 
 <style scoped>
 .head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
 }
 
-.tree {
+.head__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.head__actions a {
+  text-decoration: none;
+}
+
+.editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  margin-bottom: 1.25rem;
+}
+
+.editor__fields {
+  display: flex;
+  flex: 1;
+  gap: 0.6rem;
+  min-width: 18rem;
+}
+
+.editor__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin: 0 0 1.5rem;
+  gap: 0.6rem;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.node {
+.row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
 }
 
-.node__body {
+.row__body {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   gap: 0.1rem;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
-.node__name {
+.row__name {
   font-weight: 550;
 }
 
-.node__count {
-  font-variant-numeric: tabular-nums;
-}
-
-.node__actions {
+.row__actions {
   display: flex;
-  flex-shrink: 0;
   gap: 0.35rem;
 }
 
-.node__form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
+.muted {
+  color: var(--color-text-muted);
 }
 
-.add {
-  padding: 1.4rem 1.5rem;
-  max-width: 34rem;
-}
+@media (max-width: 48rem) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
 
-.add__title {
-  margin: 0 0 1rem;
-  font-size: 1.05rem;
-  font-weight: 600;
-}
+  .head__actions > * {
+    flex: 1;
+    justify-content: center;
+  }
 
-.add__form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-items: flex-start;
-}
+  .editor__fields {
+    flex-direction: column;
+    min-width: 0;
+  }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  width: 100%;
-}
-
-.field-optional {
-  color: var(--color-text-faint);
-  font-weight: 400;
-}
-
-.skeleton-line {
-  width: 100%;
-  height: 3rem;
-}
-
-@media (max-width: 40rem) {
-  .node {
+  /* The row stacks so the action buttons keep their labels instead of being
+     squeezed into unreadable stubs. */
+  .row {
     flex-wrap: wrap;
+    row-gap: 0.6rem;
   }
 
-  .node__actions {
-    width: 100%;
-    justify-content: flex-end;
+  .row__body {
+    flex-basis: 100%;
   }
 
-  .add {
-    padding: 1.15rem 1.15rem 1.25rem;
+  .row__actions {
+    flex-wrap: wrap;
   }
 }
 </style>
