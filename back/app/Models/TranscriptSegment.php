@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'transcript_id',
     'lesson_id',
+    'regulation_id',
     'position',
     'heading',
     'content',
@@ -36,6 +37,16 @@ class TranscriptSegment extends Model
     public function transcript(): BelongsTo
     {
         return $this->belongsTo(LessonTranscript::class, 'transcript_id');
+    }
+
+    /**
+     * Документ, из которого взят кусок. Null у урочного — хозяин ровно один.
+     *
+     * @return BelongsTo<Regulation, $this>
+     */
+    public function regulation(): BelongsTo
+    {
+        return $this->belongsTo(Regulation::class);
     }
 
     /**

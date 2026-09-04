@@ -64,6 +64,7 @@ final readonly class RecordQuestion
             // Из каких закрытых курсов он собран — по этому журнал и решает,
             // кому эту строку показывать.
             'private_course_ids' => $answer->privateCourseIds,
+            'private_document_ids' => $answer->privateDocumentIds,
             'retrieved' => $answer->retrieved,
             'cited' => count($answer->sources),
             'outcome' => $this->outcome($answer),

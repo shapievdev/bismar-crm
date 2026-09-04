@@ -31,7 +31,19 @@ final readonly class EmbedTranscriptSegments
     /**
      * @return int сколько кусков получили вектор
      */
+    /** Векторы кусков одного урока или всех подряд. */
     public function handle(?int $lessonId = null, bool $force = false): int
+    {
+        return $this->run($force, lessonId: $lessonId);
+    }
+
+    /** То же для документа: корпус у них общий, и считается он одинаково. */
+    public function forRegulation(int $regulationId, bool $force = false): int
+    {
+        return $this->run($force, regulationId: $regulationId);
+    }
+
+    private function run(bool $force, ?int $lessonId = null, ?int $regulationId = null): int
     {
         if (! $this->embedder->isAvailable()) {
             return 0;
@@ -40,14 +52,17 @@ final readonly class EmbedTranscriptSegments
         $model = (string) $this->settings->embeddingModel();
         $done = 0;
 
-        $this->stale($model, $lessonId, $force)
-            ->with('lesson.module.course:id,title')
+        $this->stale($model, $lessonId, $regulationId, $force)
+            ->with(['lesson.module.course:id,title', 'regulation:id,title'])
             ->chunkById(64, function (Collection $segments) use ($model, &$done): void {
                 // Вектор считается по названию курса, заголовку и тексту
                 // вместе: кусок из середины записи сам по себе не говорит, о
                 // чём он, а название курса — половина его смысла.
                 $texts = $segments
                     ->map(static fn (TranscriptSegment $segment): string => implode("\n", array_filter([
+                        // Название курса — половина смысла куска из середины
+                        // записи. У документа его заменяет собственное имя,
+                        // которое и так стоит заголовком.
                         $segment->lesson?->module?->course?->title,
                         $segment->heading,
                         $segment->content,
@@ -73,10 +88,11 @@ final readonly class EmbedTranscriptSegments
     /**
      * @return Builder<TranscriptSegment>
      */
-    private function stale(string $model, ?int $lessonId, bool $force): Builder
+    private function stale(string $model, ?int $lessonId, ?int $regulationId, bool $force): Builder
     {
         return TranscriptSegment::query()
             ->when($lessonId !== null, static fn (Builder $query) => $query->where('lesson_id', $lessonId))
+            ->when($regulationId !== null, static fn (Builder $query) => $query->where('regulation_id', $regulationId))
             ->unless($force, static fn (Builder $query) => $query->where(
                 static function (Builder $query) use ($model): void {
                     $query->whereNull('embedding')->orWhere('embedding_model', '!=', $model);

@@ -33,8 +33,9 @@ final readonly class SaveTranscriptSegments
             static fn (int $position, TranscriptCue $cue): array => [
                 'transcript_id' => $transcript->getKey(),
                 // Копией из расшифровки, чтобы поиск не соединял три таблицы
-                // ради того, чей это урок.
+                // ради того, чьё это. Хозяин ровно один — урок или документ.
                 'lesson_id' => $transcript->lesson_id,
+                'regulation_id' => $transcript->regulation_id,
                 'position' => $position,
                 'heading' => $heading,
                 'content' => $cue->text,
@@ -58,9 +59,11 @@ final readonly class SaveTranscriptSegments
      */
     private function heading(LessonTranscript $transcript): string
     {
-        $lessonTitle = (string) $transcript->lesson?->title;
+        // Название урока или документа: заголовок весит в поиске больше тела, и
+        // спрашивают нередко именно им — «что там в правилах отпуска».
+        $title = (string) ($transcript->lesson?->title ?? $transcript->regulation?->title);
         $attachment = $transcript->attachment?->name;
 
-        return $attachment === null ? $lessonTitle : $lessonTitle.' — '.$attachment;
+        return $attachment === null ? $title : $title.' — '.$attachment;
     }
 }

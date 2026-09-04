@@ -45,17 +45,17 @@ final readonly class Retrieved
     /**
      * То же самое плюс ещё близкое — без повторов и не длиннее предела.
      *
-     * Повтор считается по уроку, а не по источнику. Две карточки «смотрите
-     * также» на один урок — это один и тот же совет, повторённый дважды: у
-     * читателя они ведут в одно место, и второй ему сказать нечего.
+     * Повтор считается по материалу, а не по источнику. Две карточки «смотрите
+     * также» на один урок или документ — это один и тот же совет, повторённый
+     * дважды: у читателя они ведут в одно место, и второй ему сказать нечего.
      *
      * @param  list<Source>  $sources
      */
     public function plusRelated(array $sources, int $limit): self
     {
         $related = $this->related;
-        $lessons = array_map(
-            static fn (Source $source): int => $source->citation()->lessonId,
+        $materials = array_map(
+            static fn (Source $source): string => $source->citation()->materialKey(),
             [...$this->exact, ...$related],
         );
 
@@ -64,13 +64,13 @@ final readonly class Retrieved
                 break;
             }
 
-            $lesson = $source->citation()->lessonId;
+            $material = $source->citation()->materialKey();
 
-            if (in_array($lesson, $lessons, strict: true)) {
+            if (in_array($material, $materials, strict: true)) {
                 continue;
             }
 
-            $lessons[] = $lesson;
+            $materials[] = $material;
             $related[] = $source;
         }
 
@@ -88,12 +88,12 @@ final readonly class Retrieved
     public function withoutCited(array $cited): self
     {
         $keys = array_map(static fn (Source $source): string => $source->key(), $cited);
-        $lessons = array_map(static fn (Source $source): int => $source->citation()->lessonId, $cited);
+        $materials = array_map(static fn (Source $source): string => $source->citation()->materialKey(), $cited);
 
         return new self($this->exact, array_values(array_filter(
             $this->related,
             static fn (Source $source): bool => ! in_array($source->key(), $keys, strict: true)
-                && ! in_array($source->citation()->lessonId, $lessons, strict: true),
+                && ! in_array($source->citation()->materialKey(), $materials, strict: true),
         )));
     }
 

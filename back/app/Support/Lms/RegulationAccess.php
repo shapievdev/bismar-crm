@@ -10,6 +10,7 @@ use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Кому какой регламент открыт — одно правило на всё приложение.
@@ -22,9 +23,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * Gate::before ему прощает.
  *
  * Отдельный класс, а не общий с курсами: у них разные таблицы допущенных, а
- * ветвление внутри по имени таблицы читалось бы хуже двух прямых правил. Того,
- * ради чего у CourseAccess есть sqlCondition() и fingerprint(), здесь нет:
- * консультант ищет по учебным материалам и регламентов не читает.
+ * ветвление внутри по имени таблицы читалось бы хуже двух прямых правил.
  */
 final class RegulationAccess
 {
@@ -77,6 +76,75 @@ final class RegulationAccess
                         ->where('regulation_members.user_id', $reader);
                 });
         });
+    }
+
+    /**
+     * То же правило готовым куском SQL — для запросов, которые собираются
+     * строкой.
+     *
+     * Такой запрос один: поиск консультанта. Он читает не таблицу документов, а
+     * нарезку их текста, соединённую вручную ради скорости, и построителю
+     * запросов там места нет. Пересказ закрытого документа выдаёт его не хуже
+     * открытой страницы, поэтому правило здесь то же самое, слово в слово.
+     */
+    public function sqlCondition(string $table = 'regulations'): string
+    {
+        if ($this->seesEverything()) {
+            return '';
+        }
+
+        return sprintf(<<<'SQL'
+             AND (%1$s.visibility = ? OR %1$s.author_id = ? OR EXISTS (
+                SELECT 1 FROM regulation_members
+                WHERE regulation_members.regulation_id = %1$s.id AND regulation_members.user_id = ?
+            ))
+        SQL, $table);
+    }
+
+    /**
+     * Подстановки к sqlCondition(), в том же порядке.
+     *
+     * @return list<mixed>
+     */
+    public function sqlBindings(): array
+    {
+        if ($this->seesEverything()) {
+            return [];
+        }
+
+        return [CourseVisibility::Public->value, $this->reader->getKey(), $this->reader->getKey()];
+    }
+
+    /**
+     * Приватные документы, до которых этот человек допущен.
+     *
+     * Нужны журналу вопросов: ответ, собранный из закрытого документа, нельзя
+     * показывать тому, кому этот документ не открывали, — пересказ выдаёт его
+     * не хуже страницы.
+     *
+     * @return list<int>
+     */
+    public function privateRegulationIds(): array
+    {
+        $reader = $this->reader->getKey();
+
+        $query = DB::table('regulations')
+            ->where('visibility', CourseVisibility::Private->value)
+            ->whereNull('deleted_at');
+
+        if (! $this->seesEverything()) {
+            $query->where(function (QueryBuilder $query) use ($reader): void {
+                $query->where('author_id', $reader)
+                    ->orWhereExists(function (QueryBuilder $query) use ($reader): void {
+                        $query->selectRaw('1')
+                            ->from('regulation_members')
+                            ->whereColumn('regulation_members.regulation_id', 'regulations.id')
+                            ->where('regulation_members.user_id', $reader);
+                    });
+            });
+        }
+
+        return $query->pluck('id')->map(intval(...))->all();
     }
 
     /**

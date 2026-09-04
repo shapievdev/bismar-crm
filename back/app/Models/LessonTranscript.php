@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 #[Fillable([
     'lesson_id',
+    'regulation_id',
     'source_kind',
     'source_attachment_id',
     'source_block_id',
@@ -34,6 +35,17 @@ class LessonTranscript extends Model implements PartOfCourse
     public function owningCourse(): ?Course
     {
         return $this->loadMissing('lesson.module.course')->lesson?->module?->course;
+    }
+
+    /**
+     * Документ, которому принадлежит расшифровка. Null у урочной — хозяин у
+     * неё ровно один, и это проверяет сама база.
+     *
+     * @return BelongsTo<Regulation, $this>
+     */
+    public function regulation(): BelongsTo
+    {
+        return $this->belongsTo(Regulation::class);
     }
 
     /**

@@ -6,6 +6,7 @@ namespace App\Actions\Lms;
 
 use App\Enums\AnswerSource;
 use App\Models\Lesson;
+use App\Models\Regulation;
 use App\Support\Lms\BlockIdentifier;
 use App\Support\Lms\RichTextExtractor;
 use App\Support\Lms\TranscriptCue;
@@ -39,23 +40,27 @@ final readonly class SyncLessonTranscripts
     ) {}
 
     /**
+     * Держит выведенную расшифровку в согласии с текстом — у урока и у
+     * документа одинаково: и то и другое написано словами, и корпус поиска у
+     * них общий.
+     *
      * @return int сколько блоков получили выведенную расшифровку
      */
-    public function handle(Lesson $lesson): int
+    public function handle(Lesson|Regulation $material): int
     {
-        $blocks = $this->blocks($lesson);
+        $blocks = $this->blocks($material);
 
-        return DB::transaction(function () use ($lesson, $blocks): int {
+        return DB::transaction(function () use ($material, $blocks): int {
             // Выведенная пересобирается целиком: вычислять, какие абзацы
             // уцелели, дороже, чем переписать её заново. Загруженная при этом
             // не трогается — она не производное от текста.
-            $lesson->transcripts()
+            $material->transcripts()
                 ->where('is_derived', true)
                 ->where('source_kind', AnswerSource::Text)
                 ->delete();
 
             // Автор перекрыл текст своей расшифровкой — выводить нечего.
-            $overridden = $lesson->transcripts()
+            $overridden = $material->transcripts()
                 ->where('is_derived', false)
                 ->where('source_kind', AnswerSource::Text)
                 ->exists();
@@ -64,7 +69,7 @@ final readonly class SyncLessonTranscripts
                 return 0;
             }
 
-            $transcript = $lesson->transcripts()->create([
+            $transcript = $material->transcripts()->create([
                 'source_kind' => AnswerSource::Text,
                 // Одна на весь текст урока, а не на каждый абзац: у статьи на
                 // семьдесят абзацев автор получал семьдесят расшифровок, между
@@ -78,10 +83,10 @@ final readonly class SyncLessonTranscripts
                 'format' => TranscriptParser::FORMAT_PLAIN,
             ]);
 
-            // Заголовок куска собирается из названия урока, а урок у нас на
-            // руках: без этого расшифровка шла бы за ним отдельным запросом —
-            // за тем самым, который её и создал.
-            $transcript->setRelation('lesson', $lesson);
+            // Заголовок куска собирается из названия урока или документа, а
+            // он у нас на руках: без этого расшифровка шла бы за ним отдельным
+            // запросом — за тем самым, который её и создал.
+            $transcript->setRelation($material instanceof Lesson ? 'lesson' : 'regulation', $material);
 
             $this->segments->handle($transcript, $this->cues($blocks));
 
@@ -123,12 +128,14 @@ final readonly class SyncLessonTranscripts
      *
      * @return array<string|null, string>
      */
-    private function blocks(Lesson $lesson): array
+    private function blocks(Lesson|Regulation $material): array
     {
-        $document = $lesson->content_json;
+        $document = $material->content_json;
 
         if (! is_array($document['content'] ?? null)) {
-            $plain = trim((string) $lesson->content);
+            // Простым текстом писали только уроки — и только до появления
+            // редактора. У документа такого поля нет вовсе.
+            $plain = $material instanceof Lesson ? trim((string) $material->content) : '';
 
             return $plain === '' ? [] : ['' => $plain];
         }

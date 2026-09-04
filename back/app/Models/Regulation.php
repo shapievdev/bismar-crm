@@ -6,9 +6,11 @@ namespace App\Models;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Observers\RegulationObserver;
 use App\Support\Lms\RegulationAccess;
 use Database\Factories\RegulationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -26,6 +28,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * одинаково, и вторая пара названий для того же самого разошлась бы с первой на
  * первой же правке.
  */
+#[ObservedBy(RegulationObserver::class)]
 #[Fillable([
     'author_id', 'category_id', 'title', 'slug', 'summary',
     'content_json', 'status', 'visibility', 'published_at',
@@ -122,6 +125,27 @@ class Regulation extends Model
     public function experts(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'regulation_experts')->withTimestamps();
+    }
+
+    /**
+     * Изложение документа для машины — то же, что у урока.
+     *
+     * Консультант читает не статью, а её нарезку: так найденное указывает не на
+     * документ целиком, а на абзац в нём.
+     *
+     * @return HasMany<LessonTranscript, $this>
+     */
+    public function transcripts(): HasMany
+    {
+        return $this->hasMany(LessonTranscript::class);
+    }
+
+    /**
+     * @return HasMany<TranscriptSegment, $this>
+     */
+    public function segments(): HasMany
+    {
+        return $this->hasMany(TranscriptSegment::class);
     }
 
     /**

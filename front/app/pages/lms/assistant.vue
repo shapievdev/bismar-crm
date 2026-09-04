@@ -316,17 +316,31 @@ function sourceLink(source: ConsultantSource): string {
       : `${location.attachment_url}#page=${location.page}`
   }
 
-  const lesson = `/lms/${source.course_slug}/lessons/${source.lesson_id}`
+  // Адрес материала собирает сервер: правил два — урок внутри курса и
+  // документ, — и держать их ещё и здесь значит однажды поправить одно.
+  // У ссылок, записанных до появления документов, его нет: там урок.
+  const material = source.url ?? `/lms/${source.course_slug}/lessons/${source.lesson_id}`
 
   if (location?.kind === 'video' && location.seconds !== null) {
-    return `${lesson}?t=${location.seconds}`
+    return `${material}?t=${location.seconds}`
   }
 
   if (location?.kind === 'text' && location.block_id) {
-    return `${lesson}?block=${location.block_id}`
+    return `${material}?block=${location.block_id}`
   }
 
-  return lesson
+  return material
+}
+
+/**
+ * Подпись ссылки в тексте ответа — та, что всплывает при наведении.
+ *
+ * У урока это «курс → урок», у документа — он сам: курса у него нет.
+ */
+function sourceTitle(source: ConsultantSource): string {
+  return source.kind === 'document'
+    ? `Документ «${source.title}»`
+    : `${source.course_title} → ${source.title ?? source.lesson_title}`
 }
 
 /** Ссылка на файл уходит из приложения — Nuxt такие обрабатывать не должен. */
@@ -477,7 +491,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
                 :to="sourceLink(part.cite)"
                 :external="isExternal(part.cite)"
                 class="cite"
-                :title="`${part.cite.course_title} → ${part.cite.lesson_title}`"
+                :title="sourceTitle(part.cite)"
               >{{ part.index }}</NuxtLink>
             </template>
           </p>
@@ -486,7 +500,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
             <span class="sources__label">Источники</span>
             <NuxtLink
               v-for="(source, index) in exchange.answer.sources"
-              :key="`${source.lesson_id}-${index}`"
+              :key="`${source.url}-${index}`"
               :to="sourceLink(source)"
               :external="isExternal(source)"
               :target="isExternal(source) ? '_blank' : undefined"
@@ -495,11 +509,13 @@ function resolutionLink(resolution: ConsultantResolution): string {
             >
               <span class="source__index">{{ index + 1 }}</span>
               <span class="source__body">
-                <span class="source__lesson">{{ source.lesson_title }}</span>
+                <span class="source__lesson">{{ source.title ?? source.lesson_title }}</span>
                 <span class="faint">
-                  {{ source.course_title }}
-                  <!-- Место, а не только урок: «видео, 12:35» говорит читателю,
-                       куда он попадёт, ещё до нажатия. -->
+                  <!-- Курс, внутри которого лежит урок. У документа его нет —
+                       он сам себе целое, и в подписи стоит его род. -->
+                  {{ source.kind === 'document' ? 'Документ' : source.course_title }}
+                  <!-- Место, а не только материал: «видео, 12:35» говорит
+                       читателю, куда он попадёт, ещё до нажатия. -->
                   <template v-if="source.location">· {{ source.location.label }}</template>
                 </span>
                 <!-- Вопрос строки, если ответ пришёл из таблицы: видно, на какой
@@ -519,7 +535,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
             <span class="sources__label">Смотрите также</span>
             <NuxtLink
               v-for="(source, index) in exchange.answer.related"
-              :key="`related-${source.lesson_id}-${index}`"
+              :key="`related-${source.url}-${index}`"
               :to="sourceLink(source)"
               :external="isExternal(source)"
               :target="isExternal(source) ? '_blank' : undefined"
@@ -527,9 +543,9 @@ function resolutionLink(resolution: ConsultantResolution): string {
               class="source"
             >
               <span class="source__body">
-                <span class="source__lesson">{{ source.lesson_title }}</span>
+                <span class="source__lesson">{{ source.title ?? source.lesson_title }}</span>
                 <span class="faint">
-                  {{ source.course_title }}
+                  {{ source.kind === 'document' ? 'Документ' : source.course_title }}
                   <template v-if="source.location">· {{ source.location.label }}</template>
                 </span>
                 <span v-if="source.question" class="source__question">{{ source.question }}</span>

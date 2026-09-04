@@ -586,17 +586,35 @@ export interface SourceLocation {
   attachment_url: string | null
 }
 
-/** A lesson the consultant leaned on, so the reader can go and check it. */
+/**
+ * Материал, на который консультант опёрся, — чтобы читатель мог проверить.
+ *
+ * Двух родов: урок внутри курса и документ, который сам себе целое. Общее у них
+ * то, ради чего карточку и показывают: название, куда вести и что было
+ * прочитано. Урочные поля идут рядом и заполнены только у урока — ими записаны
+ * ссылки в журнале вопросов, а он читается годами.
+ */
 export interface ConsultantSource {
-  lesson_id: number
-  lesson_title: string
-  course_title: string
-  course_slug: string
-  /** Кусок урока или готовый ответ, на котором стоит утверждение. */
+  /** Отсутствует у ссылок, записанных до появления документов в базе. */
+  kind?: 'lesson' | 'document'
+  title: string
+  /** Адрес страницы материала — собран сервером, экрану его не строить. */
+  url: string
+  /** Кусок материала или готовый ответ, на котором стоит утверждение. */
   quote: string
   /** Вопрос строки таблицы — есть, только если ответ пришёл оттуда. */
   question: string | null
   location: SourceLocation | null
+
+  /* Урок: остаётся ради журнала и ссылок, записанных раньше. */
+  lesson_id?: number
+  lesson_title?: string
+  course_title?: string
+  course_slug?: string
+
+  /* Документ. */
+  document_id?: number
+  document_slug?: string
 }
 
 /** Что сотрудник сказал о полученном ответе. */

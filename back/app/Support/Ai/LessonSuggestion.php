@@ -46,7 +46,7 @@ final readonly class LessonSuggestion implements Source
 
     public function citation(): Citation
     {
-        return new Citation(
+        return Citation::forLesson(
             lessonId: $this->lessonId,
             lessonTitle: $this->lessonTitle,
             courseTitle: $this->courseTitle,

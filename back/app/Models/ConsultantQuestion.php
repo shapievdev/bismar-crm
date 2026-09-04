@@ -8,6 +8,7 @@ use App\Enums\AnswerFeedback;
 use App\Enums\AnswerPath;
 use App\Enums\ConsultantOutcome;
 use App\Support\Lms\CourseAccess;
+use App\Support\Lms\RegulationAccess;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'related',
     'experts',
     'private_course_ids',
+    'private_document_ids',
     'outcome',
     'answered_from',
     'retrieved',
@@ -49,6 +51,7 @@ class ConsultantQuestion extends Model
             'related' => 'array',
             'experts' => 'array',
             'private_course_ids' => 'array',
+            'private_document_ids' => 'array',
             'hidden_at' => 'datetime',
             'feedback_at' => 'datetime',
             'requested_at' => 'datetime',
@@ -83,6 +86,18 @@ class ConsultantQuestion extends Model
                 WHERE restricted.id::bigint <> ALL (?::bigint[])
             )
         SQL, ['{'.implode(',', $access->privateCourseIds()).'}']);
+
+        // То же самое про документы. Отдельным условием, а не общим списком
+        // номеров: документ №3 и курс №3 — разные вещи.
+        $documents = RegulationAccess::of($reader)->privateRegulationIds();
+
+        $query->whereRaw(<<<'SQL'
+            NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(consultant_questions.private_document_ids) AS restricted(id)
+                WHERE restricted.id::bigint <> ALL (?::bigint[])
+            )
+        SQL, ['{'.implode(',', $documents).'}']);
     }
 
     /**

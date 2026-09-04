@@ -8,6 +8,7 @@ use App\Actions\Ai\EmbedLessonAnswers;
 use App\Actions\Ai\EmbedTranscriptSegments;
 use App\Actions\Lms\SyncLessonTranscripts;
 use App\Models\Lesson;
+use App\Models\Regulation;
 use App\Support\Lms\BlockIdentifier;
 use Illuminate\Console\Command;
 use Throwable;
@@ -49,6 +50,26 @@ final class ReindexKnowledgeBase extends Command
         $this->newLine(2);
         $this->info(sprintf('Уроков: %d. Расшифровок выведено из статей: %d.', $lessons, $derived));
 
+        // Документы — тот же корпус: правила, по которым работают, консультант
+        // читает наравне с учебным материалом.
+        $documents = 0;
+        $documentPieces = 0;
+
+        $bar = $this->output->createProgressBar(Regulation::query()->count());
+
+        Regulation::query()->chunkById(100, function ($chunk) use ($sync, $blocks, &$documents, &$documentPieces, &$named, $bar): void {
+            foreach ($chunk as $document) {
+                $named += $this->nameBlocks($document, $blocks) ? 1 : 0;
+                $documentPieces += $sync->handle($document);
+                $documents++;
+                $bar->advance();
+            }
+        });
+
+        $bar->finish();
+        $this->newLine(2);
+        $this->info(sprintf('Документов: %d. Расшифровок выведено из статей: %d.', $documents, $documentPieces));
+
         if ($named > 0) {
             $this->info(sprintf('Статей, получивших имена блоков: %d.', $named));
         }
@@ -69,15 +90,15 @@ final class ReindexKnowledgeBase extends Command
      * Сохраняется тихо, мимо наблюдателя: текст не менялся, и пересобирать
      * из-за этого расшифровки незачем — их и так пересобирает вызывающий.
      */
-    private function nameBlocks(Lesson $lesson, BlockIdentifier $blocks): bool
+    private function nameBlocks(Lesson|Regulation $material, BlockIdentifier $blocks): bool
     {
-        $document = $blocks->assign($lesson->content_json);
+        $document = $blocks->assign($material->content_json);
 
-        if ($document === $lesson->content_json) {
+        if ($document === $material->content_json) {
             return false;
         }
 
-        $lesson->forceFill(['content_json' => $document])->saveQuietly();
+        $material->forceFill(['content_json' => $document])->saveQuietly();
 
         return true;
     }

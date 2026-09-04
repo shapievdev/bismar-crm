@@ -8,6 +8,7 @@ use Anthropic\Client;
 use App\Enums\AnswerPath;
 use App\Enums\CourseVisibility;
 use App\Models\User;
+use App\Support\Ai\Citation;
 use App\Support\Ai\Conversation;
 use App\Support\Ai\CourseExpert;
 use App\Support\Ai\CuratedAnswers;
@@ -95,6 +96,7 @@ final readonly class AnswerFromKnowledgeBase
                 verbatim: true,
                 related: $curated->related,
                 privateCourseIds: $this->privateCoursesAmong($curated->all()),
+                privateDocumentIds: $this->privateDocumentsAmong($curated->all()),
                 searchedAs: $restated,
             );
         }
@@ -190,6 +192,7 @@ final readonly class AnswerFromKnowledgeBase
         // закрытый материал модель может и не сославшись на него, а показанное
         // карточкой «смотрите также» выдаёт курс не хуже пересказа.
         $private = $this->privateCoursesAmong($found->all());
+        $privateDocuments = $this->privateDocumentsAmong($found->all());
 
         if ($text === '') {
             return new Answer(
@@ -200,11 +203,60 @@ final readonly class AnswerFromKnowledgeBase
                 related: $found->related,
                 experts: $this->expertsFor($found),
                 privateCourseIds: $private,
+                privateDocumentIds: $privateDocuments,
                 searchedAs: $restated,
             );
         }
 
-        return $this->withCitations($text, $found, $path, $private, $restated);
+        return $this->withCitations($text, $found, $path, $private, $privateDocuments, $restated);
+    }
+
+    /**
+     * Номера уроков среди источников — без документов: урока у них нет вовсе.
+     *
+     * @param  list<Source>  $sources
+     * @return list<int>
+     */
+    private static function lessonIdsAmong(array $sources): array
+    {
+        $lessons = array_filter(
+            $sources,
+            static fn (Source $source): bool => $source->citation()->kind === Citation::LESSON,
+        );
+
+        return array_values(array_unique(array_map(
+            static fn (Source $source): int => $source->citation()->materialId,
+            $lessons,
+        )));
+    }
+
+    /**
+     * Приватные документы, участвовавшие в ответе, — по той же причине, что и
+     * курсы: журнал читает автор материала, а не спрашивавший.
+     *
+     * @param  list<Source>  $sources
+     * @return list<int>
+     */
+    private function privateDocumentsAmong(array $sources): array
+    {
+        $ids = array_values(array_unique(array_map(
+            static fn (Source $source): int => $source->citation()->materialId,
+            array_filter(
+                $sources,
+                static fn (Source $source): bool => $source->citation()->kind === Citation::DOCUMENT,
+            ),
+        )));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::table('regulations')
+            ->whereIn('id', $ids)
+            ->where('visibility', CourseVisibility::Private->value)
+            ->pluck('id')
+            ->map(intval(...))
+            ->all();
     }
 
     /**
@@ -219,10 +271,7 @@ final readonly class AnswerFromKnowledgeBase
      */
     private function privateCoursesAmong(array $sources): array
     {
-        $lessonIds = array_values(array_unique(array_map(
-            static fn (Source $source): int => $source->citation()->lessonId,
-            $sources,
-        )));
+        $lessonIds = self::lessonIdsAmong($sources);
 
         if ($lessonIds === []) {
             return [];
@@ -379,12 +428,14 @@ final readonly class AnswerFromKnowledgeBase
      * that starts at 1 and has no gaps.
      *
      * @param  list<int>  $privateCourseIds
+     * @param  list<int>  $privateDocumentIds
      */
     private function withCitations(
         string $answer,
         Retrieved $found,
         AnswerPath $path,
         array $privateCourseIds,
+        array $privateDocumentIds,
         ?string $restated,
     ): Answer {
         $sources = $found->forPrompt();
@@ -465,6 +516,7 @@ final readonly class AnswerFromKnowledgeBase
             related: $found->withoutCited($used)->related,
             experts: $experts,
             privateCourseIds: $privateCourseIds,
+            privateDocumentIds: $privateDocumentIds,
             searchedAs: $restated,
         );
     }
@@ -483,10 +535,7 @@ final readonly class AnswerFromKnowledgeBase
      */
     private function expertsFor(Retrieved $found): array
     {
-        $lessonIds = array_values(array_unique(array_map(
-            static fn (Source $source): int => $source->citation()->lessonId,
-            $found->all(),
-        )));
+        $lessonIds = self::lessonIdsAmong($found->all());
 
         if ($lessonIds === []) {
             return [];

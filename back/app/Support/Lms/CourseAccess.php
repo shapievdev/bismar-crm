@@ -43,6 +43,18 @@ final class CourseAccess
 
     private function __construct(private readonly User $reader) {}
 
+    /**
+     * Чей это доступ.
+     *
+     * Спрашивают ради второго правила — документов: у консультанта корпус
+     * общий, и строить его по двум разным людям было бы ошибкой, которую
+     * ничего бы не поймало.
+     */
+    public function reader(): User
+    {
+        return $this->reader;
+    }
+
     public static function of(User $reader): self
     {
         return new self($reader);
