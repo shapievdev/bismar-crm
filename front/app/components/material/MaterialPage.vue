@@ -494,6 +494,21 @@ async function toggleReaders() {
     grid-template-columns: minmax(0, 1fr) 20rem;
     align-items: start;
   }
+
+  /*
+   * Выходы со страницы едут вместе с читателем. Статья длиннее экрана, а
+   * «спросите ответственного» нужно ровно тогда, когда ответа в ней не нашлось,
+   * — то есть посреди чтения, а не долистав до низа. Колонка встаёт под шапкой,
+   * которая и сама прилипшая, а переросшая экран прокручивается внутри себя:
+   * иначе нижняя карточка ушла бы за край окна и стала недосягаемой.
+   */
+  .layout__side {
+    position: sticky;
+    top: calc(var(--header-height) + 1rem);
+    max-height: calc(100dvh - var(--header-height) - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 .readers,

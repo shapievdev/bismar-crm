@@ -358,6 +358,17 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
     grid-template-columns: 1fr 18rem;
     align-items: start;
   }
+
+  /* Колонка едет вместе с читателем: у кого спросить, нужно посреди программы,
+     а не долистав её до конца. Переросшая экран прокручивается внутри себя,
+     иначе нижняя карточка ушла бы за край окна. */
+  .side {
+    position: sticky;
+    top: calc(var(--header-height) + 1rem);
+    max-height: calc(100dvh - var(--header-height) - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 /* Панель отзыва стоит от содержимого курса на том же расстоянии, на каком
