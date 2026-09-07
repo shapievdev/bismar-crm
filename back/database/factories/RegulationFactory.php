@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Enums\MaterialKind;
 use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -26,6 +27,7 @@ final class RegulationFactory extends Factory
         $title = Str::ucfirst(fake()->unique()->words(4, true));
 
         return [
+            'kind' => MaterialKind::Document,
             'author_id' => User::factory(),
             'category_id' => null,
             'title' => $title,
@@ -50,6 +52,12 @@ final class RegulationFactory extends Factory
             'status' => CourseStatus::Published,
             'published_at' => now(),
         ]);
+    }
+
+    /** Справочник — тот же материал, только в другом разделе. */
+    public function handbook(): self
+    {
+        return $this->state(fn (): array => ['kind' => MaterialKind::Handbook]);
     }
 
     /** Закрытый: виден автору, допущенным и суперадминистратору. */

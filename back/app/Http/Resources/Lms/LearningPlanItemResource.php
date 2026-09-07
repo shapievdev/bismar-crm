@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Lms;
 
 use App\Models\LearningPlanItem;
+use App\Support\Lms\PlannableMaterial;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -36,8 +37,9 @@ final class LearningPlanItemResource extends JsonResource
                 'name' => $this->assignedBy->name,
             ]),
 
-            // «course» или «regulation» — короткое имя из карты, а не класс.
-            'kind' => $this->plannable_type,
+            // «course», «document» или «handbook» — раздел, в который ведёт
+            // шаг, а не имя связи в базе: по нему экран строит ссылку.
+            'kind' => PlannableMaterial::kindOf($item),
             'item_id' => $this->plannable_id,
             'title' => $item?->title,
             'slug' => $item?->slug,
@@ -56,6 +58,13 @@ final class LearningPlanItemResource extends JsonResource
             // Когда шаг был пройден: у курса это день, когда он был закрыт
             // целиком, у документа — отметка об ознакомлении.
             'completed_at' => $this->completed_at,
+
+            // Дошла ли до шага очередь. Только в своём плане: составителю
+            // показывают, что назначено, а не что кому открыто.
+            'is_locked' => $this->when(
+                $this->is_locked !== null,
+                fn (): bool => (bool) $this->is_locked,
+            ),
 
             // Только для того, кто план составляет: назначить материал,
             // которого сотрудник не увидит, можно по недосмотру, и сказать об

@@ -7,6 +7,7 @@ namespace App\Support\Ai;
 use App\Enums\AnswerSource;
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Enums\MaterialKind;
 use App\Models\TranscriptSegment;
 use App\Support\Lms\CourseAccess;
 use App\Support\Lms\RegulationAccess;
@@ -520,6 +521,7 @@ final readonly class KnowledgeBase
                     regulations.id AS document_id,
                     regulations.title AS document_title,
                     regulations.slug AS document_slug,
+                    regulations.kind AS document_kind,
                     -- Место, откуда взят кусок: секунда записи, лист документа,
                     -- абзац статьи. Ради него расшифровки и заведены — ссылка
                     -- на урок целиком означала бы «ищите сами».
@@ -599,6 +601,7 @@ final readonly class KnowledgeBase
                 segmentId: (int) $row->segment_id,
                 title: (string) $row->document_title,
                 slug: (string) $row->document_slug,
+                kind: MaterialKind::tryFrom((string) $row->document_kind) ?? MaterialKind::Document,
                 text: $text,
                 location: $location,
             );

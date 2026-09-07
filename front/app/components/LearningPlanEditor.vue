@@ -199,8 +199,16 @@ const picked = ref('')
 
 const KINDS: { value: PlannableKind, label: string }[] = [
   { value: 'course', label: 'Курсы' },
-  { value: 'regulation', label: 'Документы' },
+  { value: 'document', label: 'Документы' },
+  { value: 'handbook', label: 'Справочники' },
 ]
+
+/** Единственное число — для кнопки «Добавить …» и для метки шага. */
+const SINGULAR: Record<PlannableKind, string> = {
+  course: 'курс',
+  document: 'документ',
+  handbook: 'справочник',
+}
 
 async function loadCatalogue() {
   catalogueError.value = null
@@ -324,8 +332,12 @@ function quizNote(quiz: NonNullable<LearningPlanItem['quiz']>): string {
     : `проверка не сдана, лучший результат ${quiz.best_score}% (${tries})`
 }
 
+/**
+ * Куда ведёт шаг. Курс лежит в корне базы знаний, документ и справочник — в
+ * своих разделах, и вид шага и есть имя раздела.
+ */
 function stepLink(step: Step): string {
-  return step.kind === 'regulation' ? `/lms/documents/${step.slug}` : `/lms/${step.slug}`
+  return step.kind === 'course' ? `/lms/${step.slug}` : `/lms/${step.kind}s/${step.slug}`
 }
 </script>
 
@@ -377,7 +389,7 @@ function stepLink(step: Step): string {
               <span class="faint">
                 <!-- Вид называем прямо: в одном списке курс и документ, и по
                      названию их не различить. -->
-                {{ step.kind === 'regulation' ? 'Документ' : 'Курс' }}
+                {{ SINGULAR[step.kind].replace(/^./, letter => letter.toUpperCase()) }}
                 <template v-if="!stepFor(step)"> · новый шаг, сохраните, чтобы назначить</template>
 
                 <!-- Проверка при документе: «не ознакомлен» без неё выглядит
@@ -465,7 +477,7 @@ function stepLink(step: Step): string {
 
           <div class="field">
             <label class="field-label" :for="`plan-material-${learnerId}`">
-              {{ kind === 'regulation' ? 'Добавить документ' : 'Добавить курс' }}
+              Добавить {{ SINGULAR[kind] }}
             </label>
             <UiSelect
               :id="`plan-material-${learnerId}`"

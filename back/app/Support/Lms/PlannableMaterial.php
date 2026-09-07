@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Support\Lms;
 
+use App\Enums\MaterialKind;
 use App\Models\Course;
 use App\Models\Regulation;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 
@@ -28,15 +30,50 @@ use Illuminate\Database\Eloquent\Model;
 final class PlannableMaterial
 {
     /**
-     * Виды и их короткие имена — те же, что в карте AppServiceProvider: под
-     * этими именами шаги лежат в базе и приходят с экрана.
+     * Что бывает шагом плана — глазами экрана.
+     *
+     * Документ и справочник — одна модель и один вид полиморфной связи
+     * (`regulation`), но два разных раздела: разослать сотруднику ссылку в
+     * чужой раздел значит отправить его в «не найдено». Поэтому наружу они
+     * ходят порознь, а в базу ложатся одинаково — см. morphAliasFor().
      *
      * @var array<string, class-string<Model>>
      */
     public const KINDS = [
         'course' => Course::class,
-        'regulation' => Regulation::class,
+        'document' => Regulation::class,
+        'handbook' => Regulation::class,
     ];
+
+    /**
+     * Под каким именем вид лежит в базе. Карта — та же, что в AppServiceProvider.
+     */
+    public static function morphAliasFor(string $kind): string
+    {
+        return $kind === 'course' ? 'course' : 'regulation';
+    }
+
+    /**
+     * Чем шаг является для экрана: курсом, документом или справочником.
+     */
+    public static function kindOf(?Model $item): string
+    {
+        return $item instanceof Regulation ? $item->kind->value : 'course';
+    }
+
+    /**
+     * Выборка одного вида — с отбором по разделу там, где он есть.
+     *
+     * @return Builder<Course>|Builder<Regulation>
+     */
+    public static function queryFor(string $kind): Builder
+    {
+        if ($kind === 'course') {
+            return Course::query();
+        }
+
+        return Regulation::query()->ofKind(MaterialKind::from($kind));
+    }
 
     /**
      * @return list<array{
@@ -50,10 +87,19 @@ final class PlannableMaterial
      */
     public function catalogue(User $actor, User $learner): array
     {
-        return [
-            ...$this->rows('course', $this->courses($actor), $this->courses($learner)->modelKeys()),
-            ...$this->rows('regulation', $this->regulations($actor), $this->regulations($learner)->modelKeys()),
-        ];
+        $rows = $this->rows('course', $this->courses($actor), $this->courses($learner)->modelKeys());
+
+        // Документы и справочники — двумя списками, а не одним: назначая план,
+        // смотрят «что из правил» и «что из справок» по отдельности.
+        foreach (MaterialKind::cases() as $kind) {
+            $rows = [...$rows, ...$this->rows(
+                $kind->value,
+                $this->materials($actor, $kind),
+                $this->materials($learner, $kind)->modelKeys(),
+            )];
+        }
+
+        return $rows;
     }
 
     /**
@@ -97,9 +143,10 @@ final class PlannableMaterial
     /**
      * @return Collection<int, Regulation>
      */
-    private function regulations(User $user): Collection
+    private function materials(User $user, MaterialKind $kind): Collection
     {
         return Regulation::query()
+            ->ofKind($kind)
             ->visibleTo($user)
             ->published()
             ->with('category')

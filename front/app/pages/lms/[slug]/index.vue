@@ -13,7 +13,13 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Курс не найден', fatal: true })
+  // Закрытый планом курс существует и человеку виден — ответить «не найдено»
+  // значит соврать про то, что он только что видел в каталоге.
+  const locked = planLockMessage(error.value)
+
+  throw locked === null
+    ? createError({ statusCode: 404, statusMessage: 'Курс не найден', fatal: true })
+    : createError({ statusCode: 403, statusMessage: locked, fatal: true })
 }
 
 const course = computed(() => data.value?.data)
@@ -218,6 +224,10 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
         </aside>
       </div>
     </div>
+
+    <!-- Разговор о курсе начинается там же, где его читают: причина,
+         сообщение — и всё это уходит письмом тому, кто курс правит. -->
+    <MaterialFeedback :target="{ kind: 'course', slug: course.slug }" class="feedback" />
   </section>
 </template>
 

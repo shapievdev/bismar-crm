@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\CourseVisibility;
+use App\Enums\MaterialKind;
 use App\Support\Lms\RegulationAccess;
 use Database\Factories\RegulationCategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -21,13 +22,33 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * 2026-08-27): в тех ищут, чему научиться, в этих — по какому правилу
  * работать, и один список на двоих читался бы как свалка.
  */
-#[Fillable(['parent_id', 'name', 'slug', 'description', 'position'])]
+#[Fillable(['parent_id', 'name', 'slug', 'description', 'position', 'kind'])]
 class RegulationCategory extends Model
 {
     /** @use HasFactory<RegulationCategoryFactory> */
     use HasFactory;
 
     protected $table = 'regulation_categories';
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'kind' => MaterialKind::class,
+        ];
+    }
+
+    /**
+     * Дерево одного вида: у документов и справочников они разные.
+     *
+     * @param  Builder<RegulationCategory>  $query
+     */
+    public function scopeOfKind(Builder $query, MaterialKind $kind): void
+    {
+        $query->where('kind', $kind);
+    }
 
     public function getRouteKeyName(): string
     {

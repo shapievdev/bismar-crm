@@ -4,26 +4,34 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Enums\MaterialKind;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\StoreRegulationCategoryRequest;
 use App\Http\Resources\Lms\RegulationCategoryResource;
 use App\Models\RegulationCategory;
 use App\Support\SlugGenerator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
- * Категории регламентов — своё дерево, не общее с учебными.
+ * Категории документов и справочников — по дереву на вид, и оба не общие с
+ * учебными.
+ *
+ * Вид приходит с маршрута (см. EnsureMaterialKind): в документах ищут, по
+ * какому правилу работать, в справочниках — что делать прямо сейчас, и одно
+ * дерево на двоих заставляло бы отсеивать половину каждый раз.
  */
 final class RegulationCategoryController extends Controller
 {
-    public function index(): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
         // Деревом, а не плоским списком: вложенность рисует интерфейс, и плоский
         // список заставил бы его собирать иерархию заново.
         $categories = RegulationCategory::query()
+            ->ofKind(MaterialKind::of($request))
             ->roots()
             ->with('descendants')
             ->withVisibleRegulationCounts()
@@ -35,12 +43,15 @@ final class RegulationCategoryController extends Controller
 
     public function store(StoreRegulationCategoryRequest $request, SlugGenerator $slugs): JsonResponse
     {
+        $kind = MaterialKind::of($request);
+
         $category = RegulationCategory::create([
+            'kind' => $kind,
             'name' => $request->validated('name'),
             'slug' => $slugs->generate((string) $request->validated('name'), RegulationCategory::class),
             'description' => $request->validated('description'),
             'parent_id' => $request->validated('parent_id'),
-            'position' => $request->validated('position', RegulationCategory::query()->count()),
+            'position' => $request->validated('position', RegulationCategory::query()->ofKind($kind)->count()),
         ]);
 
         return RegulationCategoryResource::make($category)

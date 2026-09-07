@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  *
  * @property-read MessageKind $kind
  */
-#[Fillable(['conversation_id', 'user_id', 'reply_to_id', 'kind', 'body'])]
+#[Fillable(['conversation_id', 'user_id', 'reply_to_id', 'kind', 'body', 'about'])]
 class Message extends Model
 {
     use SoftDeletes;
@@ -29,6 +29,9 @@ class Message extends Model
         return [
             'kind' => MessageKind::class,
             'edited_at' => 'datetime',
+
+            // Материал, с которого написали, — снимком на день отправки.
+            'about' => 'array',
         ];
     }
 

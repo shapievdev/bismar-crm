@@ -41,7 +41,7 @@ final class RegulationTest extends TestCase
         Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index'))
+            ->getJson(route('lms.documents.index'))
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.title', 'Кассовая дисциплина');
@@ -52,12 +52,12 @@ final class RegulationTest extends TestCase
         Regulation::factory()->create(['title' => 'Ещё пишется']);
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index'))
+            ->getJson(route('lms.documents.index'))
             ->assertOk()
             ->assertJsonCount(0, 'data');
 
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.index'))
+            ->getJson(route('lms.documents.index'))
             ->assertOk()
             ->assertJsonCount(1, 'data');
     }
@@ -67,7 +67,7 @@ final class RegulationTest extends TestCase
         $draft = Regulation::factory()->create();
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $draft))
+            ->getJson(route('lms.documents.show', $draft))
             ->assertForbidden();
     }
 
@@ -80,13 +80,13 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $catalogue = $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index'))
+            ->getJson(route('lms.documents.index'))
             ->assertOk();
 
         $this->assertArrayNotHasKey('content_json', $catalogue->json('data.0'));
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $regulation))
+            ->getJson(route('lms.documents.show', $regulation))
             ->assertOk()
             ->assertJsonPath('data.content_json.type', 'doc');
     }
@@ -99,7 +99,7 @@ final class RegulationTest extends TestCase
         // Кириллица ищется без учёта регистра только через ICU: базы собраны с
         // C-сортировкой, где lower() и ILIKE складывают только латиницу.
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index', ['search' => 'кассовая']))
+            ->getJson(route('lms.documents.index', ['search' => 'кассовая']))
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.title', 'Кассовая дисциплина');
@@ -113,16 +113,16 @@ final class RegulationTest extends TestCase
         $closed = Regulation::factory()->published()->closed()->create(['author_id' => $author->id]);
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index'))
+            ->getJson(route('lms.documents.index'))
             ->assertOk()
             ->assertJsonCount(0, 'data');
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $closed))
+            ->getJson(route('lms.documents.show', $closed))
             ->assertForbidden();
 
         $this->actingAs($author)
-            ->getJson(route('lms.regulations.show', $closed))
+            ->getJson(route('lms.documents.show', $closed))
             ->assertOk();
     }
 
@@ -133,7 +133,7 @@ final class RegulationTest extends TestCase
         $closed->members()->attach($reader);
 
         $this->actingAs($reader)
-            ->getJson(route('lms.regulations.show', $closed))
+            ->getJson(route('lms.documents.show', $closed))
             ->assertOk();
     }
 
@@ -146,11 +146,11 @@ final class RegulationTest extends TestCase
         $closed = Regulation::factory()->published()->closed()->create();
 
         $this->actingAs($this->administrator())
-            ->getJson(route('lms.regulations.show', $closed))
+            ->getJson(route('lms.documents.show', $closed))
             ->assertForbidden();
 
         $this->actingAs($this->superAdministrator())
-            ->getJson(route('lms.regulations.show', $closed))
+            ->getJson(route('lms.documents.show', $closed))
             ->assertOk();
     }
 
@@ -159,7 +159,7 @@ final class RegulationTest extends TestCase
     public function test_an_editor_writes_a_regulation(): void
     {
         $response = $this->actingAs($this->author())
-            ->postJson(route('lms.regulations.store'), $this->payload())
+            ->postJson(route('lms.documents.store'), $this->payload())
             ->assertCreated()
             ->assertJsonPath('data.title', 'Кассовая дисциплина')
             ->assertJsonPath('data.is_published', true);
@@ -174,7 +174,7 @@ final class RegulationTest extends TestCase
     public function test_a_reader_cannot_write_regulations(): void
     {
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.store'), $this->payload())
+            ->postJson(route('lms.documents.store'), $this->payload())
             ->assertForbidden();
     }
 
@@ -187,13 +187,13 @@ final class RegulationTest extends TestCase
         $editor = $this->author();
 
         $created = $this->actingAs($editor)
-            ->postJson(route('lms.regulations.store'), $this->payload())
+            ->postJson(route('lms.documents.store'), $this->payload())
             ->assertCreated();
 
         $regulation = Regulation::query()->sole();
 
         $this->actingAs($editor)
-            ->putJson(route('lms.regulations.update', $regulation), $this->payload([
+            ->putJson(route('lms.documents.update', $regulation), $this->payload([
                 'title' => 'Кассовая дисциплина — редакция 2',
             ]))
             ->assertOk()
@@ -207,7 +207,7 @@ final class RegulationTest extends TestCase
         $published = $regulation->published_at;
 
         $this->actingAs($editor)
-            ->putJson(route('lms.regulations.update', $regulation), $this->payload(['title' => 'Поправлено']))
+            ->putJson(route('lms.documents.update', $regulation), $this->payload(['title' => 'Поправлено']))
             ->assertOk();
 
         $this->assertTrue($published->equalTo($regulation->refresh()->published_at));
@@ -218,7 +218,7 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($this->author())
-            ->deleteJson(route('lms.regulations.destroy', $regulation))
+            ->deleteJson(route('lms.documents.destroy', $regulation))
             ->assertNoContent();
 
         $this->assertSoftDeleted($regulation);
@@ -235,7 +235,7 @@ final class RegulationTest extends TestCase
         Regulation::factory()->published()->create(['category_id' => $child->id]);
 
         $response = $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.categories.index'))
+            ->getJson(route('lms.documents.categories.index'))
             ->assertOk();
 
         $this->assertCount(1, $response->json('data'));
@@ -258,7 +258,7 @@ final class RegulationTest extends TestCase
         Regulation::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.index', ['category' => $root->slug]))
+            ->getJson(route('lms.documents.index', ['category' => $root->slug]))
             ->assertOk()
             ->assertJsonCount(2, 'data');
     }
@@ -268,7 +268,7 @@ final class RegulationTest extends TestCase
         $category = RegulationCategory::factory()->create();
 
         $this->actingAs($this->author())
-            ->putJson(route('lms.regulations.categories.update', $category), [
+            ->putJson(route('lms.documents.categories.update', $category), [
                 'name' => $category->name,
                 'parent_id' => $category->id,
             ])
@@ -279,7 +279,7 @@ final class RegulationTest extends TestCase
     public function test_a_reader_cannot_touch_categories(): void
     {
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.categories.store'), ['name' => 'Своя'])
+            ->postJson(route('lms.documents.categories.store'), ['name' => 'Своя'])
             ->assertForbidden();
     }
 
@@ -291,14 +291,14 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.acknowledge', $regulation))
+            ->postJson(route('lms.documents.acknowledge', $regulation))
             ->assertOk()
             ->assertJsonPath('data.is_acknowledged', true);
 
         $this->assertTrue($regulation->isAcknowledgedBy($reader));
 
         $this->actingAs($reader)
-            ->getJson(route('lms.regulations.show', $regulation))
+            ->getJson(route('lms.documents.show', $regulation))
             ->assertOk()
             ->assertJsonPath('data.is_acknowledged', true);
     }
@@ -308,8 +308,8 @@ final class RegulationTest extends TestCase
         $reader = $this->learner();
         $regulation = Regulation::factory()->published()->create();
 
-        $this->actingAs($reader)->postJson(route('lms.regulations.acknowledge', $regulation))->assertOk();
-        $this->actingAs($reader)->postJson(route('lms.regulations.acknowledge', $regulation))->assertOk();
+        $this->actingAs($reader)->postJson(route('lms.documents.acknowledge', $regulation))->assertOk();
+        $this->actingAs($reader)->postJson(route('lms.documents.acknowledge', $regulation))->assertOk();
 
         $this->assertSame(1, $regulation->acknowledgements()->count());
     }
@@ -319,7 +319,7 @@ final class RegulationTest extends TestCase
         $draft = Regulation::factory()->create();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.acknowledge', $draft))
+            ->postJson(route('lms.documents.acknowledge', $draft))
             ->assertForbidden();
     }
 
@@ -329,10 +329,10 @@ final class RegulationTest extends TestCase
         $reader->givePermissionTo('courses.view');
         $regulation = Regulation::factory()->published()->create();
 
-        $this->actingAs($reader)->postJson(route('lms.regulations.acknowledge', $regulation))->assertOk();
+        $this->actingAs($reader)->postJson(route('lms.documents.acknowledge', $regulation))->assertOk();
 
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.acknowledgements', $regulation))
+            ->getJson(route('lms.documents.acknowledgements', $regulation))
             ->assertOk()
             ->assertJsonPath('data.0.name', 'Ёлкина Вера')
             ->assertJsonCount(1, 'data');
@@ -343,7 +343,7 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.acknowledgements', $regulation))
+            ->getJson(route('lms.documents.acknowledgements', $regulation))
             ->assertForbidden();
     }
 
@@ -356,7 +356,7 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->closed()->create(['author_id' => $author->id]);
 
         $this->actingAs($author)
-            ->putJson(route('lms.regulations.access.update', $regulation), ['members' => [$person->id]])
+            ->putJson(route('lms.documents.access.update', $regulation), ['members' => [$person->id]])
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $person->id);
@@ -364,7 +364,7 @@ final class RegulationTest extends TestCase
         // Другой редактор списком не распоряжается: закрытость заводят под свой
         // круг людей — см. RegulationPolicy::manageAccess.
         $this->actingAs($this->author())
-            ->putJson(route('lms.regulations.access.update', $regulation), ['members' => []])
+            ->putJson(route('lms.documents.access.update', $regulation), ['members' => []])
             ->assertForbidden();
     }
 
@@ -374,14 +374,14 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($this->author())
-            ->putJson(route('lms.regulations.experts.update', $regulation), ['members' => [$expert->id]])
+            ->putJson(route('lms.documents.experts.update', $regulation), ['members' => [$expert->id]])
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $expert->id);
 
         // Список ответственных виден всякому, кто правило открыл.
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $regulation))
+            ->getJson(route('lms.documents.show', $regulation))
             ->assertOk()
             ->assertJsonPath('data.experts.0.id', $expert->id);
     }
@@ -395,7 +395,7 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($this->author())
-            ->postJson(route('lms.regulations.attachments.store', $regulation), [
+            ->postJson(route('lms.documents.attachments.store', $regulation), [
                 'file' => UploadedFile::fake()->create('регламент.pdf', 64, 'application/pdf'),
                 'description' => 'Подписанная редакция',
             ])
@@ -413,7 +413,7 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.attachments.store', $regulation), [
+            ->postJson(route('lms.documents.attachments.store', $regulation), [
                 'file' => UploadedFile::fake()->create('своё.pdf', 8, 'application/pdf'),
             ])
             ->assertForbidden();
@@ -421,6 +421,6 @@ final class RegulationTest extends TestCase
 
     public function test_a_guest_sees_no_regulations(): void
     {
-        $this->getJson(route('lms.regulations.index'))->assertUnauthorized();
+        $this->getJson(route('lms.documents.index'))->assertUnauthorized();
     }
 }

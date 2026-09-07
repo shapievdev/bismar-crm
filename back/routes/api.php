@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Enums\MaterialKind;
 use App\Enums\Permission;
 use App\Http\Controllers\Api\Ai\ConsultantController;
 use App\Http\Controllers\Api\Ai\QuestionLogController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Api\Chat\ParticipantController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
+use App\Http\Controllers\Api\Lms\AppealController;
 use App\Http\Controllers\Api\Lms\AttestationController;
 use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseAccessController;
@@ -37,7 +39,9 @@ use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
 use App\Http\Controllers\Api\Lms\RegulationAttachmentController;
 use App\Http\Controllers\Api\Lms\RegulationCategoryController;
 use App\Http\Controllers\Api\Lms\RegulationController;
+use App\Http\Controllers\Api\Lms\RegulationLinkController;
 use App\Http\Controllers\Api\Lms\RegulationPeopleController;
+use App\Http\Controllers\Api\Lms\RegulationQuestionController;
 use App\Http\Controllers\Api\Lms\RegulationQuizController;
 use App\Http\Controllers\Api\Lms\TrashController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
@@ -54,6 +58,8 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\EnsureAdministrator;
 use App\Http\Middleware\EnsureCourseAccess;
 use App\Http\Middleware\EnsureEmployed;
+use App\Http\Middleware\EnsureLearningPlanOrder;
+use App\Http\Middleware\EnsureMaterialKind;
 use App\Support\Analytics\ProductReport;
 use App\Support\Analytics\SalesReport;
 use Illuminate\Support\Facades\Route;
@@ -71,7 +77,17 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
 // EnsureCourseAccess закрывает всю группу разом: право на маршруте говорит,
 // что человек умеет делать, но не с каким курсом, — а приватный курс закрыт от
 // всех, кого в него не пускали, вплоть до администратора.
-Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::class])->prefix('lms')->as('lms.')->group(function (): void {
+//
+// EnsureLearningPlanOrder стоит следом и отвечает на другой вопрос: курс
+// человеку открыт, но дошла ли до него очередь плана обучения. Порядок важен:
+// про чужой приватный курс сначала говорят «не найдено», и только про свой —
+// «сначала пройдите план».
+Route::middleware([
+    'auth:sanctum',
+    EnsureEmployed::class,
+    EnsureCourseAccess::class,
+    EnsureLearningPlanOrder::class,
+])->prefix('lms')->as('lms.')->group(function (): void {
     $view = 'can:'.Permission::ViewCourses->value;
     $create = 'can:'.Permission::CreateCourses->value;
     $update = 'can:'.Permission::UpdateCourses->value;
@@ -99,81 +115,123 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
     Route::get('categories', [CategoryController::class, 'index'])->middleware($view)->name('categories.index');
 
     /*
-     * Регламенты — правила, по которым работают, рядом с материалами, по
-     * которым учатся. Права те же, что у курсов (решение пользователя
-     * 2026-08-27): кто ведёт материалы, ведёт и правила.
+     * Документы — правила, по которым работают, — и справочники: ответы на
+     * ситуацию, за которыми заходят посреди разговора с клиентом. Права те же,
+     * что у курсов (решение пользователя 2026-08-27): кто ведёт материалы,
+     * ведёт и правила.
+     *
+     * Оба вида ведут одни и те же контроллеры: устроены они одинаково до
+     * последней мелочи, и разница — только в разделе, в котором материал живёт
+     * (см. App\Enums\MaterialKind). Вид едет умолчанием маршрута; по нему же
+     * связывается `{regulation}` — см. AppServiceProvider, — так что адрес
+     * документа в разделе справочников отвечает «не найдено», а не открывает
+     * чужой раздел.
      *
      * Закрытость проверяет RegulationPolicy, а не EnsureCourseAccess: у
-     * регламента нет частей, за которые пришлось бы отвечать на входе, — есть
+     * материала нет частей, за которые пришлось бы отвечать на входе, — есть
      * он сам, и его политика спрашивается прямо в контроллере.
      */
-    Route::prefix('regulations')->as('regulations.')->group(function () use ($view, $create, $update, $delete): void {
-        // Раньше `{regulation}`, иначе «categories» уедет в подстановку адреса.
-        Route::get('categories', [RegulationCategoryController::class, 'index'])->middleware($view)->name('categories.index');
+    $materials = function (string $prefix, MaterialKind $kind) use ($view, $create, $update, $delete): void {
+        Route::prefix($prefix)->as($prefix.'.')->middleware(EnsureMaterialKind::class.':'.$kind->value)->group(function () use ($view, $create, $update, $delete): void {
+            // Раньше `{regulation}`, иначе «categories» уедет в подстановку адреса.
+            Route::get('categories', [RegulationCategoryController::class, 'index'])->middleware($view)->name('categories.index');
 
-        Route::middleware($update)->group(function (): void {
-            Route::post('categories', [RegulationCategoryController::class, 'store'])->name('categories.store');
-            Route::put('categories/{category}', [RegulationCategoryController::class, 'update'])->name('categories.update');
-            Route::delete('categories/{category}', [RegulationCategoryController::class, 'destroy'])->name('categories.destroy');
+            Route::middleware($update)->group(function (): void {
+                Route::post('categories', [RegulationCategoryController::class, 'store'])->name('categories.store');
+                Route::put('categories/{category}', [RegulationCategoryController::class, 'update'])->name('categories.update');
+                Route::delete('categories/{category}', [RegulationCategoryController::class, 'destroy'])->name('categories.destroy');
+            });
+
+            Route::get('/', [RegulationController::class, 'index'])->middleware($view)->name('index');
+            Route::post('/', [RegulationController::class, 'store'])->middleware($create)->name('store');
+
+            Route::get('{regulation}', [RegulationController::class, 'show'])->middleware($view)->name('show');
+            Route::put('{regulation}', [RegulationController::class, 'update'])->middleware($update)->name('update');
+            Route::delete('{regulation}', [RegulationController::class, 'destroy'])->middleware($delete)->name('destroy');
+
+            // Прочитал — весь прогресс, какой у регламента бывает.
+            Route::middleware($view)->group(function (): void {
+                Route::post('{regulation}/acknowledge', [RegulationAcknowledgementController::class, 'store'])
+                    ->name('acknowledge');
+
+                // Проверка при документе: сдал — значит ознакомился. Заводит её
+                // тот, кто правит документ; проходит — любой, кто его читает.
+                Route::post('{regulation}/quiz/submit', [RegulationQuizController::class, 'submit'])
+                    ->name('quiz.submit');
+
+                // «Ответа не хватило» и «здесь написано неверно» — письмом
+                // тому, кто материал правит. То же, что и у курса.
+                Route::get('{regulation}/appeal/recipients', [AppealController::class, 'materialRecipients'])
+                    ->name('appeal.recipients');
+                Route::post('{regulation}/appeal', [AppealController::class, 'fromMaterial'])->name('appeal');
+            });
+
+            Route::middleware($update)->group(function (): void {
+                Route::get('{regulation}/quiz/statistics', [RegulationQuizController::class, 'statistics'])
+                    ->name('quiz.statistics');
+
+                // Разбор чужой попытки: не только «какой вопрос заваливают», но и
+                // что отправил конкретный человек.
+                Route::get('{regulation}/quiz/attempts/{attempt}', [RegulationQuizController::class, 'attempt'])
+                    ->name('quiz.attempt');
+                Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
+                Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
+            });
+            Route::get('{regulation}/acknowledgements', [RegulationAcknowledgementController::class, 'index'])
+                ->middleware($update)
+                ->name('acknowledgements');
+
+            // Кого пускать в закрытый регламент. Права на курсы здесь ни при чём:
+            // список ведёт автор — см. RegulationPolicy::manageAccess.
+            Route::get('{regulation}/access', [RegulationPeopleController::class, 'members'])->name('access.show');
+            Route::put('{regulation}/access', [RegulationPeopleController::class, 'updateMembers'])->name('access.update');
+            Route::get('{regulation}/access/candidates', [RegulationPeopleController::class, 'memberCandidates'])
+                ->name('access.candidates');
+
+            // Кто отвечает за регламент — право редакторское: назначить
+            // ответственного значит сказать, к кому идти с вопросом.
+            Route::middleware($update)->group(function (): void {
+                Route::get('{regulation}/experts', [RegulationPeopleController::class, 'experts'])->name('experts.show');
+                Route::put('{regulation}/experts', [RegulationPeopleController::class, 'updateExperts'])->name('experts.update');
+                Route::get('{regulation}/experts/candidates', [RegulationPeopleController::class, 'expertCandidates'])
+                    ->name('experts.candidates');
+
+                // Соседние документы — «рядом по теме». Право редакторское:
+                // поставить документ рядом значит сказать, что читать следом.
+                // Читателю отдельного адреса не нужно — соседи едут вместе с самим
+                // документом.
+                Route::get('{regulation}/related', [RegulationLinkController::class, 'index'])->name('related.show');
+                Route::put('{regulation}/related', [RegulationLinkController::class, 'update'])->name('related.update');
+                Route::get('{regulation}/related/candidates', [RegulationLinkController::class, 'candidates'])
+                    ->name('related.candidates');
+
+                // «Частые вопросы» — тот же список руками, но односторонний и
+                // без границы разделов. Читателю своего адреса не нужно: они
+                // едут вместе с самим материалом.
+                Route::get('{regulation}/questions', [RegulationQuestionController::class, 'index'])
+                    ->name('questions.show');
+                Route::put('{regulation}/questions', [RegulationQuestionController::class, 'update'])
+                    ->name('questions.update');
+                Route::get('{regulation}/questions/candidates', [RegulationQuestionController::class, 'candidates'])
+                    ->name('questions.candidates');
+
+                Route::post('{regulation}/attachments', [RegulationAttachmentController::class, 'store'])->name('attachments.store');
+
+                // Файл, оставшийся жить на Google Диске, — как и у урока.
+                Route::post('{regulation}/attachments/drive', [RegulationAttachmentController::class, 'storeFromDrive'])
+                    ->name('attachments.drive');
+                Route::put('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'update'])->name('attachments.update');
+                Route::delete('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'destroy'])->name('attachments.destroy');
+            });
         });
+    };
 
-        Route::get('/', [RegulationController::class, 'index'])->middleware($view)->name('index');
-        Route::post('/', [RegulationController::class, 'store'])->middleware($create)->name('store');
-
-        Route::get('{regulation}', [RegulationController::class, 'show'])->middleware($view)->name('show');
-        Route::put('{regulation}', [RegulationController::class, 'update'])->middleware($update)->name('update');
-        Route::delete('{regulation}', [RegulationController::class, 'destroy'])->middleware($delete)->name('destroy');
-
-        // Прочитал — весь прогресс, какой у регламента бывает.
-        Route::middleware($view)->group(function (): void {
-            Route::post('{regulation}/acknowledge', [RegulationAcknowledgementController::class, 'store'])
-                ->name('acknowledge');
-
-            // Проверка при документе: сдал — значит ознакомился. Заводит её
-            // тот, кто правит документ; проходит — любой, кто его читает.
-            Route::post('{regulation}/quiz/submit', [RegulationQuizController::class, 'submit'])
-                ->name('quiz.submit');
-        });
-
-        Route::middleware($update)->group(function (): void {
-            Route::get('{regulation}/quiz/statistics', [RegulationQuizController::class, 'statistics'])
-                ->name('quiz.statistics');
-
-            // Разбор чужой попытки: не только «какой вопрос заваливают», но и
-            // что отправил конкретный человек.
-            Route::get('{regulation}/quiz/attempts/{attempt}', [RegulationQuizController::class, 'attempt'])
-                ->name('quiz.attempt');
-            Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
-            Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
-        });
-        Route::get('{regulation}/acknowledgements', [RegulationAcknowledgementController::class, 'index'])
-            ->middleware($update)
-            ->name('acknowledgements');
-
-        // Кого пускать в закрытый регламент. Права на курсы здесь ни при чём:
-        // список ведёт автор — см. RegulationPolicy::manageAccess.
-        Route::get('{regulation}/access', [RegulationPeopleController::class, 'members'])->name('access.show');
-        Route::put('{regulation}/access', [RegulationPeopleController::class, 'updateMembers'])->name('access.update');
-        Route::get('{regulation}/access/candidates', [RegulationPeopleController::class, 'memberCandidates'])
-            ->name('access.candidates');
-
-        // Кто отвечает за регламент — право редакторское: назначить
-        // ответственного значит сказать, к кому идти с вопросом.
-        Route::middleware($update)->group(function (): void {
-            Route::get('{regulation}/experts', [RegulationPeopleController::class, 'experts'])->name('experts.show');
-            Route::put('{regulation}/experts', [RegulationPeopleController::class, 'updateExperts'])->name('experts.update');
-            Route::get('{regulation}/experts/candidates', [RegulationPeopleController::class, 'expertCandidates'])
-                ->name('experts.candidates');
-
-            Route::post('{regulation}/attachments', [RegulationAttachmentController::class, 'store'])->name('attachments.store');
-
-            // Файл, оставшийся жить на Google Диске, — как и у урока.
-            Route::post('{regulation}/attachments/drive', [RegulationAttachmentController::class, 'storeFromDrive'])
-                ->name('attachments.drive');
-            Route::put('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'update'])->name('attachments.update');
-            Route::delete('{regulation}/attachments/{attachment}', [RegulationAttachmentController::class, 'destroy'])->name('attachments.destroy');
-        });
-    });
+    // Адрес раздела — то же слово, что и на экране: раздел ходит по
+    // приложению одной строкой, и путь API строится из неё же
+    // (см. useMaterialsApi). Прежнее «regulations» осталось только в именах
+    // таблиц и классов — там оно ничего не обещает читателю.
+    $materials('documents', MaterialKind::Document);
+    $materials('handbooks', MaterialKind::Handbook);
 
     // Learning. Per-course visibility is decided by the policy, which also has
     // to hide unpublished courses — a route-level check cannot express that.
@@ -225,6 +283,26 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, EnsureCourseAccess::cl
             ->name('candidates');
         Route::get('{attempt}', [AttestationController::class, 'show'])->name('show');
         Route::post('{attempt}/verdict', [AttestationController::class, 'store'])->name('verdict');
+    });
+
+    /*
+     * «Ответа не хватило» и «здесь написано неверно».
+     *
+     * Право то же, что на чтение: замечание пишет тот, кто читал. Материал
+     * стоит параметром маршрута намеренно — так его закрытость и очередь плана
+     * проверяют middleware группы, а не контроллер заново.
+     *
+     * Справочники со своим адресом появляются ниже, вместе с остальными
+     * маршрутами раздела: они ходят через EnsureMaterialKind.
+     */
+    Route::middleware($view)->group(function (): void {
+        Route::get('courses/{course}/appeal/recipients', [AppealController::class, 'courseRecipients'])
+            ->name('courses.appeal.recipients');
+        Route::post('courses/{course}/appeal', [AppealController::class, 'fromCourse'])->name('courses.appeal');
+
+        Route::get('lessons/{lesson}/appeal/recipients', [AppealController::class, 'lessonRecipients'])
+            ->name('lessons.appeal.recipients');
+        Route::post('lessons/{lesson}/appeal', [AppealController::class, 'fromLesson'])->name('lessons.appeal');
     });
 
     // Catalogue.

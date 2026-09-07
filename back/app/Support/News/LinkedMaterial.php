@@ -69,7 +69,9 @@ final class LinkedMaterial
     {
         return match (true) {
             $material instanceof Course => '/lms/'.$material->slug,
-            $material instanceof Regulation => '/lms/documents/'.$material->slug,
+            // Документ и справочник живут в разных разделах — адрес собирает
+            // сама модель, чтобы правило было одно на всё приложение.
+            $material instanceof Regulation => $material->path(),
             $material instanceof CourseModule => self::courseUrl($material),
             $material instanceof Lesson => self::lessonUrl($material),
             default => null,

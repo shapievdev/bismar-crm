@@ -188,6 +188,8 @@ export interface Course {
   slug: string
   summary: string | null
   description: string | null
+  /** Слова, которыми курс найдут поиском. */
+  keywords: string[]
   status: CourseStatus
   status_label: string
   visibility: CourseVisibility
@@ -206,6 +208,12 @@ export interface Course {
   experts?: CoursePerson[]
   modules?: CourseModule[]
   enrollment: LearnerEnrollment | null
+
+  /**
+   * Дошла ли до курса очередь плана обучения. Приходит из каталога: на самой
+   * странице курса поля нет — закрытый курс туда не пускает.
+   */
+  is_locked?: boolean
 }
 
 export interface Enrollment {
@@ -219,7 +227,7 @@ export interface Enrollment {
 }
 
 /** Что бывает шагом плана обучения. */
-export type PlannableKind = 'course' | 'regulation'
+export type PlannableKind = 'course' | 'document' | 'handbook'
 
 /**
  * Материал, который можно поставить шагом плана.
@@ -261,6 +269,13 @@ export interface LearningPlanItem {
   completed_at?: string | null
 
   /**
+   * Дошла ли до шага очередь. Приходит только в своём плане: составителю
+   * показывают, что назначено, а не что кому открыто. Документы не запираются
+   * никогда — очередь держит только курсы.
+   */
+  is_locked?: boolean
+
+  /**
    * Проверка при документе и то, как её прошёл этот человек. Null — проверки
    * нет; у курса её и не бывает, там тест висит на уроке.
    */
@@ -292,6 +307,35 @@ export interface RegulationCategory {
 }
 
 /**
+ * Раздел базы знаний, устроенный как документ.
+ *
+ * Документы — правила, по которым работают; справочники — ответы на ситуацию.
+ * Устройство у них одно, разное только назначение, поэтому раздел ходит по
+ * приложению строкой: он же стоит в адресах и в путях API.
+ */
+export type MaterialSection = 'documents' | 'handbooks'
+
+/**
+ * Соседний документ — строка блока «рядом по теме» или подсказки поиска.
+ *
+ * Ровно то, по чему соседа узнают и открывают: за статьёй и файлами переходят
+ * по ссылке.
+ */
+export interface RegulationLink {
+  id: number
+  title: string
+  slug: string
+  /** Раздел, в котором лежит материал: «частым вопросом» бывает и справочник. */
+  kind: 'document' | 'handbook'
+  /** Готовый адрес страницы. Собран на сервере: разделов два. */
+  path: string
+  is_published: boolean
+  is_private: boolean
+  /** Где сосед лежит — только чтобы различить два похожих названия. */
+  category?: string | null
+}
+
+/**
  * Правило, по которому работают. Сам себе урок: ни модулей, ни частей —
  * статья, файлы и отметка «ознакомлен».
  */
@@ -300,6 +344,8 @@ export interface Regulation {
   title: string
   slug: string
   summary: string | null
+  /** Слова, которыми документ найдут поиском. */
+  keywords: string[]
   /** Едет только с карточкой одного документа — в каталоге её нет. */
   content_json?: JSONContent | null
   status: CourseStatus
@@ -312,8 +358,20 @@ export interface Regulation {
   can_manage_access: boolean
   members_count?: number
   category: RegulationCategory | null
+  /**
+   * Дошла ли до материала очередь плана обучения. Приходит из каталога: на
+   * самой странице поля нет — закрытый материал туда не пускает.
+   */
+  is_locked?: boolean
   author?: { id: number, name: string } | null
   experts?: CoursePerson[]
+  /** Что читать рядом. Приходит уже отобранным под того, кто спрашивает. */
+  related?: RegulationLink[]
+  /**
+   * «Частые вопросы» — с чем на эту страницу приходят чаще всего. Ведут они к
+   * другим материалам, своего раздела или чужого, и порядок задан руками.
+   */
+  questions?: RegulationLink[]
   attachments?: LessonAttachment[]
   /**
    * Проверка при документе. Есть — значит ознакомление засчитывается сдачей, а
@@ -346,6 +404,8 @@ export interface RegulationPayload {
   status: CourseStatus
   visibility: CourseVisibility
   category_id: number | null
+  /** Слова, которыми документ найдут поиском. */
+  keywords: string[]
 }
 
 export interface QuizAttempt {
@@ -377,7 +437,7 @@ export interface QuizAttempt {
  */
 export interface TrashedMaterial {
   id: number
-  kind: 'course' | 'document'
+  kind: 'course' | 'document' | 'handbook'
   title: string
   author: string | null
   deleted_at: string | null
@@ -495,6 +555,8 @@ export interface CoursePayload {
   status: CourseStatus
   visibility: CourseVisibility
   category_id: number | null
+  /** Слова, которыми курс найдут поиском. */
+  keywords: string[]
 }
 
 /**

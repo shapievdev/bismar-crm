@@ -163,7 +163,7 @@ final class WrittenAnswerTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 // Те же слова в другом порядке: смысл один, формулировка другая.
                 'answers' => [$question->id => 'В дебиторке и в запасах заморожены деньги'],
             ])
@@ -192,7 +192,7 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => 'Надо уволить кладовщика и сократить рекламу'],
             ])
             ->assertCreated()
@@ -209,7 +209,7 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => '   '],
             ])
             ->assertCreated()
@@ -230,7 +230,7 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => 'Деньги заморожены в дебиторке и в запасах'],
             ])
             ->assertCreated()
@@ -249,7 +249,7 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $review = $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => 'Мой ответ про склад'],
             ])
             ->assertCreated()
@@ -271,7 +271,7 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $review = $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => 'Совсем не то'],
             ])
             ->assertCreated()
@@ -286,7 +286,7 @@ final class WrittenAnswerTest extends TestCase
         [$document] = $this->documentWithWrittenQuestion('Секретный эталон про запасы');
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk()
             ->assertJsonPath('data.quiz.questions.0.expected_answer', null);
     }
@@ -301,13 +301,13 @@ final class WrittenAnswerTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => 'Деньги в дебиторке и запасах'],
             ])
             ->assertCreated();
 
         $statistics = $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.quiz.statistics', $document))
+            ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             ->assertJsonPath('data.questions.0.answered', 1)
             ->assertJsonPath('data.questions.0.correct', 1)

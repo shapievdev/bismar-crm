@@ -1142,6 +1142,18 @@ const typingLabel = computed(() => {
                 </span>
               </button>
 
+              <!-- С какого материала написали. Читается раньше самого текста:
+                   «здесь не хватило ответа» без названия того, где не хватило,
+                   заставляет автора переспрашивать. -->
+              <NuxtLink v-if="message.about" :to="message.about.url ?? '/lms'" class="about">
+                <span class="about__head">
+                  {{ message.about.kind_label }}
+                  <template v-if="message.about.reason_label">· {{ message.about.reason_label }}</template>
+                </span>
+                <span class="about__title">{{ message.about.title }}</span>
+                <span v-if="message.about.context" class="about__context">{{ message.about.context }}</span>
+              </NuxtLink>
+
               <p v-if="message.body" class="bubble__text">
                 {{ message.body }}
               </p>
@@ -2124,6 +2136,45 @@ const typingLabel = computed(() => {
 .quote__author {
   font-size: 0.72rem;
   font-weight: 600;
+}
+
+/*
+ * Карточка материала, с которого написали. Устроена как цитата — тем же
+ * оттенком собственного цвета и той же полосой слева, — потому что это и есть
+ * цитата, только не чужой реплики, а места в базе знаний.
+ */
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.35rem 0.55rem;
+  border-left: 2px solid currentcolor;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+
+.about:hover {
+  background: color-mix(in srgb, currentcolor 18%, transparent);
+}
+
+.about__head {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.about__title {
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.about__context {
+  font-size: 0.75rem;
+  opacity: 0.75;
 }
 
 .quote__text {

@@ -24,7 +24,12 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Урок не найден', fatal: true })
+  // Урок закрыт вместе со своим курсом, и причина та же — очередь плана.
+  const locked = planLockMessage(error.value)
+
+  throw locked === null
+    ? createError({ statusCode: 404, statusMessage: 'Урок не найден', fatal: true })
+    : createError({ statusCode: 403, statusMessage: locked, fatal: true })
 }
 
 const lesson = computed(() => data.value?.lesson)
@@ -527,6 +532,10 @@ function formatSize(bytes: number): string {
       <p v-if="actionError" class="alert alert--danger" role="alert">
         {{ actionError }}
       </p>
+
+      <!-- Замечание пишут с того урока, на котором споткнулись: автору важно,
+           где именно не хватило, а не «где-то в курсе». -->
+      <MaterialFeedback :target="{ kind: 'lesson', id: lesson.id }" class="feedback" />
 
       <nav class="pager">
         <NuxtLink

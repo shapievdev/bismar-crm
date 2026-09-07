@@ -118,13 +118,13 @@ const inputId = useId()
 
     <ul class="people">
       <li v-if="fixedBadge" class="people__item people__item--author">
-        <UserAvatar :name="fixedName" :size="32" />
+        <UserAvatar :name="fixedName" :size="28" />
         <span class="people__name">{{ fixedName ?? 'Автор удалён' }}</span>
         <span class="badge">{{ fixedBadge }}</span>
       </li>
 
       <li v-for="person in people" :key="person.id" class="people__item">
-        <UserAvatar :name="person.name" :src="person.avatar_url" :size="32" />
+        <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
         <span class="people__name">
           {{ person.name }}
           <span class="people__email">{{ person.email }}</span>
@@ -140,14 +140,18 @@ const inputId = useId()
     </p>
 
     <div class="finder">
-      <label :for="inputId">{{ addLabel }}</label>
-      <input
-        :id="inputId"
-        v-model="query"
-        type="search"
-        autocomplete="off"
-        placeholder="Фамилия или почта"
-      >
+      <!-- Подпись и поле в одну строку: порознь они занимают два ряда на
+           каждой из трёх панелей подряд, а сказать им нужно одно. -->
+      <div class="finder__row">
+        <label :for="inputId">{{ addLabel }}</label>
+        <input
+          :id="inputId"
+          v-model="query"
+          type="search"
+          autocomplete="off"
+          placeholder="Фамилия или почта"
+        >
+      </div>
 
       <ul v-if="candidates.length" class="finder__results">
         <li v-for="person in candidates" :key="person.id">
@@ -169,12 +173,21 @@ const inputId = useId()
 </template>
 
 <style scoped>
+/*
+ * Плотнее, чем было. Панель — список из трёх-четырёх строк и поля поиска;
+ * прежние отступы отдавали ей высоту целого экрана, и редактор материала, где
+ * таких панелей три подряд, приходилось листать мимо пустоты.
+ *
+ * Отступ сверху остаётся: на странице курса панели идут подряд без общего
+ * промежутка, и без него они слиплись бы. Там, где промежуток есть (редактор
+ * материала), он складывается с этим — потому и уменьшен до одного шага.
+ */
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  margin-top: 1.75rem;
-  padding: 1.25rem 1.35rem 1.4rem;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding: 1rem 1.15rem 1.05rem;
 }
 
 .panel__header {
@@ -209,8 +222,8 @@ const inputId = useId()
 .people__item {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.4rem 0.15rem;
+  gap: 0.6rem;
+  padding: 0.3rem 0.1rem;
   border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
 }
 
@@ -260,13 +273,24 @@ const inputId = useId()
   gap: 0.35rem;
 }
 
+.finder__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .finder label {
+  flex-shrink: 0;
   font-size: 0.875rem;
   font-weight: 500;
 }
 
 .finder input {
-  padding: 0.55rem 0.7rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: 22rem;
+  padding: 0.45rem 0.65rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);

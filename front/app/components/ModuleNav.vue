@@ -8,6 +8,70 @@ const route = useRoute()
  */
 const { pendingAttestations, hasAttestations } = useNavigation()
 
+/* ---------- Прокрутка полосы ---------- */
+
+/**
+ * Растворяющийся край — обещание, что дальше есть ещё.
+ *
+ * Поэтому он появляется только когда там правда что-то есть: постоянная маска
+ * съедала правый край последней пилюли и на просторной полосе, где мотать
+ * нечего, — «Корзина» выглядела обрезанной без всякой причины.
+ */
+const strip = useTemplateRef<HTMLElement>('strip')
+
+const hasMoreBefore = ref(false)
+const hasMoreAfter = ref(false)
+
+function measure() {
+  const node = strip.value
+
+  if (!node) {
+    return
+  }
+
+  // Округление вниз: дробные пиксели при масштабировании страницы дают
+  // «остаток» в полпикселя, и край растворялся бы у полосы, которая уже домотана.
+  hasMoreBefore.value = node.scrollLeft > 1
+  hasMoreAfter.value = Math.ceil(node.scrollLeft + node.clientWidth) < node.scrollWidth
+}
+
+/**
+ * Колесо мыши крутит только вертикально, а полосе нужен горизонтальный ход:
+ * без этого домотать её мышью нельзя вовсе — только тачпадом или перетаскивая
+ * невидимую полосу прокрутки.
+ */
+function onWheel(event: WheelEvent) {
+  const node = strip.value
+
+  if (!node || node.scrollWidth <= node.clientWidth) {
+    return
+  }
+
+  // Горизонтальный жест тачпада отдаём браузеру: он и так делает нужное.
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+    return
+  }
+
+  event.preventDefault()
+  node.scrollLeft += event.deltaY
+}
+
+onMounted(() => {
+  measure()
+
+  // Пилюли меняются вместе с разделом, а ширина полосы — вместе с окном:
+  // мерить надо и то и другое, иначе край останется обещать несуществующее.
+  const observer = new ResizeObserver(measure)
+
+  if (strip.value) {
+    observer.observe(strip.value)
+  }
+
+  onBeforeUnmount(() => observer.disconnect())
+})
+
+watch(() => route.path, () => nextTick(measure))
+
 interface NavLink {
   to: string
   label: string
@@ -28,12 +92,19 @@ const links = computed<NavLink[]>(() => {
   if (path.startsWith('/lms')) {
     return [
       { to: '/lms', label: 'Курсы', visible: true, matches: (p: string) => p === '/lms' },
-      // Рядом с материалами: по одному учатся, по другому работают.
+      // Рядом с материалами: по одному учатся, по другому работают, в третье
+      // заглядывают за ответом посреди разговора с клиентом.
       {
         to: '/lms/documents',
         label: 'Документы',
         visible: true,
         matches: (p: string) => p.startsWith('/lms/documents') && p !== '/lms/documents/categories',
+      },
+      {
+        to: '/lms/handbooks',
+        label: 'Справочники',
+        visible: true,
+        matches: (p: string) => p.startsWith('/lms/handbooks') && p !== '/lms/handbooks/categories',
       },
       // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
       // сам. Первое идёт раньше: с него начинают.
@@ -49,14 +120,15 @@ const links = computed<NavLink[]>(() => {
         visible: hasAttestations.value,
       },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
-      { to: '/lms/categories', label: 'Категории', visible: can('courses.update') },
       // Корзина — тому, кто вправе удалять: остальным в ней нечего искать.
       { to: '/lms/trash', label: 'Корзина', visible: can('courses.delete') },
-      {
-        to: '/lms/documents/categories',
-        label: 'Категории документов',
-        visible: can('courses.update'),
-      },
+      //
+      // Категорий здесь нет намеренно. С появлением справочников их стало три
+      // штуки — курсов, документов, справочников, — и полоса разделов
+      // превратилась в список настроек, из которого не найти сами разделы.
+      // Дерево правят там же, где смотрят его содержимое: кнопка «Категории»
+      // стоит в шапке каждого каталога, рядом с «Новый …».
+      //
     ].filter(link => link.visible)
   }
 
@@ -137,7 +209,18 @@ function isActive(link: NavLink): boolean {
 </script>
 
 <template>
-  <nav v-if="links.length > 1" class="module-nav" aria-label="Разделы модуля">
+  <nav
+    v-if="links.length > 1"
+    ref="strip"
+    class="module-nav"
+    :class="{
+      'module-nav--more-before': hasMoreBefore,
+      'module-nav--more-after': hasMoreAfter,
+    }"
+    aria-label="Разделы модуля"
+    @scroll.passive="measure"
+    @wheel="onWheel"
+  >
     <NuxtLink
       v-for="link in links"
       :key="link.to"
@@ -157,6 +240,41 @@ function isActive(link: NavLink): boolean {
   gap: 0.4rem;
   margin-right: auto;
   min-width: 0;
+
+  /*
+   * Прокрутка на любой ширине, а не только на телефоне. Разделов стало больше,
+   * и на узком окне ряд вылезал за свои границы — пилюли ложились поверх
+   * аватара справа. Полоса обязана оставаться в отведённом ей месте: чего не
+   * поместилось, до того доматывают.
+   */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/*
+ * Край растворяется только с той стороны, где ещё что-то осталось: маска на
+ * все случаи обрезала последнюю пилюлю и тогда, когда мотать было нечего.
+ */
+.module-nav--more-after {
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}
+
+.module-nav--more-before {
+  mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
+}
+
+.module-nav--more-before.module-nav--more-after {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 1.5rem,
+    #000 calc(100% - 1.5rem),
+    transparent
+  );
+}
+
+.module-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .module-nav__pill {
@@ -193,17 +311,4 @@ function isActive(link: NavLink): boolean {
   color: var(--color-accent-text);
 }
 
-@media (max-width: 56rem) {
-  .module-nav {
-    overflow-x: auto;
-    scrollbar-width: none;
-    /* Fades the right edge so a clipped pill reads as "there is more to
-       scroll" rather than as a layout that ran out of room. */
-    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
-  }
-
-  .module-nav::-webkit-scrollbar {
-    display: none;
-  }
-}
 </style>

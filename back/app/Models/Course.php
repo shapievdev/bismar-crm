@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Models\Concerns\LenientlySearchable;
 use App\Models\Contracts\PartOfCourse;
 use App\Support\Lms\CourseAccess;
 use Database\Factories\CourseFactory;
@@ -20,11 +21,11 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['author_id', 'category_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'visibility', 'published_at'])]
+#[Fillable(['author_id', 'category_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'visibility', 'published_at', 'keywords'])]
 class Course extends Model implements PartOfCourse
 {
     /** @use HasFactory<CourseFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory, LenientlySearchable, SoftDeletes;
 
     public function getRouteKeyName(): string
     {
@@ -40,6 +41,7 @@ class Course extends Model implements PartOfCourse
             'status' => CourseStatus::class,
             'visibility' => CourseVisibility::class,
             'published_at' => 'datetime',
+            'keywords' => 'array',
         ];
     }
 
@@ -183,6 +185,11 @@ class Course extends Model implements PartOfCourse
     }
 
     /**
+     * Запасной поиск — когда поисковика нет под рукой.
+     *
+     * Обычным вхождением подстроки: без Meilisearch каталог всё равно должен
+     * искаться, пусть и без опечаток и словоформ. См. CatalogSearch.
+     *
      * @param  Builder<$this>  $query
      */
     public function scopeMatching(Builder $query, ?string $term): void
@@ -201,6 +208,30 @@ class Course extends Model implements PartOfCourse
             foreach (['title', 'summary', 'description'] as $column) {
                 $query->orWhereRaw(sprintf('%s COLLATE "und-x-icu" ILIKE ?', $column), [$pattern]);
             }
+
+            // Ключевые слова — целиком, как хранятся: их пишут ради тех, кто
+            // ищет не теми словами, и запасной поиск обязан их видеть тоже.
+            $query->orWhereRaw('keywords::text COLLATE "und-x-icu" ILIKE ?', [$pattern]);
         });
+    }
+
+    /**
+     * Что уходит в поисковый индекс.
+     *
+     * Только то, по чему ищут: доступ и состояние остаются базе, и в индексе
+     * им делать нечего — см. CatalogSearch. Черновик там лежит наравне с
+     * опубликованным: его ищет тот, кто его пишет.
+     *
+     * @return array<string, mixed>
+     */
+    public function toSearchableArray(): array
+    {
+        // Номер Scout добавляет сам — он же первичный ключ документа в индексе.
+        return [
+            'title' => $this->title,
+            'summary' => $this->summary,
+            'description' => $this->description,
+            'keywords' => $this->keywords ?? [],
+        ];
     }
 }

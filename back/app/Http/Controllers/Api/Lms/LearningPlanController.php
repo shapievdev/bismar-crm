@@ -14,11 +14,10 @@ use App\Models\LearningPlanItem;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
-use App\Models\RegulationAcknowledgement;
 use App\Models\User;
+use App\Support\Lms\LearningPlan;
 use App\Support\Lms\PlannableMaterial;
 use App\Support\Lms\ProgressCalculator;
-use Carbon\CarbonImmutable as Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -36,8 +35,11 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  * кому открыта база знаний, — это его собственное дело. Чужой план читает и
  * правит тот, кому доверено вести обучение (`enrollments.manage`).
  *
- * Порядок здесь — совет, а не запрет: сотрудник волен открыть любой шаг
- * (решение пользователя 2026-08-27).
+ * Порядок — запрет, а не совет (решение пользователя 2026-09-05): курс
+ * открывается, когда до него дошла очередь. Само правило живёт в LearningPlan,
+ * здесь оно только показано — отсюда `is_locked` у шага. Пройденность шага
+ * экран и запрет берут из одного места (StepCompletion): разойдись они, план
+ * рисовал бы галочку там, где каталог держит замок.
  */
 final class LearningPlanController extends Controller
 {
@@ -72,7 +74,11 @@ final class LearningPlanController extends Controller
             ->with('plannable', 'assignedBy')
             ->get();
 
-        return LearningPlanItemResource::collection($this->withProgress($items, $learner));
+        $plan = LearningPlan::over($learner, $items);
+
+        return LearningPlanItemResource::collection(
+            $this->markLocks($this->withProgress($items, $learner, $plan), $learner, $plan),
+        );
     }
 
     /**
@@ -83,7 +89,7 @@ final class LearningPlanController extends Controller
         $items = $user->planItems()->with('plannable', 'assignedBy')->get();
 
         return LearningPlanItemResource::collection(
-            $this->markVisibility($this->withProgress($items, $user), $user),
+            $this->markVisibility($this->withProgress($items, $user, LearningPlan::over($user, $items)), $user),
         );
     }
 
@@ -121,10 +127,14 @@ final class LearningPlanController extends Controller
      * Записи на курс может не быть вовсе, и отметки о прочтении регламента
      * тоже, — это не пустота в данных, а честный ноль.
      *
+     * Доля пройденного считается здесь, а вот «пройден ли шаг» приходит из
+     * плана: этим же ответом открываются курсы, и второго мнения о нём быть
+     * не должно.
+     *
      * @param  Collection<int, LearningPlanItem>  $items
      * @return Collection<int, LearningPlanItem>
      */
-    private function withProgress(Collection $items, User $learner): Collection
+    private function withProgress(Collection $items, User $learner, LearningPlan $plan): Collection
     {
         $enrollments = Enrollment::query()
             ->where('user_id', $learner->getKey())
@@ -133,21 +143,17 @@ final class LearningPlanController extends Controller
             ->get()
             ->keyBy('course_id');
 
-        // Не просто «отметился», а когда: у пройденного шага дата — это то, о
-        // чём спрашивают вторым вопросом после «пройдено ли».
-        $acknowledged = RegulationAcknowledgement::query()
-            ->where('user_id', $learner->getKey())
-            ->whereIn('regulation_id', $this->idsOf($items, Regulation::class))
-            ->pluck('acknowledged_at', 'regulation_id')
-            ->all();
-
         $quizzes = $this->quizOutcomes($items, $learner);
 
-        return $items->each(function (LearningPlanItem $item) use ($enrollments, $acknowledged, $quizzes): void {
+        return $items->each(function (LearningPlanItem $item) use ($enrollments, $plan, $quizzes): void {
             $item->plannable instanceof Regulation
-                ? $this->attachRegulationProgress($item, $acknowledged)
-                : $this->attachCourseProgress($item, $enrollments);
+                ? $this->attachRegulationProgress($item, $plan)
+                : $this->attachCourseProgress($item, $enrollments, $plan);
 
+            // Не просто «пройден», а когда: у пройденного шага дата — это то,
+            // о чём спрашивают вторым вопросом после «пройдено ли».
+            $item->setAttribute('is_completed', $plan->isCompleted($item));
+            $item->setAttribute('completed_at', $plan->completedAt($item)?->toIso8601String());
             $item->setAttribute('quiz', $quizzes[(int) $item->plannable_id] ?? null);
         });
     }
@@ -210,7 +216,7 @@ final class LearningPlanController extends Controller
      *
      * @param  \Illuminate\Support\Collection<int, Enrollment>  $enrollments
      */
-    private function attachCourseProgress(LearningPlanItem $item, $enrollments): void
+    private function attachCourseProgress(LearningPlanItem $item, $enrollments, LearningPlan $plan): void
     {
         $enrollment = $enrollments->get($item->plannable_id);
 
@@ -222,26 +228,44 @@ final class LearningPlanController extends Controller
 
         $item->setAttribute('progress_percentage', $enrollment === null ? 0 : $this->progress->percentage($enrollment));
         $item->setAttribute('is_started', $enrollment?->started_at !== null);
-        $item->setAttribute('is_completed', $enrollment?->isCompleted() ?? false);
-        $item->setAttribute('completed_at', $enrollment?->completed_at?->toIso8601String());
     }
 
     /**
-     * У документа прогресса как доли нет: правило либо прочитано, либо нет.
+     * У документа прогресса как доли нет: правило либо пройдено, либо нет.
      *
-     * @param  array<int|string, mixed>  $acknowledged  номер документа => когда отметился
+     * Пройдено — это ознакомление и, если при документе есть проверка, сданный
+     * тест; так считает StepCompletion, и здесь доля просто повторяет его
+     * ответ, чтобы кольцо прогресса не спорило с галочкой рядом.
      */
-    private function attachRegulationProgress(LearningPlanItem $item, array $acknowledged): void
+    private function attachRegulationProgress(LearningPlanItem $item, LearningPlan $plan): void
     {
-        $at = $acknowledged[(int) $item->plannable_id] ?? null;
-        $done = $at !== null;
+        $done = $plan->isCompleted($item);
 
         $item->setAttribute('progress_percentage', $done ? 100 : 0);
         // «Начал читать» документ — состояние, которого не существует: он на
         // одну страницу, и середины у него нет.
         $item->setAttribute('is_started', $done);
-        $item->setAttribute('is_completed', $done);
-        $item->setAttribute('completed_at', $at === null ? null : Carbon::parse($at)->toIso8601String());
+    }
+
+    /**
+     * Отмечает шаги, до которых очередь ещё не дошла.
+     *
+     * Только в своём плане: составителю замки не нужны — он смотрит, что
+     * назначено, а не что открыто, — и считается правило по тому, кто учится.
+     *
+     * @param  Collection<int, LearningPlanItem>  $items
+     * @return Collection<int, LearningPlanItem>
+     */
+    private function markLocks(Collection $items, User $learner, LearningPlan $plan): Collection
+    {
+        $restrained = LearningPlan::restrains($learner);
+
+        return $items->each(fn (LearningPlanItem $item) => $item->setAttribute(
+            'is_locked',
+            $restrained
+                && ($item->plannable instanceof Course || $item->plannable instanceof Regulation)
+                && ! $plan->allows($item->plannable),
+        ));
     }
 
     /**

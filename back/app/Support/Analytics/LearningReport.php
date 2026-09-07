@@ -237,6 +237,7 @@ final class LearningReport
                 c.slug as course_slug,
                 c.title as course_title,
                 r.slug as document_slug,
+                r.kind as document_kind,
                 r.title as document_title,
                 count(best.user_id) as attempted,
                 count(best.user_id) filter (where best.passed) as passed,
@@ -249,7 +250,7 @@ final class LearningReport
             left join regulations r on q.quizzable_type = 'regulation' and r.id = q.quizzable_id
                 and r.deleted_at is null
             group by q.id, q.title, q.quizzable_type, q.quizzable_id,
-                l.id, l.title, c.slug, c.title, r.slug, r.title
+                l.id, l.title, c.slug, c.title, r.slug, r.kind, r.title
             order by count(best.user_id) desc, q.title collate "und-x-icu"
             limit %d
             SQL, self::TOP));
@@ -266,6 +267,10 @@ final class LearningReport
             'course_slug' => $row->course_slug,
             'lesson_id' => $row->lesson_id === null ? null : (int) $row->lesson_id,
             'document_slug' => $row->document_slug,
+
+            // Документ или справочник: разделы разные, и ссылка без этого
+            // увела бы в чужой.
+            'document_kind' => $row->document_kind,
 
             'questions' => (int) $row->questions,
             'attempted' => (int) $row->attempted,

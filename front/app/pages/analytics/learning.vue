@@ -73,7 +73,9 @@ function quizLink(quiz: LearningQuizRow): string | null {
       : null
   }
 
-  return quiz.document_slug ? `/lms/documents/${quiz.document_slug}` : null
+  return quiz.document_slug
+    ? `/lms/${quiz.document_kind === 'handbook' ? 'handbooks' : 'documents'}/${quiz.document_slug}`
+    : null
 }
 
 function quizWhere(quiz: LearningQuizRow): string {

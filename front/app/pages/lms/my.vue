@@ -4,6 +4,14 @@ useHead({ title: 'Мои курсы' })
 
 const { myCourses } = useLmsApi()
 
+/*
+ * Курс могли начать до того, как назначили план: тогда он ждёт своей очереди
+ * наравне с остальными. Строка такого курса никуда не ведёт и отвечает на
+ * нажатие тем же окном, что и каталог.
+ */
+const { explain: explainLock } = usePlanLock()
+const link = resolveComponent('NuxtLink')
+
 const { data, pending, error } = await useAsyncData('lms.my-courses', () => myCourses())
 
 const enrollments = computed(() => data.value?.data ?? [])
@@ -56,21 +64,29 @@ const finished = computed(() => enrollments.value.filter(item => item.is_complet
           В процессе
         </h2>
         <div class="stack">
-          <NuxtLink
+          <component
+            :is="item.course?.is_locked ? 'button' : link"
             v-for="item in active"
             :key="item.id"
-            :to="item.course ? `/lms/${item.course.slug}` : '/lms'"
+            :type="item.course?.is_locked ? 'button' : undefined"
+            :to="item.course?.is_locked ? undefined : (item.course ? `/lms/${item.course.slug}` : '/lms')"
             class="card row"
+            :class="{ 'row--locked': item.course?.is_locked }"
+            @click="item.course?.is_locked ? explainLock() : undefined"
           >
             <UiProgressRing :value="item.progress ?? 0" :size="48" />
             <div class="row__body">
               <span class="row__title">{{ item.course?.title }}</span>
               <span class="faint">
-                Начат {{ item.enrolled_at ? new Date(item.enrolled_at).toLocaleDateString('ru-RU') : '' }}
+                <template v-if="item.course?.is_locked">Откроется, когда дойдёт очередь плана</template>
+                <template v-else>
+                  Начат {{ item.enrolled_at ? new Date(item.enrolled_at).toLocaleDateString('ru-RU') : '' }}
+                </template>
               </span>
             </div>
-            <span class="button-secondary button-sm">Продолжить</span>
-          </NuxtLink>
+            <span v-if="item.course?.is_locked" class="badge">Закрыт планом</span>
+            <span v-else class="button-secondary button-sm">Продолжить</span>
+          </component>
         </div>
       </template>
 
@@ -148,6 +164,21 @@ const finished = computed(() => enrollments.value.filter(item => item.is_complet
 
 .row:hover {
   box-shadow: var(--shadow-md);
+}
+
+/* Закрытый планом курс — кнопка: строка остаётся во всю ширину, как соседние,
+   и отвечает объяснением, а не переходом. */
+.row--locked {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.row--locked:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .row__body {

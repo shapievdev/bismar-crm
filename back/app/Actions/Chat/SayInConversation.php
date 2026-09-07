@@ -31,6 +31,8 @@ final readonly class SayInConversation
      * @param  list<UploadedFile>  $files
      * @param  int|null  $replyToId  реплика, на которую отвечают; её принадлежность
      *                               этой же переписке проверяет SendMessageRequest
+     * @param  array<string, string|null>|null  $about  материал, с которого написали,
+     *                                                  снимком — см. MaterialAppeal
      */
     public function handle(
         Conversation $conversation,
@@ -38,15 +40,17 @@ final readonly class SayInConversation
         ?string $body,
         array $files = [],
         ?int $replyToId = null,
+        ?array $about = null,
     ): Message {
         $body = $body === null ? null : trim($body);
 
-        $message = DB::transaction(function () use ($conversation, $author, $body, $files, $replyToId): Message {
+        $message = DB::transaction(function () use ($conversation, $author, $body, $files, $replyToId, $about): Message {
             $message = $conversation->messages()->create([
                 'user_id' => $author->getKey(),
                 'reply_to_id' => $replyToId,
                 'kind' => MessageKind::Text,
                 'body' => $body === '' ? null : $body,
+                'about' => $about,
             ]);
 
             foreach ($files as $file) {

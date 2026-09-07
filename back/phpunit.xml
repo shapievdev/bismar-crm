@@ -35,6 +35,14 @@
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!--
+            Поисковика в тестах нет, и это намеренно: живой Meilisearch стоит
+            один на несколько приложений, и прогон тестов не должен переписывать
+            его индексы. На драйвере `null` каталог ищет запасным путём — тем
+            самым, что работает и в жизни, когда сервер не поднят. Обращение к
+            самому поисковику проверяется подставным движком, см. CatalogSearchTest.
+        -->
+        <env name="SCOUT_DRIVER" value="null"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>

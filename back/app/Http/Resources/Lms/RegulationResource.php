@@ -24,6 +24,9 @@ final class RegulationResource extends JsonResource
             'slug' => $this->slug,
             'summary' => $this->summary,
 
+            // Слова, которыми документ ищут.
+            'keywords' => $this->keywords ?? [],
+
             // Статья едет только с карточкой одного регламента: в каталоге из
             // двадцати она весит больше всего остального вместе взятого.
             'content_json' => $this->when((bool) $this->sends_content, fn () => $this->content_json),
@@ -49,6 +52,14 @@ final class RegulationResource extends JsonResource
             // Кому писать, если написанного не хватило.
             'experts' => CoursePersonResource::collection($this->whenLoaded('experts')),
 
+            // Что читать рядом. Отбирает контроллер: показывать соседа можно
+            // только тому, кому он и сам по себе открыт.
+            'related' => RegulationLinkResource::collection($this->whenLoaded('related')),
+
+            // «Частые вопросы» — с чем на эту страницу приходят чаще всего.
+            // Ведут они к другим материалам, своего раздела или чужого.
+            'questions' => RegulationLinkResource::collection($this->whenLoaded('questions')),
+
             'attachments' => RegulationAttachmentResource::collection($this->whenLoaded('attachments')),
 
             // Проверка при документе. Есть — значит отметиться можно только
@@ -58,6 +69,11 @@ final class RegulationResource extends JsonResource
             // Свои прошлые попытки: по ним человек возвращается к разбору.
             // Проставляет контроллер — он один знает, кто спрашивает.
             'own_attempts' => $this->own_attempts,
+
+            // Дошла ли до материала очередь плана обучения. Проставляет
+            // каталог: на самой странице поля нет — закрытый материал туда не
+            // пускает EnsureLearningPlanOrder.
+            'is_locked' => (bool) ($this->locked_by_plan ?? false),
 
             // Весь прогресс, какой у регламента бывает. Проставляет контроллер:
             // он один знает, кто спрашивает.

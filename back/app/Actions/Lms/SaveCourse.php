@@ -9,6 +9,7 @@ use App\Enums\CourseVisibility;
 use App\Models\Course;
 use App\Models\User;
 use App\Support\Ai\KnowledgeBase;
+use App\Support\Lms\Keywords;
 use App\Support\SlugGenerator;
 use Illuminate\Support\Facades\DB;
 
@@ -17,7 +18,7 @@ final readonly class SaveCourse
     public function __construct(private SlugGenerator $slugGenerator) {}
 
     /**
-     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int}  $attributes
+     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int, keywords?: list<string>}  $attributes
      */
     public function create(array $attributes, User $author): Course
     {
@@ -38,13 +39,14 @@ final readonly class SaveCourse
                 'description' => $attributes['description'] ?? null,
                 'status' => $status,
                 'visibility' => $visibility,
+                'keywords' => Keywords::clean($attributes['keywords'] ?? []),
                 'published_at' => $status === CourseStatus::Published ? now() : null,
             ]);
         });
     }
 
     /**
-     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int}  $attributes
+     * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int, keywords?: list<string>}  $attributes
      */
     public function update(Course $course, array $attributes): Course
     {
@@ -84,6 +86,12 @@ final readonly class SaveCourse
                     ? ($course->published_at ?? now())
                     : $course->published_at,
             ]);
+
+            // Не прислали — не трогаем, как и видимость: запрос без этого поля
+            // пришёл не из формы курса, и стирать набранное ему незачем.
+            if (array_key_exists('keywords', $attributes)) {
+                $course->keywords = Keywords::clean($attributes['keywords']);
+            }
 
             $course->save();
 

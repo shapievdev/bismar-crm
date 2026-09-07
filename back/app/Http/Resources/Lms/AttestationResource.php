@@ -78,10 +78,10 @@ final class AttestationResource extends JsonResource
 
         if ($owner instanceof Regulation) {
             return [
-                'kind' => 'document',
+                'kind' => $owner->kind->value,
                 'title' => $owner->title,
                 'course' => null,
-                'url' => "/lms/documents/{$owner->slug}",
+                'url' => $owner->path(),
             ];
         }
 

@@ -1,37 +1,63 @@
-import type { ThemePreference } from '~/composables/useTheme'
+import type { PalettePreference, ThemePreference } from '~/composables/useTheme'
 import { htmlBlockRuntime } from './htmlBlockRuntime'
 
 /**
- * Design tokens handed to an embedded block, one set per theme.
+ * Design tokens handed to an embedded block, one set per palette and theme.
  *
  * They are copied from main.css rather than read from it: the block is a
  * separate document in a sandbox of its own, so it cannot see a single rule of
  * the application's stylesheet. Keep the two in step — the values here are the
  * subset the rules below actually use.
  */
-const TOKENS: Record<'light' | 'dark', string> = {
-  light: `
-    color-scheme: light;
+const TOKENS: Record<PalettePreference, Record<'light' | 'dark', string>> = {
+  graphite: {
+    light: `
+      color-scheme: light;
 
-    --color-surface-sunken: #dfe1e1;
-    --color-border: #dcdede;
+      --color-surface-sunken: #dfe1e1;
+      --color-border: #dcdede;
 
-    --color-text: #0f1211;
-    --color-text-muted: #6a706e;
+      --color-text: #0f1211;
+      --color-text-muted: #6a706e;
 
-    --color-accent: #111413;
-  `,
-  dark: `
-    color-scheme: dark;
+      --color-accent: #111413;
+    `,
+    dark: `
+      color-scheme: dark;
 
-    --color-surface-sunken: #101312;
-    --color-border: #262a29;
+      --color-surface-sunken: #101312;
+      --color-border: #262a29;
 
-    --color-text: #eef0ef;
-    --color-text-muted: #9aa19f;
+      --color-text: #eef0ef;
+      --color-text-muted: #9aa19f;
 
-    --color-accent: #d3f84b;
-  `,
+      --color-accent: #d3f84b;
+    `,
+  },
+  crimson: {
+    light: `
+      color-scheme: light;
+
+      --color-surface-sunken: #f4f6f7;
+      --color-border: #e4e7e9;
+
+      --color-text: #1c2630;
+      --color-text-muted: #8a8f94;
+
+      --color-accent: #d51f2a;
+    `,
+    dark: `
+      color-scheme: dark;
+
+      --color-surface-sunken: #111820;
+      --color-border: #253240;
+
+      --color-text: #e7eef4;
+      --color-text-muted: #97a4b0;
+
+      --color-accent: #e8433f;
+    `,
+  },
 }
 
 /**
@@ -49,12 +75,13 @@ const TOKENS: Record<'light' | 'dark', string> = {
  * The background stays transparent: the frame behind it carries the card's
  * tone, and so the block follows the theme without knowing the colour.
  */
-function styles(theme: ThemePreference): string {
-  const tokens = theme === 'dark' ? TOKENS.dark : TOKENS.light
+function styles(theme: ThemePreference, palette: PalettePreference): string {
+  const set = TOKENS[palette] ?? TOKENS.graphite
+  const tokens = theme === 'dark' ? set.dark : set.light
 
   return `
 :root {${tokens}}
-${theme === 'system' ? `@media (prefers-color-scheme: dark) { :root {${TOKENS.dark}} }` : ''}
+${theme === 'system' ? `@media (prefers-color-scheme: dark) { :root {${set.dark}} }` : ''}
 
 /*
  * Absolute path on purpose: a srcdoc document has no address of its own, so a
@@ -175,9 +202,12 @@ const DOCTYPE = /^\s*<!doctype[^>]*>/i
  * the author's own layout starts behaving differently than it did wherever they
  * built it.
  */
-export function htmlBlockDocument(markup: string, options: { theme: ThemePreference, token: string }): string {
+export function htmlBlockDocument(
+  markup: string,
+  options: { theme: ThemePreference, palette: PalettePreference, token: string },
+): string {
   const doctype = markup.match(DOCTYPE)?.[0] ?? ''
-  const prelude = `<style>${styles(options.theme)}</style>`
+  const prelude = `<style>${styles(options.theme, options.palette)}</style>`
 
   return doctype + prelude + markup.slice(doctype.length) + htmlBlockRuntime(options.token)
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Lms;
 
+use App\Enums\MaterialKind;
 use App\Models\RegulationCategory;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -20,7 +21,10 @@ final class StoreRegulationCategoryRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:1000'],
             'position' => ['sometimes', 'integer', 'min:0', 'max:9999'],
-            'parent_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')],
+            // Родитель — только из своего дерева: ветка справочников под
+            // категорией документов недостижима из обоих разделов.
+            'parent_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')
+                ->where('kind', MaterialKind::of($this)->value)],
         ];
     }
 

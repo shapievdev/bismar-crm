@@ -33,13 +33,24 @@
 /*
  * Design tokens.
  *
- * The palette is deliberately low-contrast: a light grey page with slightly
- * lighter cards, so surfaces separate by tone rather than by borders. Near
- * black carries every primary action, and one lime accent marks the single
+ * The default palette is deliberately low-contrast: a light grey page with
+ * slightly lighter cards, so surfaces separate by tone rather than by borders.
+ * Near black carries every primary action, and one lime accent marks the single
  * thing on a screen that deserves the eye.
  *
  * Light values come first and dark mode overrides them, so components inherit
  * both themes without knowing about either.
+ *
+ * Colour lives on two independent axes, and every component reads only the
+ * tokens below, so neither axis is visible from a component:
+ *
+ * 1. `data-theme` — light or dark, absent while the reader follows the system.
+ * 2. `data-palette` — which set of colours light and dark are painted in.
+ *
+ * That makes four blocks per palette, each declaring the colours in full.
+ * Repetition is on purpose: a palette that declared only what it changes would
+ * tie on specificity with the default dark block, and the winner would then
+ * depend on the order lines happen to sit in this file.
  */
 :root {
   color-scheme: light dark;
@@ -84,6 +95,14 @@
    */
   --control-surface: var(--color-surface-raised);
   --control-surface-hover: var(--color-surface-sunken);
+
+  /*
+   * Шапка таблицы в статье. Своим токеном, а не подложкой блоков: палитра
+   * может выделить её цветом, и тогда шапка отделяется тоном, а не только
+   * жирностью. По умолчанию она и есть подложка — как было.
+   */
+  --color-table-head: var(--color-surface-sunken);
+  --color-table-head-text: var(--color-text);
 
   --radius-sm: 10px;
   --radius: 16px;
@@ -179,6 +198,166 @@
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
     --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
     --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
+}
+
+/*
+ * Палитра «Красная» — второй набор цветов на тех же двух темах.
+ *
+ * Серый фон, белые карточки и скругления остаются от основной: меняются тона.
+ * Главное действие несёт красный — кнопка, активный раздел, знак платформы;
+ * тёмно-синий держит написанное и отмеченное: текст, шапку таблицы, полосу
+ * прогресса, столбец графика.
+ *
+ * Красный стоит и под danger, и под accent намеренно: в этой палитре он и есть
+ * «действие и запрет» — так задумано её автором. Кнопки от этого не путаются:
+ * главное действие залито целиком, а опасное нарисовано обводкой.
+ *
+ * Синий под подсветкой, а не под действием, по обратной причине: полоса
+ * прогресса и столбец графика, залитые красным, означали бы ошибку там, где её
+ * нет.
+ *
+ * Карточка здесь белая, то есть совпадает с верхней ступенью тона, и поле
+ * внутри неё пришлось бы рисовать белым по белому. Поэтому палитра опускает
+ * элементы управления на ступень ниже — на подложку блоков.
+ */
+:root[data-palette='crimson'] {
+  color-scheme: light dark;
+
+  --color-bg: #eaeaea;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f4f6f7;
+  --color-border: #e4e7e9;
+  --color-border-strong: #ccd3d8;
+
+  /*
+   * Подписи темнее, чем #8a8f94 из макета: на белой карточке тот давал 3,3 к
+   * одному, и метаданные под заголовком читались с усилием. Цвет макета
+   * оставлен там, где он и задуман, — на совсем неважном.
+   */
+  --color-text: #1c2630;
+  --color-text-muted: #6f757a;
+  --color-text-faint: #8a8f94;
+
+  --color-accent: #d51f2a;
+  --color-accent-hover: #b8161f;
+  --color-accent-soft: #fcf0f1;
+  --color-accent-text: #ffffff;
+
+  --color-highlight: #2e3f4f;
+  --color-highlight-strong: #24323f;
+  --color-highlight-text: #ffffff;
+
+  --color-success: #1f7a52;
+  --color-success-soft: #e3f2ea;
+  --color-warning: #8a5b0c;
+  --color-warning-soft: #f8eeda;
+  --color-danger: #d51f2a;
+  --color-danger-soft: #fcf0f1;
+
+  --control-surface: var(--color-surface-sunken);
+  --control-surface-hover: var(--color-border);
+
+  --color-table-head: #2e3f4f;
+  --color-table-head-text: #ffffff;
+
+  /* Граница вместо тени — кольцом в тот же пиксель, чтобы разделять слои, не
+     двигая раскладку. Всплывающему всё же нужна мягкая подложка: без неё меню
+     сливается с карточкой, над которой висит. */
+  --shadow-sm: 0 0 0 1px #e4e7e9;
+  --shadow-md: 0 0 0 1px #e4e7e9, 0 8px 24px rgb(28 38 48 / 8%);
+  --shadow-lg: 0 0 0 1px #e4e7e9, 0 18px 44px rgb(28 38 48 / 12%);
+}
+
+/*
+ * Тёмная сторона красной палитры. Красный на тёмном тяжелеет и мутнеет,
+ * поэтому осветлён; синий, наоборот, на тёмном исчезает — и отмеченное несёт
+ * его светлая сталь.
+ */
+@media (prefers-color-scheme: dark) {
+  :root[data-palette='crimson']:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --color-bg: #0f151b;
+    --color-surface: #172029;
+    --color-surface-raised: #1d2833;
+    --color-surface-sunken: #111820;
+    --color-border: #253240;
+    --color-border-strong: #35485a;
+
+    --color-text: #e7eef4;
+    --color-text-muted: #97a4b0;
+    --color-text-faint: #6b7885;
+
+    /* Темнее макетного: белый на #e8433f давал 3,96 к одному, а надпись на
+       кнопке — обычный текст, не крупный. */
+    --color-accent: #d8342f;
+    --color-accent-hover: #e8433f;
+    --color-accent-soft: #35171a;
+    --color-accent-text: #ffffff;
+
+    --color-highlight: #7fb2d8;
+    --color-highlight-strong: #9bc6e6;
+    --color-highlight-text: #0b1b26;
+
+    --color-success: #58c894;
+    --color-success-soft: #12291f;
+    --color-warning: #d7a54a;
+    --color-warning-soft: #2a2113;
+    --color-danger: #e8615c;
+    --color-danger-soft: #2e1719;
+
+    --control-surface: var(--color-surface-raised);
+    --control-surface-hover: var(--color-surface-sunken);
+
+    --color-table-head: #24313e;
+    --color-table-head-text: #e7eef4;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
+    --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
+  }
+}
+
+:root[data-palette='crimson'][data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #0f151b;
+  --color-surface: #172029;
+  --color-surface-raised: #1d2833;
+  --color-surface-sunken: #111820;
+  --color-border: #253240;
+  --color-border-strong: #35485a;
+
+  --color-text: #e7eef4;
+  --color-text-muted: #97a4b0;
+  --color-text-faint: #6b7885;
+
+  --color-accent: #d8342f;
+  --color-accent-hover: #e8433f;
+  --color-accent-soft: #35171a;
+  --color-accent-text: #ffffff;
+
+  --color-highlight: #7fb2d8;
+  --color-highlight-strong: #9bc6e6;
+  --color-highlight-text: #0b1b26;
+
+  --color-success: #58c894;
+  --color-success-soft: #12291f;
+  --color-warning: #d7a54a;
+  --color-warning-soft: #2a2113;
+  --color-danger: #e8615c;
+  --color-danger-soft: #2e1719;
+
+  --control-surface: var(--color-surface-raised);
+  --control-surface-hover: var(--color-surface-sunken);
+
+  --color-table-head: #24313e;
+  --color-table-head-text: #e7eef4;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
+  --shadow-lg: 0 18px 44px rgb(0 0 0 / 55%);
 }
 
 *,
@@ -859,7 +1038,8 @@ input[type='radio']:disabled {
 
 .prose-editor__surface th,
 .prose-rendered th {
-  background: var(--color-surface-sunken);
+  background: var(--color-table-head);
+  color: var(--color-table-head-text);
   font-weight: 600;
   text-align: left;
 }

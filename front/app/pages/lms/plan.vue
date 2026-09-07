@@ -1,15 +1,32 @@
 <script setup lang="ts">
+import type { PlannableKind } from '~/types/lms'
+
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 useHead({ title: 'Мой план' })
 
 const { myPlan } = useLmsApi()
 
-/** Куда ведёт шаг: у курса и документа разные адреса. */
-function href(step: { kind: string, slug: string | null }): string {
-  return step.kind === 'regulation'
-    ? `/lms/documents/${step.slug}`
-    : `/lms/${step.slug}`
+/**
+ * Куда ведёт шаг: курс лежит в корне базы знаний, документ и справочник — в
+ * своих разделах, и вид шага и есть имя раздела.
+ */
+function href(step: { kind: PlannableKind, slug: string | null }): string {
+  return step.kind === 'course' ? `/lms/${step.slug}` : `/lms/${step.kind}s/${step.slug}`
 }
+
+/** Как шаг называется в строке плана. */
+const SINGULAR: Record<PlannableKind, string> = {
+  course: 'Курс',
+  document: 'Документ',
+  handbook: 'Справочник',
+}
+
+/*
+ * Строка плана — ссылка, пока шаг открыт, и обычный блок, когда закрыт.
+ * Компонент берётся один раз здесь, а не именем в разметке: имя разрешается
+ * при каждой отрисовке, и промахнуться в нём можно молча.
+ */
+const link = resolveComponent('NuxtLink')
 
 const { data, pending, error } = await useAsyncData('lms.my-plan', () => myPlan())
 
@@ -17,10 +34,11 @@ const steps = computed(() => data.value?.data ?? [])
 const done = computed(() => steps.value.filter(step => step.is_completed).length)
 
 /**
- * Шаг, к которому стоит вернуться: первый непройденный.
+ * Шаг, до которого дошла очередь: первый непройденный.
  *
- * Порядок здесь — совет, а не запрет: открыть можно любой шаг, и потому это
- * подсказка «продолжить отсюда», а не единственная доступная дверь.
+ * Порядок здесь — запрет, а не совет: следующие курсы закрыты, пока этот не
+ * пройден, и об этом говорит `is_locked` у каждой строки. Документы в плане
+ * открыты всегда — к правилу компании приходят за ответом, а не за очередью.
  */
 const current = computed(() => steps.value.find(step => !step.is_completed) ?? null)
 </script>
@@ -62,10 +80,13 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
 
     <ol v-else class="stack plan">
       <li v-for="step in steps" :key="step.id">
-        <NuxtLink
-          :to="href(step)"
+        <!-- Закрытый шаг — не ссылка: вести ей некуда, пока не пройден
+             предыдущий, и мёртвая ссылка врала бы про очередь. -->
+        <component
+          :is="step.is_locked ? 'div' : link"
+          :to="step.is_locked ? undefined : href(step)"
           class="card row"
-          :class="{ 'row--done': step.is_completed }"
+          :class="{ 'row--done': step.is_completed, 'row--locked': step.is_locked }"
         >
           <!-- Номер шага, а не значок прогресса: план читают как очередь, и
                «третий» здесь говорит больше, чем «45%». -->
@@ -90,9 +111,11 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
           <div class="row__body">
             <span class="row__title">{{ step.title }}</span>
             <span class="faint">
-              <!-- У документа доли нет: он либо прочитан, либо нет. -->
-              <template v-if="step.kind === 'regulation'">
-                Документ — {{ step.is_completed ? 'ознакомлен' : 'нужно прочитать' }}
+              <!-- У документа и справочника доли нет: они либо прочитаны,
+                   либо нет. -->
+              <template v-if="step.is_locked">Откроется после предыдущих шагов</template>
+              <template v-else-if="step.kind !== 'course'">
+                {{ SINGULAR[step.kind] }} — {{ step.is_completed ? 'ознакомлен' : 'нужно прочитать' }}
               </template>
               <template v-else-if="step.is_completed">Пройден</template>
               <template v-else-if="step.is_started">Пройдено {{ step.progress }}%</template>
@@ -106,11 +129,28 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
             :size="40"
           />
 
-          <span v-if="current && current.id === step.id" class="button-primary button-sm">
-            {{ step.kind === 'regulation' ? 'Прочитать' : (step.is_started ? 'Продолжить' : 'Начать') }}
+          <svg
+            v-if="step.is_locked"
+            class="lock"
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-label="Шаг закрыт"
+            role="img"
+          >
+            <rect x="4" y="10" width="16" height="10" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          </svg>
+          <span v-else-if="current && current.id === step.id" class="button-primary button-sm">
+            {{ step.kind !== 'course' ? 'Прочитать' : (step.is_started ? 'Продолжить' : 'Начать') }}
           </span>
           <span v-else-if="!step.is_completed" class="button-secondary button-sm">Открыть</span>
-        </NuxtLink>
+        </component>
       </li>
     </ol>
   </section>
@@ -156,6 +196,21 @@ const current = computed(() => steps.value.find(step => !step.is_completed) ?? n
 /* Пройденное не выключено — к нему возвращаются, — но и внимания не просит. */
 .row--done .row__title {
   color: var(--color-text-muted);
+}
+
+/* Закрытый шаг виден целиком и не гаснет до неразличимости: план читают как
+   очередь, и знать, что дальше, нужно раньше, чем откроют. */
+.row--locked {
+  color: var(--color-text-muted);
+}
+
+.row--locked:hover {
+  box-shadow: none;
+}
+
+.lock {
+  flex-shrink: 0;
+  color: var(--color-text-faint);
 }
 
 .row__body {

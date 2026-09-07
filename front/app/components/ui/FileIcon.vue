@@ -128,17 +128,38 @@ svg {
 .icon--archive { --icon-fg: #8a6a1f; --icon-bg: #faf1dc; }
 .icon--other { --icon-fg: #6c7686; --icon-bg: #eef0f4; }
 
+/*
+ * Тёмная сторона — теми же двумя условиями, что и остальное оформление
+ * (см. main.css): системная настройка, пока читатель не выбрал, и его
+ * собственный выбор, когда выбрал. Одного медиазапроса мало: выбравший тёмную
+ * тему на светлой системе получал ряд светлых значков среди тёмных карточек.
+ *
+ * Цвет здесь принадлежит формату файла, а не палитре: PDF красный и в синей
+ * палитре тоже, иначе значок перестал бы узнаваться с одного взгляда.
+ */
 @media (prefers-color-scheme: dark) {
-  .icon--pdf { --icon-fg: #f08076; --icon-bg: #2c1917; }
-  .icon--doc { --icon-fg: #7fa6f7; --icon-bg: #1b2740; }
-  .icon--sheet { --icon-fg: #57cf9c; --icon-bg: #14291f; }
-  .icon--slides { --icon-fg: #e0a25f; --icon-bg: #2a2113; }
-  .icon--text { --icon-fg: #9aa3b2; --icon-bg: #1d232d; }
-  .icon--code { --icon-fg: #b992f0; --icon-bg: #241b33; }
-  .icon--image { --icon-fg: #55c2d4; --icon-bg: #12272b; }
-  .icon--video { --icon-fg: #e57fb0; --icon-bg: #2d1723; }
-  .icon--audio { --icon-fg: #9b90e8; --icon-bg: #1e1b33; }
-  .icon--archive { --icon-fg: #cfae63; --icon-bg: #2a2313; }
-  .icon--other { --icon-fg: #8a92a0; --icon-bg: #1d232d; }
+  :root:not([data-theme='light']) .icon--pdf { --icon-fg: #f08076; --icon-bg: #2c1917; }
+  :root:not([data-theme='light']) .icon--doc { --icon-fg: #7fa6f7; --icon-bg: #1b2740; }
+  :root:not([data-theme='light']) .icon--sheet { --icon-fg: #57cf9c; --icon-bg: #14291f; }
+  :root:not([data-theme='light']) .icon--slides { --icon-fg: #e0a25f; --icon-bg: #2a2113; }
+  :root:not([data-theme='light']) .icon--text { --icon-fg: #9aa3b2; --icon-bg: #1d232d; }
+  :root:not([data-theme='light']) .icon--code { --icon-fg: #b992f0; --icon-bg: #241b33; }
+  :root:not([data-theme='light']) .icon--image { --icon-fg: #55c2d4; --icon-bg: #12272b; }
+  :root:not([data-theme='light']) .icon--video { --icon-fg: #e57fb0; --icon-bg: #2d1723; }
+  :root:not([data-theme='light']) .icon--audio { --icon-fg: #9b90e8; --icon-bg: #1e1b33; }
+  :root:not([data-theme='light']) .icon--archive { --icon-fg: #cfae63; --icon-bg: #2a2313; }
+  :root:not([data-theme='light']) .icon--other { --icon-fg: #8a92a0; --icon-bg: #1d232d; }
 }
+
+:root[data-theme='dark'] .icon--pdf { --icon-fg: #f08076; --icon-bg: #2c1917; }
+:root[data-theme='dark'] .icon--doc { --icon-fg: #7fa6f7; --icon-bg: #1b2740; }
+:root[data-theme='dark'] .icon--sheet { --icon-fg: #57cf9c; --icon-bg: #14291f; }
+:root[data-theme='dark'] .icon--slides { --icon-fg: #e0a25f; --icon-bg: #2a2113; }
+:root[data-theme='dark'] .icon--text { --icon-fg: #9aa3b2; --icon-bg: #1d232d; }
+:root[data-theme='dark'] .icon--code { --icon-fg: #b992f0; --icon-bg: #241b33; }
+:root[data-theme='dark'] .icon--image { --icon-fg: #55c2d4; --icon-bg: #12272b; }
+:root[data-theme='dark'] .icon--video { --icon-fg: #e57fb0; --icon-bg: #2d1723; }
+:root[data-theme='dark'] .icon--audio { --icon-fg: #9b90e8; --icon-bg: #1e1b33; }
+:root[data-theme='dark'] .icon--archive { --icon-fg: #cfae63; --icon-bg: #2a2313; }
+:root[data-theme='dark'] .icon--other { --icon-fg: #8a92a0; --icon-bg: #1d232d; }
 </style>

@@ -55,7 +55,7 @@ final class LearningPlanTest extends TestCase
     private function step(Course|Regulation $item): array
     {
         return [
-            'type' => $item instanceof Course ? 'course' : 'regulation',
+            'type' => $item instanceof Course ? 'course' : $item->kind->value,
             'id' => $item->id,
         ];
     }
@@ -96,7 +96,7 @@ final class LearningPlanTest extends TestCase
                 $this->step($regulation), $this->step($course),
             ]))
             ->assertOk()
-            ->assertJsonPath('data.0.kind', 'regulation')
+            ->assertJsonPath('data.0.kind', 'document')
             ->assertJsonPath('data.0.title', 'Кассовая дисциплина')
             ->assertJsonPath('data.1.kind', 'course')
             ->assertJsonPath('data.1.title', 'Работа с клиентом');
@@ -176,7 +176,7 @@ final class LearningPlanTest extends TestCase
             ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($regulation)]))
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.kind', 'regulation');
+            ->assertJsonPath('data.0.kind', 'document');
     }
 
     /**
@@ -393,7 +393,7 @@ final class LearningPlanTest extends TestCase
             ->assertJsonPath('data.0.is_completed', false);
 
         $this->actingAs($learner)
-            ->postJson(route('lms.regulations.acknowledge', $regulation))
+            ->postJson(route('lms.documents.acknowledge', $regulation))
             ->assertOk();
 
         $this->actingAs($learner)
@@ -428,7 +428,7 @@ final class LearningPlanTest extends TestCase
             ->postJson(route('lms.lessons.complete', $course->lessons()->firstOrFail()))
             ->assertOk();
         $this->actingAs($learner)
-            ->postJson(route('lms.regulations.acknowledge', $document))
+            ->postJson(route('lms.documents.acknowledge', $document))
             ->assertOk();
 
         $plan = $this->actingAs($this->trainer())
@@ -470,7 +470,7 @@ final class LearningPlanTest extends TestCase
         $this->assertSame('course', $offered['Работа с возражениями']['kind']);
         $this->assertSame($course->id, $offered['Работа с возражениями']['id']);
         $this->assertSame('Продажи', $offered['Работа с возражениями']['category']);
-        $this->assertSame('regulation', $offered['Кассовая дисциплина']['kind']);
+        $this->assertSame('document', $offered['Кассовая дисциплина']['kind']);
         $this->assertSame($regulation->id, $offered['Кассовая дисциплина']['id']);
         // Регламент без раздела приходит с пустой категорией, а не с выдумкой.
         $this->assertNull($offered['Кассовая дисциплина']['category']);

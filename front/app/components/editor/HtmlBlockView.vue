@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
-import type { ThemePreference } from '~/composables/useTheme'
+import type { PalettePreference, ThemePreference } from '~/composables/useTheme'
 import { htmlBlockDocument } from '~/utils/editor/htmlBlockDocument'
 import { HTML_BLOCK_HEIGHT_MESSAGE, HTML_BLOCK_SCROLL_MESSAGE } from '~/utils/editor/htmlBlockRuntime'
 
@@ -19,6 +19,13 @@ const props = defineProps(nodeViewProps)
  */
 const chosenTheme = import.meta.client ? document.documentElement.dataset.theme : undefined
 const theme: ThemePreference = chosenTheme === 'light' || chosenTheme === 'dark' ? chosenTheme : 'system'
+
+/**
+ * Палитра едет туда же и тем же путём — с корневого элемента. Она, в отличие
+ * от схемы, проставлена всегда: системной палитры не бывает.
+ */
+const chosenPalette = import.meta.client ? document.documentElement.dataset.palette : undefined
+const palette: PalettePreference = chosenPalette === 'crimson' ? chosenPalette : 'graphite'
 
 const isEditing = ref(false)
 const draft = ref<string>(props.node.attrs.html ?? '')
@@ -72,7 +79,7 @@ const effectiveHeight = computed(() => pinnedHeight.value ?? measuredHeight.valu
  * and our runtime.
  */
 const srcdoc = computed(() => (html.value
-  ? htmlBlockDocument(html.value, { theme, token })
+  ? htmlBlockDocument(html.value, { theme, palette, token })
   : ''))
 
 function onMessage(event: MessageEvent) {

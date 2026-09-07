@@ -31,6 +31,8 @@ final readonly class Citation
         public ?string $courseTitle,
         public ?string $courseSlug,
         public ?string $documentSlug,
+        /** Раздел документа: правила и справочники живут в разных. */
+        public ?string $documentSection,
         /** Что именно было прочитано: кусок текста или готовый ответ. */
         public string $quote,
         /** Вопрос строки таблицы — виден, только если ответ пришёл оттуда. */
@@ -54,6 +56,7 @@ final readonly class Citation
             courseTitle: $courseTitle,
             courseSlug: $courseSlug,
             documentSlug: null,
+            documentSection: null,
             quote: $quote,
             question: $question,
             location: $location,
@@ -64,6 +67,7 @@ final readonly class Citation
         int $documentId,
         string $title,
         string $slug,
+        string $section,
         string $quote,
         ?string $question = null,
         ?SourceLocation $location = null,
@@ -75,6 +79,7 @@ final readonly class Citation
             courseTitle: null,
             courseSlug: null,
             documentSlug: $slug,
+            documentSection: $section,
             quote: $quote,
             question: $question,
             location: $location,
@@ -102,7 +107,7 @@ final readonly class Citation
     public function url(): string
     {
         return $this->kind === self::DOCUMENT
-            ? '/lms/documents/'.$this->documentSlug
+            ? '/lms/'.($this->documentSection ?? 'documents').'/'.$this->documentSlug
             : sprintf('/lms/%s/lessons/%d', $this->courseSlug, $this->materialId);
     }
 

@@ -42,11 +42,32 @@ export interface QuotedMessage {
   excerpt: string | null
 }
 
+/**
+ * Материал, с которого написали, — карточкой над репликой.
+ *
+ * Названия и адрес лежат снимком со дня отправки: материал переименуют или
+ * выбросят, а разговор должен остаться читаемым.
+ */
+export interface MessageAbout {
+  kind: 'course' | 'lesson' | 'document' | 'handbook'
+  /** «Курс», «Урок», «Документ», «Справочник». */
+  kind_label: string
+  title: string
+  /** Курс, внутри которого лежит урок. У остальных пусто. */
+  context: string | null
+  url: string | null
+  reason: 'missing' | 'incorrect' | null
+  /** «Ответа не хватило» или «Здесь написано неверно». */
+  reason_label: string | null
+}
+
 export interface ChatMessage {
   id: number
   conversation_id: number
   kind: MessageKind
   body: string | null
+  /** С какого материала пришло замечание; null — обычная реплика. */
+  about: MessageAbout | null
   /** Нет у системного сообщения и у сообщения уволившегося. */
   author: ChatPerson | null
   attachments: MessageAttachment[]

@@ -24,6 +24,10 @@ final class CourseResource extends JsonResource
             'slug' => $this->slug,
             'summary' => $this->summary,
             'description' => $this->description,
+
+            // Слова, которыми курс ищут. Их видит и правит редактор; читателю
+            // они ничего не говорят, но и прятать их не от кого.
+            'keywords' => $this->keywords ?? [],
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
 
@@ -51,6 +55,11 @@ final class CourseResource extends JsonResource
             'modules' => CourseModuleResource::collection($this->whenLoaded('modules')),
             // The signed-in learner's own progress, attached by the controller.
             'enrollment' => $this->learner_enrollment,
+
+            // Дошла ли до курса очередь плана обучения. Проставляет каталог:
+            // на странице самого курса поля нет вовсе — туда закрытый курс не
+            // пускает EnsureLearningPlanOrder, и отвечать «заперт» некому.
+            'is_locked' => (bool) ($this->locked_by_plan ?? false),
         ];
     }
 }

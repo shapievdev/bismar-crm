@@ -11,6 +11,13 @@ import type { TrashedMaterial } from '~/types/lms'
 definePageMeta({ middleware: 'auth', permission: 'courses.delete' })
 useHead({ title: 'Корзина' })
 
+/** Чем строка была до корзины — тем же словом, что и в разделе, откуда её убрали. */
+const KIND_LABELS: Record<TrashedMaterial['kind'], string> = {
+  course: 'курс',
+  document: 'документ',
+  handbook: 'справочник',
+}
+
 const { isAdmin } = useAuth()
 const { fetchTrash, restoreTrashed, purgeTrashed } = useLmsApi()
 const dialog = useAppDialog()
@@ -108,7 +115,7 @@ function when(value: string | null): string {
         <div class="item__body">
           <p class="item__title">
             {{ item.title }}
-            <span class="badge">{{ item.kind === 'course' ? 'курс' : 'документ' }}</span>
+            <span class="badge">{{ KIND_LABELS[item.kind] }}</span>
           </p>
 
           <p class="faint item__meta">

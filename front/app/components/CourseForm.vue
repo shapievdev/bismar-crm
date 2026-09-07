@@ -75,6 +75,10 @@ const visibilityOptions: SelectOption<CourseVisibility>[] = [
           {{ errors.description[0] }}
         </p>
       </div>
+
+      <!-- Слова, которыми курс найдут поиском. Стоят под текстом, а не в
+           панели свойств: их дописывают, перечитывая описание. -->
+      <KeywordsField id="keywords" v-model="model.keywords" :errors="errors.keywords" />
     </div>
 
     <!--
@@ -142,18 +146,20 @@ const visibilityOptions: SelectOption<CourseVisibility>[] = [
 .course-form__side {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
   min-width: 0;
 }
 
+/* Плотнее, чем было: в панели свойств четыре строки, и высота целого экрана ей
+   не нужна — тем же шагом набраны и панели ниже по странице. */
 .course-form__side {
-  padding: 1.15rem 1.25rem;
+  padding: 1rem 1.15rem;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .field label {
@@ -163,7 +169,7 @@ const visibilityOptions: SelectOption<CourseVisibility>[] = [
 
 .field textarea,
 .field select {
-  padding: 0.55rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);

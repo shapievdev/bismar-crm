@@ -108,7 +108,7 @@ final class TrashTest extends TestCase
         $author = $this->author();
 
         $this->actingAs($author)
-            ->deleteJson(route('lms.regulations.destroy', $document))
+            ->deleteJson(route('lms.documents.destroy', $document))
             ->assertNoContent();
 
         $this->actingAs($author)

@@ -162,7 +162,7 @@ final class GoogleDriveAttachmentTest extends TestCase
         $document = Regulation::factory()->published()->create();
 
         $this->actingAs($this->author())
-            ->postJson(route('lms.regulations.attachments.drive', $document), [
+            ->postJson(route('lms.documents.attachments.drive', $document), [
                 'external_id' => self::FILE_ID,
                 'name' => 'Бланк заявления',
                 'mime_type' => 'application/vnd.google-apps.spreadsheet',

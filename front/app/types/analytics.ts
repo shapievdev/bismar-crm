@@ -105,6 +105,8 @@ export interface LearningQuizRow {
   id: number
   title: string
   kind: 'lesson' | 'regulation'
+  /** Документ или справочник — по нему строится ссылка. */
+  document_kind?: 'document' | 'handbook' | null
   material: string | null
   course_title: string | null
   course_slug: string | null

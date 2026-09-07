@@ -6,6 +6,10 @@ useHead({ title: 'База знаний' })
 
 const { fetchCourses, myCourses, fetchCategories } = useLmsApi()
 const { can } = useAuth()
+
+// Нажатие на закрытый планом курс отвечает окном, а не молчанием: карточка
+// выглядит как все, и тишина читается как поломка.
+const { explain: explainLock } = usePlanLock()
 const route = useRoute()
 const router = useRouter()
 
@@ -204,6 +208,11 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </div>
 
       <div class="head__actions">
+        <!-- Дерево правят там же, где смотрят его содержимое: в полосе разделов
+             трём спискам категорий не место — см. ModuleNav. -->
+        <NuxtLink v-if="can('courses.update')" to="/lms/categories" class="button-secondary">
+          Категории
+        </NuxtLink>
         <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
           Новый курс
         </NuxtLink>
@@ -299,7 +308,12 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     </UiEmptyState>
 
     <div v-else ref="grid" class="grid">
-      <CourseCard v-for="course in visibleCourses" :key="course.slug" :course="course" />
+      <CourseCard
+        v-for="course in visibleCourses"
+        :key="course.slug"
+        :course="course"
+        @locked="explainLock"
+      />
     </div>
 
     <nav v-if="lastPage > 1" class="pager" aria-label="Страницы каталога">

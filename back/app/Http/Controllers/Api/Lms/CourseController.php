@@ -17,7 +17,10 @@ use App\Models\Category;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\User;
+use App\Support\Lms\CatalogSearch;
+use App\Support\Lms\LearningPlan;
 use App\Support\Lms\ProgressCalculator;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -27,7 +30,10 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class CourseController extends Controller
 {
-    public function __construct(private readonly ProgressCalculator $progress) {}
+    public function __construct(
+        private readonly ProgressCalculator $progress,
+        private readonly CatalogSearch $search,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -40,7 +46,9 @@ final class CourseController extends Controller
             // Приватные курсы — только свои: чужой закрытый курс не должен
             // попадать в каталог даже названием.
             ->visibleTo($user)
-            ->matching($request->query('search'))
+            // Слова ищет Meilisearch, доступ по-прежнему решает база: поисковик
+            // возвращает только номера, и условия выше остаются как были.
+            ->tap(fn ($query) => $this->search->apply($query, $request->query('search')))
             ->when(
                 $request->filled('category'),
                 // Choosing a category includes everything nested beneath it,
@@ -63,6 +71,8 @@ final class CourseController extends Controller
             ->orderByDesc('updated_at')
             ->paginate(15)
             ->withQueryString();
+
+        $this->markPlanLocks($courses->getCollection(), $user);
 
         return CourseResource::collection($courses);
     }
@@ -143,6 +153,26 @@ final class CourseController extends Controller
         );
 
         return response()->json(['data' => $statuses]);
+    }
+
+    /**
+     * Отмечает курсы, до которых у сотрудника не дошла очередь плана обучения.
+     *
+     * Из каталога они не пропадают намеренно: курс есть, он виден, и человек
+     * должен понимать, что откроют его после плана, а не никогда. Пропади он из
+     * списка — это читалось бы как «такого курса нет», и вопрос ушёл бы не к
+     * тому, кто ведёт обучение, а к тому, кто чинит поиск.
+     *
+     * @param  EloquentCollection<int, Course>  $courses
+     */
+    private function markPlanLocks(EloquentCollection $courses, User $user): void
+    {
+        $plan = LearningPlan::restrains($user) ? LearningPlan::of($user) : null;
+
+        $courses->each(fn (Course $course) => $course->setAttribute(
+            'locked_by_plan',
+            $plan !== null && ! $plan->allows($course),
+        ));
     }
 
     /**

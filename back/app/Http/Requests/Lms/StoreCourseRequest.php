@@ -8,6 +8,7 @@ use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\Permission;
 use App\Models\Course;
+use App\Support\Lms\Keywords;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -28,6 +29,11 @@ class StoreCourseRequest extends FormRequest
             // Не присылают — значит, не меняют: у нового курса это «открытый»,
             // у существующего остаётся то, что было.
             'visibility' => ['sometimes', Rule::enum(CourseVisibility::class)],
+
+            // Слова, которыми курс ищут, — то же правило, что и у документа.
+            // Пустой список присылать можно: это «слов больше нет».
+            'keywords' => ['sometimes', 'array', 'max:'.Keywords::LIMIT],
+            'keywords.*' => ['string', 'max:'.Keywords::MAX_LENGTH],
         ];
     }
 

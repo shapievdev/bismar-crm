@@ -62,7 +62,7 @@ final class DocumentQuizTest extends TestCase
         $document = Regulation::factory()->published()->create();
 
         $this->actingAs($this->author())
-            ->putJson(route('lms.regulations.quiz.save', $document), [
+            ->putJson(route('lms.documents.quiz.save', $document), [
                 'title' => 'Проверка знаний',
                 'passing_score' => 70,
                 'questions' => [[
@@ -90,7 +90,7 @@ final class DocumentQuizTest extends TestCase
         $document = Regulation::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->putJson(route('lms.regulations.quiz.save', $document), [
+            ->putJson(route('lms.documents.quiz.save', $document), [
                 'title' => 'Проверка',
                 'passing_score' => 70,
                 'questions' => [[
@@ -113,11 +113,11 @@ final class DocumentQuizTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $this->answers($quiz)])
             ->assertCreated();
 
         $this->actingAs($this->author())
-            ->deleteJson(route('lms.regulations.quiz.destroy', $document))
+            ->deleteJson(route('lms.documents.quiz.destroy', $document))
             ->assertNoContent();
 
         $this->assertSame(0, $document->quiz()->count());
@@ -132,7 +132,7 @@ final class DocumentQuizTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $this->answers($quiz)])
             ->assertCreated()
             ->assertJsonPath('data.score', 100)
             ->assertJsonPath('data.passed', true)
@@ -161,7 +161,7 @@ final class DocumentQuizTest extends TestCase
         ];
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $half])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $half])
             ->assertCreated()
             ->assertJsonPath('data.score', 50)
             ->assertJsonPath('data.passed', false)
@@ -178,7 +178,7 @@ final class DocumentQuizTest extends TestCase
         [$document] = $this->documentWithQuiz(1);
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.acknowledge', $document))
+            ->postJson(route('lms.documents.acknowledge', $document))
             ->assertStatus(409);
 
         $this->assertSame(0, $document->acknowledgements()->count());
@@ -189,7 +189,7 @@ final class DocumentQuizTest extends TestCase
         $document = Regulation::factory()->published()->create();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.acknowledge', $document))
+            ->postJson(route('lms.documents.acknowledge', $document))
             ->assertOk()
             ->assertJsonPath('data.is_acknowledged', true);
     }
@@ -202,13 +202,13 @@ final class DocumentQuizTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => $this->answers($quiz, correct: false),
             ])
             ->assertCreated();
 
         $this->actingAs($reader)
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk()
             ->assertJsonPath('data.quiz.title', $quiz->title)
             ->assertJsonCount(1, 'data.quiz.questions')
@@ -223,7 +223,7 @@ final class DocumentQuizTest extends TestCase
         [$document] = $this->documentWithQuiz(1);
 
         $response = $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk();
 
         $this->assertArrayNotHasKey('is_correct', $response->json('data.quiz.questions.0.options.0'));
@@ -241,7 +241,7 @@ final class DocumentQuizTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $this->answers($quiz)])
             ->assertCreated();
 
         $attempt = QuizAttempt::query()->sole();
@@ -264,7 +264,7 @@ final class DocumentQuizTest extends TestCase
 
         $this->actingAs($reader)
             ->postJson(
-                route('lms.regulations.quiz.submit', $document),
+                route('lms.documents.quiz.submit', $document),
                 ['answers' => $this->answers($quiz, correct: false)],
             )
             ->assertCreated();
@@ -272,14 +272,14 @@ final class DocumentQuizTest extends TestCase
         $attempt = QuizAttempt::query()->sole();
 
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.quiz.statistics', $document))
+            ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             ->assertJsonPath('data.people.0.id', $reader->getKey())
             ->assertJsonPath('data.people.0.passed', false)
             ->assertJsonPath('data.people.0.attempts.0.id', $attempt->getKey());
 
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.quiz.attempt', [$document, $attempt]))
+            ->getJson(route('lms.documents.quiz.attempt', [$document, $attempt]))
             ->assertOk()
             ->assertJsonPath('data.review.reveals_key', true)
             ->assertJsonPath('data.review.questions.0.is_correct', false);
@@ -291,11 +291,11 @@ final class DocumentQuizTest extends TestCase
         [$document, $quiz] = $this->documentWithQuiz(1);
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $this->answers($quiz)])
             ->assertCreated();
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.quiz.attempt', [$document, QuizAttempt::query()->sole()]))
+            ->getJson(route('lms.documents.quiz.attempt', [$document, QuizAttempt::query()->sole()]))
             ->assertForbidden();
     }
 
@@ -305,7 +305,7 @@ final class DocumentQuizTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), ['answers' => $this->answers($quiz)])
+            ->postJson(route('lms.documents.quiz.submit', $document), ['answers' => $this->answers($quiz)])
             ->assertCreated();
 
         // Документ закрыли уже после сдачи: чужой закрытый документ для этого

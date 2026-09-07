@@ -170,7 +170,7 @@ final class TableQuestionTest extends TestCase
         [$document] = $this->documentWithTable($this->weeks());
 
         $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk()
             ->assertJsonPath('data.quiz.questions.0.table.row_label_title', 'Неделя')
             ->assertJsonCount(3, 'data.quiz.questions.0.table.rows')
@@ -185,7 +185,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [
                     ['120000', '90000'],
                     ['80000', '150000'],
@@ -206,7 +206,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [
                     ['120000', '90000'],
                     ['80000', ''],
@@ -227,7 +227,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 // Прислали одну строку из трёх: остальные пусты.
                 'answers' => [$question->id => [['120000', '90000']]],
             ])
@@ -254,14 +254,14 @@ final class TableQuestionTest extends TestCase
         $filled = [['Аренда', '50000']];
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [...$filled, ['', '']]],
             ])
             ->assertCreated()
             ->assertJsonPath('data.passed', true);
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [...$filled, ['Логистика', '']]],
             ])
             ->assertCreated()
@@ -293,7 +293,7 @@ final class TableQuestionTest extends TestCase
         $reader = $this->learner();
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [
                     ['150000', 'Постоянные'],
                     ['900000', 'Постоянные'],
@@ -308,7 +308,7 @@ final class TableQuestionTest extends TestCase
             ->assertJsonPath('data.review.questions.0.wrong_cells', [['row' => 1, 'cell' => 1]]);
 
         $this->actingAs($reader)
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [
                     ['150000', 'Постоянные'],
                     ['900000', 'Переменные'],
@@ -334,7 +334,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [['1 200 000']]],
             ])
             ->assertCreated()
@@ -353,7 +353,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [['  ликвидность.  ']]],
             ])
             ->assertCreated()
@@ -408,7 +408,7 @@ final class TableQuestionTest extends TestCase
         ]);
 
         $row = $this->actingAs($this->learner())
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk()
             ->json('data.quiz.questions.0.table.rows.0');
 
@@ -416,7 +416,7 @@ final class TableQuestionTest extends TestCase
 
         // Автору он виден: это его же ключ.
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.show', $document))
+            ->getJson(route('lms.documents.show', $document))
             ->assertOk()
             ->assertJsonPath('data.quiz.questions.0.table.rows.0.expected', ['Постоянные']);
     }
@@ -429,7 +429,7 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $review = $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [['120000', '90000']]],
             ])
             ->assertCreated()
@@ -450,13 +450,13 @@ final class TableQuestionTest extends TestCase
         $question = $quiz->questions()->sole();
 
         $this->actingAs($this->learner())
-            ->postJson(route('lms.regulations.quiz.submit', $document), [
+            ->postJson(route('lms.documents.quiz.submit', $document), [
                 'answers' => [$question->id => [['120000', '']]],
             ])
             ->assertCreated();
 
         $this->actingAs($this->author())
-            ->getJson(route('lms.regulations.quiz.statistics', $document))
+            ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             // Тронул таблицу, но не дозаполнил: отвечавший один, зачтённых нет.
             ->assertJsonPath('data.questions.0.answered', 1)

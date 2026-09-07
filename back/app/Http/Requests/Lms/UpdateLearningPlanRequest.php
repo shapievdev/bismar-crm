@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Lms;
 
-use App\Models\Course;
-use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\PlannableMaterial;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -21,11 +19,8 @@ use Illuminate\Validation\Rule;
  */
 final class UpdateLearningPlanRequest extends FormRequest
 {
-    /** Что вообще бывает шагом плана. Совпадает с картой в AppServiceProvider. */
-    private const KINDS = [
-        'course' => Course::class,
-        'regulation' => Regulation::class,
-    ];
+    /** Что вообще бывает шагом плана — см. PlannableMaterial::KINDS. */
+    private const KINDS = PlannableMaterial::KINDS;
 
     /**
      * Менять чужой план — дело должности, а не отмеченного права.
@@ -82,7 +77,9 @@ final class UpdateLearningPlanRequest extends FormRequest
                     return;
                 }
 
-                $wanted = $this->items();
+                // Присланное как есть: здесь проверяют раздел, а items()
+                // отдаёт уже имя связи в базе, общее у обоих разделов.
+                $wanted = $this->requested();
 
                 if ($wanted === []) {
                     return;
@@ -91,7 +88,7 @@ final class UpdateLearningPlanRequest extends FormRequest
                 /** @var User $actor */
                 $actor = $this->user();
 
-                foreach (self::KINDS as $kind => $model) {
+                foreach (array_keys(self::KINDS) as $kind) {
                     $ids = array_values(array_map(
                         static fn (array $item): int => $item['id'],
                         array_filter($wanted, static fn (array $item): bool => $item['type'] === $kind),
@@ -101,11 +98,15 @@ final class UpdateLearningPlanRequest extends FormRequest
                         continue;
                     }
 
-                    /** @var Builder<Course|Regulation> $query */
-                    $query = $model::query();
-
-                    $found = $query->visibleTo($actor)->whereKey($ids)->pluck('id')
-                        ->map(intval(...))->all();
+                    // Выборка уже сужена до раздела: документ, присланный
+                    // справочником, сюда не попадёт — и это та же ошибка, что
+                    // «мы такого не видим», потому что в своём разделе его нет.
+                    $found = PlannableMaterial::queryFor($kind)
+                        ->visibleTo($actor)
+                        ->whereKey($ids)
+                        ->pluck('id')
+                        ->map(intval(...))
+                        ->all();
 
                     // Назначить можно только то, что видишь сам. Иначе чужой
                     // закрытый материал попадал бы в план по угаданному номеру
@@ -113,7 +114,7 @@ final class UpdateLearningPlanRequest extends FormRequest
                     if (array_diff($ids, $found) !== []) {
                         $validator->errors()->add(
                             'items',
-                            'В плане есть курс или документ, которого вы не видите.',
+                            'В плане есть материал, которого вы не видите.',
                         );
 
                         return;
@@ -124,9 +125,11 @@ final class UpdateLearningPlanRequest extends FormRequest
     }
 
     /**
+     * Шаги так, как их прислал экран: с разделом, а не с именем связи.
+     *
      * @return list<array{type: string, id: int}>
      */
-    public function items(): array
+    private function requested(): array
     {
         /** @var list<array{type: string, id: int|string}> $items */
         $items = $this->validated('items', []);
@@ -134,6 +137,26 @@ final class UpdateLearningPlanRequest extends FormRequest
         return array_values(array_map(
             static fn (array $item): array => ['type' => (string) $item['type'], 'id' => (int) $item['id']],
             $items,
+        ));
+    }
+
+    /**
+     * Шаги в том виде, в каком они лягут в базу.
+     *
+     * Экран присылает раздел («document» или «handbook»), а связь у обоих одна
+     * («regulation»): вид материала записан в нём самом, и вторая копия того же
+     * в плане однажды разошлась бы с первой.
+     *
+     * @return list<array{type: string, id: int}>
+     */
+    public function items(): array
+    {
+        return array_values(array_map(
+            static fn (array $item): array => [
+                'type' => PlannableMaterial::morphAliasFor($item['type']),
+                'id' => $item['id'],
+            ],
+            $this->requested(),
         ));
     }
 }

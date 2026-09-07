@@ -6,6 +6,8 @@ namespace App\Http\Requests\Lms;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Enums\MaterialKind;
+use App\Support\Lms\Keywords;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -35,7 +37,15 @@ final class SaveRegulationRequest extends FormRequest
             'status' => ['required', Rule::enum(CourseStatus::class)],
             'visibility' => ['required', Rule::enum(CourseVisibility::class)],
 
-            'category_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')],
+            // Из дерева своего раздела: категории у документов и справочников
+            // разные, и чужая означала бы материал, невидимый в каталоге.
+            'category_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')
+                ->where('kind', MaterialKind::of($this)->value)],
+
+            // Слова, которыми документ ищут. Пустой список присылать можно:
+            // это «слов больше нет».
+            'keywords' => ['sometimes', 'array', 'max:'.Keywords::LIMIT],
+            'keywords.*' => ['string', 'max:'.Keywords::MAX_LENGTH],
         ];
     }
 
@@ -46,7 +56,8 @@ final class SaveRegulationRequest extends FormRequest
      *     content_json: ?array<string, mixed>,
      *     status: string,
      *     visibility: string,
-     *     category_id: ?int
+     *     category_id: ?int,
+     *     keywords: ?list<string>
      * }
      */
     public function toAttributes(): array
@@ -61,6 +72,12 @@ final class SaveRegulationRequest extends FormRequest
             'status' => (string) $validated['status'],
             'visibility' => (string) $validated['visibility'],
             'category_id' => isset($validated['category_id']) ? (int) $validated['category_id'] : null,
+
+            // null здесь — «поля не было в запросе», а не «слов нет»: см.
+            // SaveRegulation, там на этом и держится разница.
+            'keywords' => array_key_exists('keywords', $validated)
+                ? Keywords::clean((array) $validated['keywords'])
+                : null,
         ];
     }
 }

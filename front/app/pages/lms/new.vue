@@ -21,6 +21,7 @@ const form = ref<CoursePayload>({
   status: 'draft',
   visibility: 'public',
   category_id: null,
+  keywords: [],
 })
 
 const errors = ref<ValidationErrors>({})

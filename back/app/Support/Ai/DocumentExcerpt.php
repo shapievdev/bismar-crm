@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Ai;
 
+use App\Enums\MaterialKind;
 use Illuminate\Support\Str;
 
 /**
@@ -21,6 +22,8 @@ final readonly class DocumentExcerpt implements Excerpt
         public int $segmentId,
         public string $title,
         public string $slug,
+        /** Документ или справочник: от этого зависит и адрес, и слово в промпте. */
+        public MaterialKind $kind,
         public string $text,
         public ?SourceLocation $location = null,
     ) {}
@@ -35,8 +38,9 @@ final readonly class DocumentExcerpt implements Excerpt
     public function toPrompt(int $number): string
     {
         return sprintf(
-            "[источник %d] Документ «%s»%s\n%s",
+            "[источник %d] %s «%s»%s\n%s",
             $number,
+            $this->kind->label(),
             $this->title,
             $this->location === null ? '' : ' ('.$this->location->label().')',
             $this->text,
@@ -59,6 +63,7 @@ final readonly class DocumentExcerpt implements Excerpt
             documentId: $this->documentId,
             title: $this->title,
             slug: $this->slug,
+            section: $this->kind->section(),
             // Тот самый кусок, из которого взят ответ: ссылки на документ мало,
             // правило бывает на десять страниц.
             quote: Str::limit(preg_replace('/\s+/u', ' ', $this->text) ?? '', 240),

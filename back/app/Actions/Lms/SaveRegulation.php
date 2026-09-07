@@ -6,8 +6,10 @@ namespace App\Actions\Lms;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Enums\MaterialKind;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\Keywords;
 use App\Support\SlugGenerator;
 use Illuminate\Support\Facades\DB;
 
@@ -29,7 +31,9 @@ final readonly class SaveRegulation
      *     content_json?: ?array<string, mixed>,
      *     status: string,
      *     visibility: string,
-     *     category_id?: ?int
+     *     category_id?: ?int,
+     *     keywords?: ?list<string>,
+     *     kind?: MaterialKind
      * } $attributes
      */
     public function handle(array $attributes, User $author, ?Regulation $regulation = null): Regulation
@@ -37,7 +41,13 @@ final readonly class SaveRegulation
         return DB::transaction(function () use ($attributes, $author, $regulation): Regulation {
             $status = CourseStatus::from($attributes['status']);
 
-            $regulation ??= new Regulation(['author_id' => $author->getKey()]);
+            // Вид ставится один раз, при заведении: справочник не становится
+            // документом от того, что его правят, — у них разные разделы, и
+            // переезд означал бы смену адреса под уже разосланной ссылкой.
+            $regulation ??= new Regulation([
+                'author_id' => $author->getKey(),
+                'kind' => $attributes['kind'] ?? MaterialKind::Document,
+            ]);
 
             $regulation->fill([
                 'title' => $attributes['title'],
@@ -48,6 +58,12 @@ final readonly class SaveRegulation
                 'category_id' => $attributes['category_id'] ?? null,
                 'published_at' => $this->publishedAt($regulation, $status),
             ]);
+
+            // null — это «поля не было в запросе», и набранное остаётся на
+            // месте; пустой список — «слов больше нет».
+            if (($attributes['keywords'] ?? null) !== null) {
+                $regulation->keywords = Keywords::clean($attributes['keywords']);
+            }
 
             // Адрес регламента не меняется вслед за названием: ссылку на него
             // уже могли отправить в мессенджере, и правка заголовка не повод её

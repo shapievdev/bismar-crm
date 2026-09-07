@@ -160,13 +160,15 @@ export function useLmsApi() {
       $api<ResourceResponse<TrashedMaterial[]>>('/api/lms/trash'),
 
     /** Вернуть на место — со всем, что за ним стояло. */
-    restoreTrashed: (kind: 'course' | 'document', id: number): Promise<unknown> =>
+    // Документ и справочник возвращаются одним и тем же адресом: в базе они
+    // одна таблица, и вид у строки записан в ней самой.
+    restoreTrashed: (kind: TrashedMaterial['kind'], id: number): Promise<unknown> =>
       $api(`/api/lms/trash/${kind === 'course' ? 'courses' : 'documents'}/${id}/restore`, {
         method: 'POST',
       }),
 
     /** Стереть насовсем. Возвращать после этого нечего — только администратору. */
-    purgeTrashed: (kind: 'course' | 'document', id: number): Promise<unknown> =>
+    purgeTrashed: (kind: TrashedMaterial['kind'], id: number): Promise<unknown> =>
       $api(`/api/lms/trash/${kind === 'course' ? 'courses' : 'documents'}/${id}`, {
         method: 'DELETE',
       }),

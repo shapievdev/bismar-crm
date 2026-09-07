@@ -38,6 +38,7 @@ const form = ref<CoursePayload>({
   status: data.value?.course.status ?? 'draft',
   visibility: data.value?.course.visibility ?? 'public',
   category_id: data.value?.course.category?.id ?? null,
+  keywords: data.value?.course.keywords ?? [],
 })
 
 /** Закрывать курс и вести список допущенных вправе автор — и только он. */
@@ -160,17 +161,22 @@ async function remove() {
       </template>
     </CourseForm>
 
-    <CourseAccessPanel
-      v-if="canManageAccess"
-      :key="data.course.id"
-      :slug="slug"
-      :is-private="data.course.is_private"
-      :author-name="data.course.author?.name ?? null"
-    />
+    <!-- Списки людей — рядом, а не друг под другом: в каждом две-три строки, и
+         колонкой во всю ширину они разгоняли страницу на лишний экран. Тот же
+         приём, что в редакторе документа. -->
+    <div class="settings">
+      <CourseAccessPanel
+        v-if="canManageAccess"
+        :key="data.course.id"
+        :slug="slug"
+        :is-private="data.course.is_private"
+        :author-name="data.course.author?.name ?? null"
+      />
 
-    <!-- Ответственные — не доступ: их назначает всякий, кто правит курс, и
-         видит их всякий, кто курс открыл. -->
-    <CourseExpertsPanel :key="`experts-${data.course.id}`" :slug="slug" />
+      <!-- Ответственные — не доступ: их назначает всякий, кто правит курс, и
+           видит их всякий, кто курс открыл. -->
+      <CourseExpertsPanel :key="`experts-${data.course.id}`" :slug="slug" />
+    </div>
 
     <ModuleTree
       :course-slug="slug"
@@ -181,6 +187,22 @@ async function remove() {
 </template>
 
 <style scoped>
+/*
+ * Списки людей сеткой, соседки по ряду — одной высоты: списки растут по мере
+ * наполнения, и ряд вразнобой читается как сбой вёрстки. Отступ сверху панели
+ * здесь ни к чему — у сетки свой промежуток.
+ */
+.settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.settings > * {
+  margin-top: 0;
+}
+
 .page-header {
   display: flex;
   align-items: baseline;

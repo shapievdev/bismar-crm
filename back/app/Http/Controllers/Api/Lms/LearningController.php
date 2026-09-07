@@ -18,6 +18,7 @@ use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\QuizAttempt;
 use App\Models\User;
+use App\Support\Lms\LearningPlan;
 use App\Support\Lms\ProgressCalculator;
 use App\Support\Lms\QuizReview;
 use Illuminate\Http\JsonResponse;
@@ -86,6 +87,16 @@ final class LearningController extends Controller
             ->latest('enrolled_at')
             ->get()
             ->each(fn (Enrollment $enrollment) => $this->attachProgress($enrollment));
+
+        // Курс могли начать до того, как назначили план: тогда он ждёт своей
+        // очереди наравне с остальными, и список должен сказать об этом здесь,
+        // а не отправлять человека в отказ по ссылке.
+        $plan = LearningPlan::restrains($learner) ? LearningPlan::of($learner) : null;
+
+        $enrollments->each(fn (Enrollment $enrollment) => $enrollment->course?->setAttribute(
+            'locked_by_plan',
+            $plan !== null && ! $plan->allows($enrollment->course),
+        ));
 
         return EnrollmentResource::collection($enrollments);
     }

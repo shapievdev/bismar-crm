@@ -65,7 +65,9 @@ final class TrashController extends Controller
             ->get()
             ->map(fn (Regulation $document): array => [
                 'id' => $document->getKey(),
-                'kind' => 'document',
+                // Документ или справочник: возвращают их в разные разделы, и
+                // в корзине это надо видеть до нажатия.
+                'kind' => $document->kind->value,
                 'title' => $document->title,
                 'author' => $document->author?->name,
                 'deleted_at' => $document->deleted_at?->toIso8601String(),

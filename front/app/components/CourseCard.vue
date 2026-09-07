@@ -3,12 +3,36 @@ import type { Course } from '~/types/lms'
 
 const props = defineProps<{ course: Course }>()
 
+/**
+ * Закрытый планом курс не ведёт никуда: нажатие на него объясняет, почему он
+ * закрыт, — и объясняет это тот, кто карточку показывает.
+ */
+const emit = defineEmits<{ locked: [course: Course] }>()
+
 const progress = computed(() => props.course.enrollment?.progress ?? null)
+const isLocked = computed(() => props.course.is_locked === true)
 </script>
 
 <template>
-  <article class="card card--raised course">
+  <article class="card card--raised course" :class="{ 'course--locked': isLocked }">
     <div class="course__badges">
+      <span v-if="isLocked" class="badge">
+        <svg
+          viewBox="0 0 24 24"
+          width="12"
+          height="12"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="4" y="10" width="16" height="10" rx="2" />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+        </svg>
+        Закрыт планом
+      </span>
       <span v-if="course.status !== 'published'" class="badge badge--warning">
         {{ course.status_label }}
       </span>
@@ -19,7 +43,12 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
     </div>
 
     <h3 class="course__title">
-      <NuxtLink :to="`/lms/${course.slug}`">
+      <!-- Закрытый курс — кнопка, а не ссылка: вести ей некуда, а нажать по
+           карточке всё равно попробуют, и ответить на это нажатие надо. -->
+      <button v-if="isLocked" type="button" class="course__lock" @click="emit('locked', course)">
+        {{ course.title }}
+      </button>
+      <NuxtLink v-else :to="`/lms/${course.slug}`">
         {{ course.title }}
       </NuxtLink>
     </h3>
@@ -78,12 +107,36 @@ const progress = computed(() => props.course.enrollment?.progress ?? null)
   text-decoration: none;
 }
 
-.course__title a::after {
+.course__title a::after,
+.course__lock::after {
   /* Makes the whole card clickable while keeping one real link for assistive
      technology and for opening in a new tab. */
   content: '';
   position: absolute;
   inset: 0;
+}
+
+/* Выглядит как заголовок, ведёт себя как кнопка: карточка целиком остаётся
+   нажимаемой, только отвечает на нажатие объяснением, а не переходом. */
+.course__lock {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Закрытый курс не выключен — он читается, но не зовёт: карточка остаётся на
+   месте, чтобы человек видел, что курс есть и откроется после плана. */
+.course--locked {
+  color: var(--color-text-muted);
+}
+
+.course--locked:hover {
+  box-shadow: var(--shadow-sm);
+  transform: none;
 }
 
 .course__summary {

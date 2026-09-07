@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\SaveRegulation;
+use App\Enums\MaterialKind;
 use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveRegulationRequest;
@@ -13,7 +14,11 @@ use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationCategory;
 use App\Models\User;
+use App\Support\Lms\CatalogSearch;
+use App\Support\Lms\LearningPlan;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -30,6 +35,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class RegulationController extends Controller
 {
+    public function __construct(private readonly CatalogSearch $search) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         /** @var User $reader */
@@ -44,7 +51,12 @@ final class RegulationController extends Controller
             // Закрытое — только своё: чужое закрытое правило не должно попадать
             // в каталог даже названием.
             ->visibleTo($reader)
-            ->matching($request->query('search'))
+            // Каталог всегда внутри одного раздела: правила и справки не
+            // перемешиваются ни в списке, ни в поиске по нему.
+            ->ofKind(MaterialKind::of($request))
+            // Слова ищет Meilisearch, доступ по-прежнему решает база: поисковик
+            // возвращает только номера, и условия выше остаются как были.
+            ->tap(fn (Builder $query) => $this->search->apply($query, $request->query('search')))
             ->when(
                 $request->filled('category'),
                 // Выбранная категория включает всё, что под ней, иначе
@@ -67,7 +79,27 @@ final class RegulationController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        $this->markPlanLocks($regulations->getCollection(), $reader);
+
         return RegulationResource::collection($regulations);
+    }
+
+    /**
+     * Отмечает материалы, до которых у сотрудника не дошла очередь плана.
+     *
+     * Из каталога они не пропадают: материал есть, он виден, и человек должен
+     * понимать, что откроют его после плана, а не никогда.
+     *
+     * @param  EloquentCollection<int, Regulation>  $regulations
+     */
+    private function markPlanLocks(EloquentCollection $regulations, User $reader): void
+    {
+        $plan = LearningPlan::restrains($reader) ? LearningPlan::of($reader) : null;
+
+        $regulations->each(fn (Regulation $regulation) => $regulation->setAttribute(
+            'locked_by_plan',
+            $plan !== null && ! $plan->allows($regulation),
+        ));
     }
 
     public function show(Request $request, Regulation $regulation): RegulationResource
@@ -88,6 +120,29 @@ final class RegulationController extends Controller
             'quiz.examiner:id,last_name,first_name,middle_name',
         );
 
+        // Соседи — «рядом по теме». Отбираются под того, кто спрашивает: чужой
+        // закрытый документ и неопубликованный черновик из блока выпадают,
+        // иначе ссылка вела бы читателя в отказ, а название закрытого правила
+        // выдавало бы его не хуже страницы.
+        $regulation->load(['related' => fn (BelongsToMany $query) => $query
+            ->with('category')
+            ->visibleTo($reader)
+            ->when(
+                $reader->cannot(Permission::UpdateCourses->value),
+                fn (Builder $query) => $query->published(),
+            )]);
+
+        // «Частые вопросы» — тем же отбором и по той же причине. Раздел здесь
+        // не при чём: к правилу прикалывают и справочник, и строка ведёт туда,
+        // где лежит ответ.
+        $regulation->load(['questions' => fn (BelongsToMany $query) => $query
+            ->with('category')
+            ->visibleTo($reader)
+            ->when(
+                $reader->cannot(Permission::UpdateCourses->value),
+                fn (Builder $query) => $query->published(),
+            )]);
+
         if ($reader->can('update', $regulation)) {
             $regulation->loadCount('acknowledgements', 'members');
         }
@@ -104,7 +159,12 @@ final class RegulationController extends Controller
         /** @var User $author */
         $author = $request->user();
 
-        $regulation = $saveRegulation->handle($request->toAttributes(), $author);
+        // Вид берётся из раздела, а не из присланного: заводя справочник,
+        // клиент не выбирает, чем он окажется, — он уже в разделе справочников.
+        $regulation = $saveRegulation->handle(
+            [...$request->toAttributes(), 'kind' => MaterialKind::of($request)],
+            $author,
+        );
 
         return RegulationResource::make($this->forEditor($regulation, $author))
             ->response()
