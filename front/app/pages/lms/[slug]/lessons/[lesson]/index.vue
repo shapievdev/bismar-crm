@@ -788,6 +788,13 @@ function formatSize(bytes: number): string {
   margin-top: 2rem;
 }
 
+/* Панель отзыва — такой же раздел урока, как материалы и тест, и отступает от
+   предыдущего на столько же: без этого она лежала на тесте вплотную и читалась
+   его же продолжением. */
+.feedback {
+  margin-top: 2rem;
+}
+
 .block__title {
   margin: 0;
   font-size: 1.08rem;

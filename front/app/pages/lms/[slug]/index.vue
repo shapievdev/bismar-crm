@@ -335,6 +335,12 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
   }
 }
 
+/* Панель отзыва стоит от содержимого курса на том же расстоянии, на каком
+   разложены сами карточки: вплотную она читалась продолжением последней. */
+.feedback {
+  margin-top: 1.25rem;
+}
+
 .section-title {
   margin: 0 0 0.8rem;
   font-size: 1.1rem;
