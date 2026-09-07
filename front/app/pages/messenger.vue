@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage, ChatPerson, MessageAttachment, ThreadMessage } from '~/types/chat'
+import type { ChatMessage, ChatPerson, MaterialRef, MessageAbout, MessageAttachment, ThreadMessage } from '~/types/chat'
 
 // `fills`: страница занимает ровно экран и не растёт с содержимым — оболочка
 // объявляет себя в `100dvh` и снимает нижний отступ. См. «Высота» ниже.
@@ -29,6 +29,63 @@ const router = useRouter()
  * консультанта, — и так работает кнопка «назад» в браузере, которой на двух
  * панелях пользуются постоянно.
  */
+/*
+ * Материал, с которого сюда пришли.
+ *
+ * С карточки ответственного в документе или курсе уходят «написать», и без
+ * этого адресат читает вопрос, не понимая, о чём он. Адрес несёт только вид и
+ * номер — `?about=document:12`, — а название и ссылку отдаёт сервер: он же
+ * приложит карточку к отправленной реплике, и человек ещё до отправки видит
+ * ровно то, что увидит адресат.
+ */
+const material = ref<MessageAbout | null>(null)
+const materialRef = ref<MaterialRef | null>(null)
+
+/** К какой переписке относится карточка: в соседней ей делать нечего. */
+const materialFor = ref<number | null>(null)
+
+const KINDS: MessageAbout['kind'][] = ['course', 'lesson', 'document', 'handbook']
+
+function materialFrom(value: unknown): MaterialRef | null {
+  const [kind, id] = String(value ?? '').split(':')
+
+  return KINDS.includes(kind as MessageAbout['kind']) && Number(id) > 0
+    ? { kind: kind as MessageAbout['kind'], id: Number(id) }
+    : null
+}
+
+/**
+ * Материал выброшен или закрыт для спрашивающего — письмо всё равно уходит,
+ * просто без карточки: разговор с ответственным важнее подписи над ним.
+ */
+async function noteMaterial(asked: MaterialRef | null, conversationId: number): Promise<void> {
+  if (!asked) {
+    return
+  }
+
+  try {
+    material.value = (await api.fetchAbout(asked)).data
+    materialRef.value = asked
+    materialFor.value = conversationId
+  }
+  catch {
+    material.value = null
+    materialRef.value = null
+    materialFor.value = null
+  }
+}
+
+/** Карточка стоит над полем ввода, пока открыт тот разговор, ради которого пришли. */
+const composingAbout = computed(() =>
+  material.value !== null && materialFor.value === activeId.value ? material.value : null,
+)
+
+function dropMaterial(): void {
+  material.value = null
+  materialRef.value = null
+  materialFor.value = null
+}
+
 onMounted(async () => {
   await messenger.connect()
 
@@ -38,8 +95,10 @@ onMounted(async () => {
   const addressee = Number(route.query.write)
 
   if (addressee) {
+    const asked = materialFrom(route.query.about)
     const id = await messenger.writeTo(addressee)
 
+    await noteMaterial(asked, id)
     await router.replace({ query: { id } })
     await openConversation(id)
 
@@ -420,7 +479,17 @@ async function submit(): Promise<void> {
 
   // Ошибку отправки показывает сама реплика, вместе с «повторить», поэтому
   // ждать здесь нечего: send не отказывает.
-  void messenger.send(body, chosen, answering)
+  // Карточка достаётся первой реплике — той, ради которой сюда пришли:
+  // повторять её у каждого следующего сообщения незачем, разговор уже начат.
+  const about = composingAbout.value && materialRef.value
+    ? { ref: materialRef.value, card: composingAbout.value }
+    : null
+
+  if (about) {
+    dropMaterial()
+  }
+
+  void messenger.send(body, chosen, answering, about)
 
   await scrollToEnd()
 }
@@ -1328,6 +1397,21 @@ const typingLabel = computed(() => {
           <!-- Что сейчас делается с полем: отвечаем или переписываем. Без этой
                полосы правка неотличима от нового сообщения, и человек
                отправляет второе вместо исправления первого. -->
+          <!-- С какого материала сюда пришли. Та же карточка встанет над
+               отправленной репликой: адресат должен видеть, о чём вопрос. -->
+          <div v-if="composingAbout" class="composing">
+            <span class="composing__kind">{{ composingAbout.kind_label }}</span>
+            <span class="composing__text">{{ composingAbout.title }}</span>
+            <button
+              type="button"
+              class="composing__cancel"
+              aria-label="Писать без материала"
+              @click="dropMaterial"
+            >
+              ✕
+            </button>
+          </div>
+
           <div v-if="replyTo || editing" class="composing">
             <span class="composing__kind">{{ editing ? 'Изменение' : 'Ответ' }}</span>
             <span class="composing__text">

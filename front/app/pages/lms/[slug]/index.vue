@@ -237,7 +237,10 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
                 <span class="experts__name">{{ person.name }}</span>
                 <!-- В мессенджер, а не на почту: разговор остаётся в системе,
                      рядом с материалом, о котором он идёт. -->
-                <NuxtLink :to="`/messenger?write=${person.id}`" class="experts__write">
+                <NuxtLink
+                  :to="`/messenger?write=${person.id}&about=course:${course.id}`"
+                  class="experts__write"
+                >
                   Написать
                 </NuxtLink>
               </span>

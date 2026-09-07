@@ -382,7 +382,12 @@ async function toggleReaders() {
               <UserAvatar :name="person.name" :src="person.avatar_url" :size="26" />
               <span class="person__body">
                 <span>{{ person.name }}</span>
-                <NuxtLink :to="`/messenger?write=${person.id}`" class="faint person__write">
+                <!-- Материал уходит вместе с адресом: в мессенджере над
+                     репликой встанет карточка, и адресат увидит, о чём вопрос. -->
+                <NuxtLink
+                  :to="`/messenger?write=${person.id}&about=${copy.kind}:${regulation.id}`"
+                  class="faint person__write"
+                >
                   Написать
                 </NuxtLink>
               </span>

@@ -1,5 +1,5 @@
 import type { ResourceResponse } from '~/types/auth'
-import type { ChatMessage, ChatPerson, Conversation, DeletionScope } from '~/types/chat'
+import type { ChatMessage, ChatPerson, Conversation, DeletionScope, MaterialRef, MessageAbout } from '~/types/chat'
 
 /**
  * Обращения к мессенджеру.
@@ -53,6 +53,7 @@ export function useChatApi() {
       files: File[] = [],
       options: UploadOptions = {},
       replyToId: number | null = null,
+      about: MaterialRef | null = null,
     ): Promise<ResourceResponse<ChatMessage>> => {
       const form = new FormData()
 
@@ -64,10 +65,23 @@ export function useChatApi() {
         form.append('reply_to_id', String(replyToId))
       }
 
+      // Вид и номер — всё, что нужно серверу: карточку он соберёт сам.
+      if (about) {
+        form.append('about[kind]', about.kind)
+        form.append('about[id]', String(about.id))
+      }
+
       files.forEach(file => form.append('attachments[]', file))
 
       return $upload<ResourceResponse<ChatMessage>>(`/api/chat/conversations/${id}/messages`, form, options)
     },
+
+    /**
+     * Карточка материала, с которого собираются написать: её показывают над
+     * полем ввода, чтобы человек видел то же, что увидит адресат.
+     */
+    fetchAbout: (about: MaterialRef): Promise<ResourceResponse<MessageAbout>> =>
+      $api<ResourceResponse<MessageAbout>>('/api/chat/about', { query: about }),
 
     /** Правка своей реплики. Вложения не трогаются — меняются только слова. */
     editMessage: (

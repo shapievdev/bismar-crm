@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
+use App\Http\Controllers\Api\Chat\MaterialCardController;
 use App\Http\Controllers\Api\Chat\MessageController;
 use App\Http\Controllers\Api\Chat\ParticipantController;
 use App\Http\Controllers\Api\GroupController;
@@ -705,4 +706,8 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('chat')->as('
     Route::get('unread', [ConversationController::class, 'unreadTotal'])->name('unread');
 
     Route::get('contacts', [ContactController::class, 'index'])->name('contacts');
+
+    // Карточка материала, с которого собираются написать: экран показывает её
+    // над полем ввода, а к отправленной реплике ту же карточку ставит сервер.
+    Route::get('about', [MaterialCardController::class, 'show'])->name('about');
 });

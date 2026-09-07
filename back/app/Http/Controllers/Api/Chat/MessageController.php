@@ -72,12 +72,18 @@ final class MessageController extends Controller
         /** @var User $author */
         $author = $request->user();
 
+        // Карточка «письмо пришло с этого материала» ставится только тому, кто
+        // сам материал видит: иначе по ссылке из чужих рук в разговор попадало
+        // бы название закрытого документа.
+        $about = $request->about();
+
         $message = $say->handle(
             $conversation,
             $author,
             $request->body(),
             $request->attachments(),
             $request->replyToId(),
+            $about?->visibleTo($author) === true ? $about->card() : null,
         );
 
         return MessageResource::make($message->load(['author', 'attachments', 'replyTo.author']))

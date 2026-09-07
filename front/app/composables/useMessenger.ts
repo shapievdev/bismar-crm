@@ -3,6 +3,8 @@ import type {
   ChatPerson,
   Conversation,
   DeletionScope,
+  MaterialRef,
+  MessageAbout,
   QuotedMessage,
   Sending,
   ThreadMessage,
@@ -347,7 +349,16 @@ export function useMessenger() {
    * ждала ответа с заблокированной формой, и отправка тяжёлого выглядела так,
    * будто мессенджер повис.
    */
-  async function send(body: string, files: File[] = [], replyToId: number | null = null): Promise<void> {
+  /**
+   * @param about Материал, с которого пишут: карточка для ленты и ссылка для
+   *              сервера. Приходит с «Написать» на странице материала.
+   */
+  async function send(
+    body: string,
+    files: File[] = [],
+    replyToId: number | null = null,
+    about: { ref: MaterialRef, card: MessageAbout } | null = null,
+  ): Promise<void> {
     const id = activeId.value
 
     if (!id) {
@@ -377,10 +388,14 @@ export function useMessenger() {
       created_at: new Date().toISOString(),
       edited_at: null,
       reply_to: quote(replyToId),
+      // Карточка встаёт над репликой сразу, вместе с ней: то же, что увидит
+      // адресат, — и то же, что человек видел над полем ввода.
+      about: about?.card ?? null,
       sending: true,
       progress: 0,
       files,
       previews,
+      aboutRef: about?.ref ?? null,
     }
 
     messages.value = [...messages.value, pending]
@@ -446,6 +461,7 @@ export function useMessenger() {
           onProgress: ({ percent }) => patch(localId, { progress: percent }),
         },
         pending.reply_to?.id ?? null,
+        pending.aboutRef ?? null,
       )
 
       const arrived = messages.value.some(one => one.id === data.id)

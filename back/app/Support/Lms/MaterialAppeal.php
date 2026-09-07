@@ -103,14 +103,17 @@ final readonly class MaterialAppeal
      *
      * @return array<string, string|null>
      */
-    public function snapshot(AppealReason $reason): array
+    public function snapshot(?AppealReason $reason = null): array
     {
         return [
             'kind' => $this->kind,
             'title' => $this->title,
             'context' => $this->context,
             'url' => $this->url,
-            'reason' => $reason->value,
+
+            // Причины может и не быть: с карточки ответственного пишут вопрос,
+            // а не замечание, и карточка тогда просто говорит, откуда письмо.
+            'reason' => $reason?->value,
         ];
     }
 

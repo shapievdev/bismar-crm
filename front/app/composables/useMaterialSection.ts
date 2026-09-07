@@ -15,6 +15,9 @@ import type { MaterialSection } from '~/types/lms'
 export interface MaterialCopy {
   /** Раздел в адресах — и приложения, и API. */
   section: MaterialSection
+  /** Как материал зовётся в единственном числе там, где вид важнее раздела:
+      в карточке над репликой мессенджера. */
+  kind: 'document' | 'handbook'
   /** Заголовок раздела и подпись под ним. */
   title: string
   /** Единственное число: «Документ», «Справочник». */
@@ -46,6 +49,7 @@ export interface MaterialCopy {
 const COPY: Record<MaterialSection, MaterialCopy> = {
   documents: {
     section: 'documents',
+    kind: 'document',
     title: 'Документы',
     materialLabel: 'Документ',
     subtitle: 'Правила, по которым работают. Каждое — на одну страницу, с отметкой об ознакомлении.',
@@ -71,6 +75,7 @@ const COPY: Record<MaterialSection, MaterialCopy> = {
   },
   handbooks: {
     section: 'handbooks',
+    kind: 'handbook',
     title: 'Справочники',
     materialLabel: 'Справочник',
     subtitle: 'Ответ на ситуацию за полминуты. Карточка на один вопрос — открывают её посреди разговора с клиентом.',

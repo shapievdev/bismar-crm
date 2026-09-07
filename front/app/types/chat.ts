@@ -61,6 +61,17 @@ export interface MessageAbout {
   reason_label: string | null
 }
 
+/**
+ * Чем материал назван в запросе: вид и номер, и только.
+ *
+ * Название и адрес собирает сервер — экран их не придумывает и не носит в
+ * адресе, иначе карточкой над репликой можно было бы объявить что угодно.
+ */
+export interface MaterialRef {
+  kind: MessageAbout['kind']
+  id: number
+}
+
 export interface ChatMessage {
   id: number
   conversation_id: number
@@ -103,6 +114,11 @@ export interface Sending {
    * сменяет ответ сервера.
    */
   previews: string[]
+  /**
+   * Материал, с которого пишут, — ссылкой: сама карточка уже стоит в `about`
+   * и видна в ленте, а серверу при повторе нужен всё тот же вид с номером.
+   */
+  aboutRef?: MaterialRef | null
 }
 
 /** Строка ленты: пришедшая с сервера либо своя, пока она уходит. */

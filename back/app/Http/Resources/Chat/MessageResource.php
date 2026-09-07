@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Chat;
 
-use App\Enums\AppealReason;
 use App\Models\Message;
+use App\Support\Chat\MaterialCard;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -14,18 +14,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 final class MessageResource extends JsonResource
 {
-    /**
-     * Как называется то, с чего написали. Раздел важен: «документ» и
-     * «справочник» — разные места, и искать правило среди справок читателю не
-     * предлагается.
-     */
-    private const KIND_LABELS = [
-        'course' => 'Курс',
-        'lesson' => 'Урок',
-        'document' => 'Документ',
-        'handbook' => 'Справочник',
-    ];
-
     /**
      * @return array<string, mixed>
      */
@@ -57,35 +45,16 @@ final class MessageResource extends JsonResource
     }
 
     /**
-     * Карточка «с какого материала это замечание».
+     * Карточка «с какого материала это письмо».
      *
-     * Названия и адрес лежат снимком со дня отправки, а подписи собираются
-     * сейчас: переименуй мы кнопку «Ответа не хватило», старые сообщения
-     * должны читаться новыми словами — они об одном и том же.
+     * Рисуется тем же кодом, что и карточка над полем ввода: адресат должен
+     * увидеть ровно то, что видел отправитель, когда писал.
      *
      * @return array<string, string|null>|null
      */
     private function materialCard(): ?array
     {
-        $about = $this->about;
-
-        if (! is_array($about) || ! isset($about['kind'], $about['title'])) {
-            return null;
-        }
-
-        $reason = AppealReason::tryFrom((string) ($about['reason'] ?? ''));
-
-        return [
-            'kind' => (string) $about['kind'],
-            'kind_label' => self::KIND_LABELS[(string) $about['kind']] ?? 'Материал',
-            'title' => (string) $about['title'],
-            // Курс, внутри которого лежит урок: одно название урока не
-            // говорит, где его искать.
-            'context' => $about['context'] === null ? null : (string) $about['context'],
-            'url' => $about['url'] === null ? null : (string) $about['url'],
-            'reason' => $reason?->value,
-            'reason_label' => $reason?->label(),
-        ];
+        return MaterialCard::render($this->about);
     }
 
     /**
