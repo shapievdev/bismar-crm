@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Facades\Storage;
@@ -54,6 +55,24 @@ class Lesson extends Model implements PartOfCourse
     public function attachments(): HasMany
     {
         return $this->hasMany(LessonAttachment::class);
+    }
+
+    /**
+     * Документы и справочники, приложенные к уроку.
+     *
+     * Не файлы: те лежат в самом уроке. Это ссылки на правила, к которым урок
+     * отправляет читателя дочитать, — односторонние, в заданном порядке и без
+     * границы разделов, как «частые вопросы» у документа.
+     *
+     * @return BelongsToMany<Regulation, $this>
+     */
+    public function materials(): BelongsToMany
+    {
+        return $this->belongsToMany(Regulation::class, 'lesson_materials')
+            ->withPivot('position')
+            ->withTimestamps()
+            ->orderBy('lesson_materials.position')
+            ->orderBy('lesson_materials.id');
     }
 
     /**

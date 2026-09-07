@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\Lms\LearningController;
 use App\Http\Controllers\Api\Lms\LearningPlanController;
 use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
+use App\Http\Controllers\Api\Lms\LessonMaterialController;
 use App\Http\Controllers\Api\Lms\LessonTranscriptController;
 use App\Http\Controllers\Api\Lms\QuizController;
 use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
@@ -375,6 +376,16 @@ Route::middleware([
         // урока: это часть материала, а не отдельная сущность.
         Route::put('lessons/{lesson}/answers', [LessonAnswerController::class, 'save'])->name('answers.save');
         Route::post('lessons/{lesson}/answers/suggest', [LessonAnswerController::class, 'suggest'])->name('answers.suggest');
+
+        // Документы и справочники, приложенные к уроку: список ведёт тот, кто
+        // правит курс. Читателю своего адреса не нужно — они едут вместе с
+        // уроком и показываются под статьёй.
+        Route::get('lessons/{lesson}/materials', [LessonMaterialController::class, 'index'])
+            ->name('materials.index');
+        Route::put('lessons/{lesson}/materials', [LessonMaterialController::class, 'update'])
+            ->name('materials.update');
+        Route::get('lessons/{lesson}/materials/candidates', [LessonMaterialController::class, 'candidates'])
+            ->name('materials.candidates');
 
         // Расшифровки. Тоже под правом на правку, и это единственный способ до
         // них добраться: читателю они не видны — он читает материал, а не его

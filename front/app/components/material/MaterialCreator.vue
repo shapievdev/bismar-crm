@@ -100,10 +100,18 @@ async function save() {
       </div>
 
       <div class="field">
-        <label class="field-label" for="category">
-          Категория <span class="field-optional">— если есть</span>
-        </label>
-        <CategoryTreeSelect id="category" v-model="form.category_id" :categories="categories" />
+        <label class="field-label" for="category">Категория</label>
+        <!-- Обязательна: раздел открывается списком категорий, и материал без
+             неё в навигации не существует. -->
+        <CategoryTreeSelect
+          id="category"
+          v-model="form.category_id"
+          :categories="categories"
+          :allow-none="false"
+        />
+        <p v-if="errors.category_id?.length" class="field-error">
+          {{ errors.category_id[0] }}
+        </p>
       </div>
 
       <div class="field">

@@ -27,6 +27,7 @@ import type {
   QuizAttempt,
   QuizPayload,
   QuizStatistics,
+  RegulationLink,
   TrashedMaterial,
   StatusOption,
   SuggestedAnswer,
@@ -265,6 +266,33 @@ export function useLmsApi() {
       $api<ResourceResponse<LessonAttachment>>(`/api/lms/lessons/${lessonId}/attachments/drive`, {
         method: 'POST',
         body: { ...file, description },
+      }),
+
+    /* ---------- Документы, приложенные к уроку ---------- */
+
+    /**
+     * Список односторонний и в заданном порядке: его читают под статьёй урока.
+     * Подсказка ищет по обоим разделам — урок отправляет к ответу, а не по
+     * своему разделу.
+     */
+    fetchLessonMaterials: (lessonId: number | string): Promise<ResourceResponse<RegulationLink[]>> =>
+      $api<ResourceResponse<RegulationLink[]>>(`/api/lms/lessons/${lessonId}/materials`),
+
+    updateLessonMaterials: (
+      lessonId: number | string,
+      documents: number[],
+    ): Promise<ResourceResponse<RegulationLink[]>> =>
+      $api<ResourceResponse<RegulationLink[]>>(`/api/lms/lessons/${lessonId}/materials`, {
+        method: 'PUT',
+        body: { documents },
+      }),
+
+    searchLessonMaterialCandidates: (
+      lessonId: number | string,
+      search: string,
+    ): Promise<ResourceResponse<RegulationLink[]>> =>
+      $api<ResourceResponse<RegulationLink[]>>(`/api/lms/lessons/${lessonId}/materials/candidates`, {
+        query: { search },
       }),
 
     updateAttachment: (attachmentId: number, description: string | null) =>

@@ -90,7 +90,14 @@ const visibilityOptions: SelectOption<CourseVisibility>[] = [
     <aside class="course-form__side card">
       <div class="field">
         <label for="category">Категория</label>
-        <CategoryTreeSelect id="category" v-model="model.category_id" :categories="categories" />
+        <!-- Без категории курс не сохранить: каталог открывается их списком, и
+             курс без категории в навигации не существует. -->
+        <CategoryTreeSelect
+          id="category"
+          v-model="model.category_id"
+          :categories="categories"
+          :allow-none="false"
+        />
         <p v-if="errors.category_id?.length" class="field__error">
           {{ errors.category_id[0] }}
         </p>

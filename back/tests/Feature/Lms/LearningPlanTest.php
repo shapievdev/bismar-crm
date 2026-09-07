@@ -13,6 +13,7 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
+use App\Models\RegulationCategory;
 use App\Models\User;
 use App\Support\Push\PushMessage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -452,7 +453,10 @@ final class LearningPlanTest extends TestCase
     {
         $sales = Category::factory()->create(['name' => 'Продажи']);
         $course = Course::factory()->published()->create(['title' => 'Работа с возражениями', 'category_id' => $sales->id]);
-        $regulation = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        $regulation = Regulation::factory()->published()->create([
+            'title' => 'Кассовая дисциплина',
+            'category_id' => RegulationCategory::factory()->create(['name' => 'Касса'])->id,
+        ]);
         $draft = Course::factory()->create(['title' => 'Ещё пишется']);
 
         $response = $this->actingAs($this->trainer())
@@ -472,8 +476,8 @@ final class LearningPlanTest extends TestCase
         $this->assertSame('Продажи', $offered['Работа с возражениями']['category']);
         $this->assertSame('document', $offered['Кассовая дисциплина']['kind']);
         $this->assertSame($regulation->id, $offered['Кассовая дисциплина']['id']);
-        // Регламент без раздела приходит с пустой категорией, а не с выдумкой.
-        $this->assertNull($offered['Кассовая дисциплина']['category']);
+        // Категория приходит названием, а не номером: список сужают глазами.
+        $this->assertSame('Касса', $offered['Кассовая дисциплина']['category']);
     }
 
     /** Чужой закрытый курс не всплывает в списке даже названием. */

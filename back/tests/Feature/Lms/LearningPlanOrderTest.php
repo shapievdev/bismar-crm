@@ -20,11 +20,11 @@ use Tests\TestCase;
 
 /**
  * Очередь плана обучения: пока план не пройден, сотруднику открыт ровно один
- * материал — тот, до которого дошла очередь.
+ * курс — тот, до которого дошла очередь, — плюс всё, что он уже прошёл.
  *
- * Запрет накрывает всю базу знаний — курсы, документы и справочники. Открытым
- * остаётся ещё и всё, что человек уже прошёл: очередь не даёт забегать вперёд,
- * а не отбирает прочитанное.
+ * Запрет касается только курсов. Документы и справочники читают свободно, но
+ * шагом плана документ очередь держит наравне с курсом: не прочитан — курсы
+ * закрыты.
  */
 final class LearningPlanOrderTest extends TestCase
 {
@@ -187,55 +187,52 @@ final class LearningPlanOrderTest extends TestCase
     }
 
     /**
-     * Документ вне плана закрыт наравне с курсом — иначе очередь обходилась бы
-     * тем же содержанием, выложенным правилом.
+     * Документы и справочники очередь не запирает (решение пользователя
+     * 2026-09-07): к правилу компании приходят за ответом, и посреди чужого
+     * обучения тоже. Назначенный документ при этом остаётся непройденным — и
+     * курсы из-за него по-прежнему закрыты, это проверено выше.
      */
-    public function test_a_document_outside_the_plan_stays_shut(): void
+    public function test_documents_stay_readable_while_the_plan_is_unfinished(): void
     {
         $learner = $this->learner();
         $this->assign($learner, [Course::factory()->withLessons(1)->create(['title' => 'Основы'])]);
 
         $this->actingAs($learner)
             ->getJson(route('lms.documents.show', Regulation::factory()->published()->create()))
-            ->assertForbidden()
-            ->assertJsonPath('message', 'Документ откроется, когда вы завершите план обучения. Сейчас ваш шаг — пройдите курс «Основы».');
+            ->assertOk();
     }
 
-    /**
-     * Справочник — свой раздел, и отказ называет его своим именем: «курс
-     * закрыт» на странице справочника читалось бы ошибкой.
-     */
-    public function test_a_handbook_outside_the_plan_stays_shut(): void
+    public function test_handbooks_stay_readable_while_the_plan_is_unfinished(): void
     {
         $learner = $this->learner();
-        $this->assign($learner, [Course::factory()->withLessons(1)->create(['title' => 'Основы'])]);
+        $this->assign($learner, [Course::factory()->withLessons(1)->create()]);
 
         $handbook = Regulation::factory()->published()->create(['kind' => MaterialKind::Handbook]);
 
         $this->actingAs($learner)
             ->getJson(route('lms.handbooks.show', $handbook))
-            ->assertForbidden()
-            ->assertJsonPath('message', 'Справочник откроется, когда вы завершите план обучения. Сейчас ваш шаг — пройдите курс «Основы».');
+            ->assertOk();
     }
 
     /**
-     * Прочитанное однажды остаётся открытым: под правилом расписались, и
-     * показывать его обязаны по первому требованию.
+     * И проверку при документе сдать не мешает: иначе шаг плана нельзя было бы
+     * пройти, не пройдя его.
      */
-    public function test_a_document_already_read_stays_open(): void
+    public function test_a_document_step_can_be_read_out_of_turn(): void
     {
         $learner = $this->learner();
-        $document = Regulation::factory()->published()->create();
         $course = Course::factory()->withLessons(1)->create();
+        $document = Regulation::factory()->published()->create();
 
-        $this->assign($learner, [$document, $course]);
-
-        $this->actingAs($learner)
-            ->postJson(route('lms.documents.acknowledge', $document))
-            ->assertOk();
+        // Документ вторым шагом: очередь до него не дошла, а открыть можно.
+        $this->assign($learner, [$course, $document]);
 
         $this->actingAs($learner)
             ->getJson(route('lms.documents.show', $document))
+            ->assertOk();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.documents.acknowledge', $document))
             ->assertOk();
     }
 
@@ -360,28 +357,9 @@ final class LearningPlanOrderTest extends TestCase
     /**
      * Каталог документов запирается тем же правилом, что и каталог курсов.
      */
-    public function test_the_document_catalogue_marks_locked_material(): void
-    {
-        $learner = $this->learner();
-        $document = Regulation::factory()->published()->create(['title' => 'Первое']);
-        $other = Regulation::factory()->published()->create(['title' => 'Прочее']);
-
-        $this->assign($learner, [$document]);
-
-        $catalogue = collect(
-            $this->actingAs($learner)
-                ->getJson(route('lms.documents.index'))
-                ->assertOk()
-                ->json('data'),
-        )->keyBy('title');
-
-        $this->assertFalse($catalogue['Первое']['is_locked']);
-        $this->assertTrue($catalogue['Прочее']['is_locked']);
-    }
-
     /**
-     * В своём плане видно, какой шаг сейчас, а какие ещё заперты, — и шаг с
-     * документом запирается наравне с курсом.
+     * В своём плане видно, какой шаг сейчас, а какие ещё заперты. Шаг с
+     * документом не запирается: очередь держит только курсы.
      */
     public function test_the_plan_says_which_steps_are_locked(): void
     {
@@ -396,7 +374,7 @@ final class LearningPlanOrderTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.is_locked', false)
             ->assertJsonPath('data.1.is_locked', true)
-            ->assertJsonPath('data.2.is_locked', true);
+            ->assertJsonPath('data.2.is_locked', false);
     }
 
     /**

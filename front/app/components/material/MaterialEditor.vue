@@ -400,7 +400,17 @@ function moveQuestion(document: RegulationLink, delta: number) {
 
       <div class="field">
         <label class="field-label" for="category">Категория</label>
-        <CategoryTreeSelect id="category" v-model="form.category_id" :categories="categories" />
+        <!-- Обязательна: раздел открывается списком категорий, и материал без
+             неё в навигации не существует. -->
+        <CategoryTreeSelect
+          id="category"
+          v-model="form.category_id"
+          :categories="categories"
+          :allow-none="false"
+        />
+        <p v-if="errors.category_id?.length" class="field-error">
+          {{ errors.category_id[0] }}
+        </p>
       </div>
 
       <!-- Слова, которыми документ найдут поиском. Стоят до статьи: их

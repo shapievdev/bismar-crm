@@ -31,6 +31,9 @@ final class RegulationTest extends TestCase
             'content_json' => ['type' => 'doc', 'content' => []],
             'status' => CourseStatus::Published->value,
             'visibility' => CourseVisibility::Public->value,
+
+            // Категория обязательна: каталог открывается её списком.
+            'category_id' => RegulationCategory::factory()->create()->id,
         ], $overrides);
     }
 

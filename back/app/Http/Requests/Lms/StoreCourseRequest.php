@@ -24,7 +24,12 @@ class StoreCourseRequest extends FormRequest
             'title' => ['required', 'string', 'max:255'],
             'summary' => ['nullable', 'string', 'max:500'],
             'description' => ['nullable', 'string'],
-            'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')],
+            /*
+             * Категория обязательна (решение пользователя 2026-09-07): каталог
+             * открывается списком категорий, и курс без неё в навигации не
+             * существует — его находил бы только поиск.
+             */
+            'category_id' => ['required', 'integer', Rule::exists('categories', 'id')],
             'status' => ['required', Rule::enum(CourseStatus::class)],
             // Не присылают — значит, не меняют: у нового курса это «открытый»,
             // у существующего остаётся то, что было.

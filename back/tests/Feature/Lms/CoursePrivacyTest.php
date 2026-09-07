@@ -243,6 +243,7 @@ final class CoursePrivacyTest extends TestCase
         $this->actingAs($editor)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => $course->title,
+                'category_id' => $course->category_id,
                 'status' => $course->status->value,
                 'visibility' => CourseVisibility::Public->value,
             ])
@@ -252,6 +253,7 @@ final class CoursePrivacyTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => $course->title,
+                'category_id' => $course->category_id,
                 'status' => $course->status->value,
                 'visibility' => CourseVisibility::Public->value,
             ])
@@ -276,6 +278,7 @@ final class CoursePrivacyTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => 'Новое название',
+                'category_id' => $course->category_id,
                 'status' => $course->status->value,
             ])
             ->assertOk()

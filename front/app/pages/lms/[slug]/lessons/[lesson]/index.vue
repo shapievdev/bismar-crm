@@ -347,6 +347,24 @@ function formatSize(bytes: number): string {
         </ClientOnly>
       </div>
 
+      <!-- Куда идти дочитать: правила и справки, приложенные к уроку. Сразу
+           после статьи, потому что читаются они вместе с ней — урок объясняет,
+           как делать, а документ говорит, как положено. Раздел у строки свой, и
+           адрес к ней собран на сервере. -->
+      <section v-if="lesson.materials?.length" class="block">
+        <h2 class="block__title">
+          Что почитать к уроку
+        </h2>
+        <ul class="materials">
+          <li v-for="item in lesson.materials" :key="item.id">
+            <NuxtLink :to="item.path" class="materials__link">
+              {{ item.title }}
+              <span v-if="!item.is_published" class="badge badge--warning">Черновик</span>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+
       <section v-if="lesson.attachments?.length" class="block">
         <h2 class="block__title">
           Файлы
@@ -781,6 +799,37 @@ function formatSize(bytes: number): string {
   padding: 0;
   list-style: none;
   max-width: 34rem;
+}
+
+/*
+ * Приложенные документы — строки с волосяной линией между ними, как «частые
+ * вопросы» у документа: их читают взглядом сверху вниз, а рамка вокруг каждой
+ * превратила бы четыре ссылки в четыре карточки.
+ */
+.materials {
+  display: flex;
+  flex-direction: column;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 34rem;
+}
+
+.materials li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.materials__link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.materials__link:hover {
+  color: var(--color-accent);
 }
 
 .file {

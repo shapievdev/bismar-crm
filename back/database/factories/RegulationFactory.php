@@ -8,6 +8,7 @@ use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
 use App\Models\Regulation;
+use App\Models\RegulationCategory;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -18,6 +19,27 @@ use Illuminate\Support\Str;
 final class RegulationFactory extends Factory
 {
     protected $model = Regulation::class;
+
+    /**
+     * Категория обязательна: каталог открывается её списком, и материал без
+     * категории в навигации не существует.
+     *
+     * Заводится здесь, а не в definition(): вид категории должен совпасть с
+     * видом материала, а он к этому времени уже известен — состояние
+     * handbook() применено.
+     */
+    public function configure(): self
+    {
+        return $this->afterMaking(function (Regulation $regulation): void {
+            if ($regulation->category_id !== null) {
+                return;
+            }
+
+            $regulation->category_id = RegulationCategory::factory()
+                ->create(['kind' => $regulation->kind])
+                ->getKey();
+        });
+    }
 
     /**
      * @return array<string, mixed>

@@ -6,6 +6,7 @@ namespace Tests\Feature\Lms;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Models\Category;
 use App\Models\Course;
 use App\Models\Regulation;
 use App\Support\Lms\Keywords;
@@ -54,6 +55,7 @@ final class KeywordSearchTest extends TestCase
         $response = $this->actingAs($author)
             ->postJson(route('lms.courses.store'), [
                 'title' => 'Работа с кассой',
+                'category_id' => Category::factory()->create()->id,
                 'status' => CourseStatus::Draft->value,
                 'keywords' => ['ККМ', 'касса'],
             ])
@@ -68,6 +70,7 @@ final class KeywordSearchTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => 'Работа с кассой',
+                'category_id' => $course->category_id,
                 'status' => CourseStatus::Draft->value,
                 'keywords' => [],
             ])
@@ -86,6 +89,7 @@ final class KeywordSearchTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => $course->title,
+                'category_id' => $course->category_id,
                 'status' => $course->status->value,
             ])
             ->assertOk()
@@ -120,6 +124,7 @@ final class KeywordSearchTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.documents.update', $document), [
                 'title' => 'Возврат товара',
+                'category_id' => $document->category_id,
                 'status' => CourseStatus::Published->value,
                 'visibility' => CourseVisibility::Public->value,
                 'keywords' => ['пересорт', 'брак'],
@@ -145,6 +150,7 @@ final class KeywordSearchTest extends TestCase
         $this->actingAs($author)
             ->putJson(route('lms.documents.update', $document), [
                 'title' => $document->title,
+                'category_id' => $document->category_id,
                 'status' => $document->status->value,
                 'visibility' => $document->visibility->value,
             ])
@@ -176,6 +182,7 @@ final class KeywordSearchTest extends TestCase
         $this->actingAs($this->author())
             ->postJson(route('lms.courses.store'), [
                 'title' => 'Работа с кассой',
+                'category_id' => Category::factory()->create()->id,
                 'status' => CourseStatus::Draft->value,
                 'keywords' => array_map(static fn (int $n): string => 'слово '.$n, range(1, Keywords::LIMIT + 1)),
             ])

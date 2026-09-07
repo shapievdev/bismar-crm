@@ -57,6 +57,11 @@ export interface LessonSummary {
   content?: string | null
   content_json?: Record<string, unknown> | null
   attachments?: LessonAttachment[]
+  /**
+   * Документы и справочники, приложенные к уроку: их читают под статьёй и по
+   * ним уходят дальше — в свой раздел или в чужой.
+   */
+  materials?: RegulationLink[]
   answers?: LessonAnswer[]
   quiz?: Quiz | null
   is_completed?: boolean
@@ -358,11 +363,6 @@ export interface Regulation {
   can_manage_access: boolean
   members_count?: number
   category: RegulationCategory | null
-  /**
-   * Дошла ли до материала очередь плана обучения. Приходит из каталога: на
-   * самой странице поля нет — закрытый материал туда не пускает.
-   */
-  is_locked?: boolean
   author?: { id: number, name: string } | null
   experts?: CoursePerson[]
   /** Что читать рядом. Приходит уже отобранным под того, кто спрашивает. */

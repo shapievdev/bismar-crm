@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Models\Category;
 use App\Models\Course;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -27,6 +28,10 @@ final class CourseFactory extends Factory
 
         return [
             'author_id' => User::factory(),
+
+            // Категория обязательна: каталог открывается её списком, и материал
+            // без категории в навигации не существует.
+            'category_id' => Category::factory(),
             'title' => $title,
             'slug' => Str::slug($title).'-'.Str::lower(Str::random(4)),
             'summary' => fake()->sentence(),

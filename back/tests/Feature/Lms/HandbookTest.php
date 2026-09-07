@@ -37,6 +37,9 @@ final class HandbookTest extends TestCase
             'summary' => 'Что делать прямо сейчас.',
             'status' => CourseStatus::Published->value,
             'visibility' => CourseVisibility::Public->value,
+
+            // Категория обязательна, и она из дерева своего раздела.
+            'category_id' => RegulationCategory::factory()->create(['kind' => MaterialKind::Handbook])->id,
         ], $overrides);
     }
 

@@ -25,11 +25,12 @@ use Illuminate\Database\Eloquent\Collection;
  * Остальные курсы — и следующие по плану, и любые посторонние из каталога —
  * закрыты, пока план не пройден целиком.
  *
- * Запрет накрывает всю базу знаний — курсы, документы и справочники (решение
- * пользователя 2026-09-05). Сначала он касался одних курсов, но половинчатым
- * правилом обходился сам себя: содержание курса нередко лежит и в документе,
- * и «пройди сначала своё» читалось как «пройди, если не найдёшь обходной
- * дороги».
+ * Запрет касается только курсов (решение пользователя 2026-09-07; день до
+ * этого он накрывал и документы со справочниками). Документы читают свободно:
+ * к правилу компании приходят за ответом, а не за обучением, и закрыть его до
+ * конца плана значит закрыть в тот единственный момент, когда оно
+ * понадобилось. Шагом плана документ при этом остаётся и очередь держит
+ * наравне с курсом: не прочитан — курсы закрыты.
  *
  * Пустой план не запрещает ничего: у большинства сотрудников его нет вовсе, и
  * «нечего проходить» не должно читаться как «нельзя ничего».
@@ -43,11 +44,11 @@ final class LearningPlan
     private const KINDS = [Course::class, Regulation::class];
 
     /**
-     * Что этот человек уже прошёл — по видам материала. Считается при первом
-     * вопросе: каталог спрашивает про пятнадцать строк подряд, и ходить за
-     * одним и тем же списком пятнадцать раз незачем.
+     * Курсы, закрытые этим человеком целиком. Считаются при первом вопросе:
+     * каталог спрашивает про пятнадцать курсов подряд, и ходить за одним и тем
+     * же списком пятнадцать раз незачем.
      *
-     * @var array<class-string, list<int>>|null
+     * @var list<int>|null
      */
     private ?array $finished = null;
 
@@ -136,87 +137,64 @@ final class LearningPlan
     }
 
     /**
-     * Открыт ли материал — по очереди плана, а не по правам: права спрашивают
+     * Открыт ли курс — по очереди плана, а не по правам: права спрашивают
      * отдельно и раньше.
      *
      * Пройденное остаётся открытым навсегда. Запрет тут про то, чтобы не
      * забегать вперёд и не уходить в сторону, а не про то, чтобы отбирать
-     * прочитанное: за пройденным курсом возвращаются перечитать, разбор своей
-     * же попытки теста живёт там же, а правило, под которым однажды
-     * расписались, обязаны показывать по первому требованию.
+     * прочитанное: за пройденным курсом возвращаются перечитать, и разбор
+     * своей же попытки теста живёт там же.
      */
-    public function allows(Course|Regulation $material): bool
-    {
-        if ($this->currentStep() === null) {
-            return true;
-        }
-
-        return $this->isCurrent($material) || $this->isPassed($material);
-    }
-
-    /**
-     * Тот ли это материал, до которого дошла очередь.
-     *
-     * Сверяется и вид, и номер: документ и курс нумеруются каждый со своей
-     * единицы, и один только номер открыл бы курс № 3 на шаге «документ № 3».
-     */
-    private function isCurrent(Course|Regulation $material): bool
+    public function allows(Course $course): bool
     {
         $current = $this->currentStep();
 
-        return $current?->plannable_type === $material->getMorphClass()
-            && (int) $current->plannable_id === (int) $material->getKey();
+        if ($current === null) {
+            return true;
+        }
+
+        if ($current->plannable instanceof Course && (int) $current->plannable_id === (int) $course->getKey()) {
+            return true;
+        }
+
+        return in_array((int) $course->getKey(), $this->finishedCourseIds(), strict: true);
     }
 
     /**
-     * Пройден ли материал этим человеком — где угодно, не только в плане:
-     * курс, закрытый до того, как план назначили, тоже закрыт, а документ, под
-     * которым расписались, тоже прочитан.
+     * Курсы, которые этот человек уже закрыл, — все, а не только плановые:
+     * курс, пройденный до того, как план назначили, тоже пройден.
+     *
+     * @return list<int>
      */
-    private function isPassed(Course|Regulation $material): bool
+    private function finishedCourseIds(): array
     {
-        $this->finished ??= [
-            Course::class => Enrollment::query()
-                ->where('user_id', $this->learner->getKey())
-                ->whereNotNull('completed_at')
-                ->pluck('course_id')
-                ->map(intval(...))
-                ->all(),
-            Regulation::class => app(StepCompletion::class)->documentsPassedBy($this->learner),
-        ];
-
-        return in_array((int) $material->getKey(), $this->finished[$material::class], strict: true);
+        return $this->finished ??= Enrollment::query()
+            ->where('user_id', $this->learner->getKey())
+            ->whereNotNull('completed_at')
+            ->pluck('course_id')
+            ->map(intval(...))
+            ->all();
     }
 
     /**
-     * Почему материал не открылся — словами, которые увидит сотрудник.
+     * Почему курс не открылся — словами, которые увидит сотрудник.
      *
      * Называет шаг, на котором он стоит: «завершите план» без имени того, что
      * проходить, отправляет искать это самому.
      */
-    public function refusal(Course|Regulation $material): string
+    public function refusal(): string
     {
-        $refused = $this->nameOf($material);
         $current = $this->currentStep();
         $title = $current?->plannable?->title;
 
         if ($title === null) {
-            return $refused.' откроется, когда вы завершите план обучения.';
+            return 'Курс откроется, когда вы завершите план обучения.';
         }
 
         $step = $current?->plannable instanceof Regulation
             ? 'прочитайте «'.$title.'»'
             : 'пройдите курс «'.$title.'»';
 
-        return $refused.' откроется, когда вы завершите план обучения. Сейчас ваш шаг — '.$step.'.';
-    }
-
-    /**
-     * Как материал называется на экране: у документа и справочника разделы
-     * разные, и «курс закрыт» на странице справочника читалось бы ошибкой.
-     */
-    private function nameOf(Course|Regulation $material): string
-    {
-        return $material instanceof Regulation ? $material->kind->label() : 'Курс';
+        return 'Курс откроется, когда вы завершите план обучения. Сейчас ваш шаг — '.$step.'.';
     }
 }

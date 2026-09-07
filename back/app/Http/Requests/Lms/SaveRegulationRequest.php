@@ -37,9 +37,15 @@ final class SaveRegulationRequest extends FormRequest
             'status' => ['required', Rule::enum(CourseStatus::class)],
             'visibility' => ['required', Rule::enum(CourseVisibility::class)],
 
-            // Из дерева своего раздела: категории у документов и справочников
-            // разные, и чужая означала бы материал, невидимый в каталоге.
-            'category_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')
+            /*
+             * Из дерева своего раздела: категории у документов и справочников
+             * разные, и чужая означала бы материал, невидимый в каталоге.
+             *
+             * Обязательна (решение пользователя 2026-09-07): каталог
+             * открывается списком категорий, и материал без неё в навигации не
+             * существует — его находил бы только поиск.
+             */
+            'category_id' => ['required', 'integer', Rule::exists('regulation_categories', 'id')
                 ->where('kind', MaterialKind::of($this)->value)],
 
             // Слова, которыми документ ищут. Пустой список присылать можно:

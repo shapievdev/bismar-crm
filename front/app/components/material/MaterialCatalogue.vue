@@ -17,13 +17,6 @@ useHead({ title: copy.title })
 const { can } = useAuth()
 const { fetchRegulations, fetchCategories } = useMaterialsApi(props.section)
 
-/*
- * Материал, до которого не дошла очередь плана обучения, никуда не ведёт и
- * отвечает на нажатие тем же окном, что и каталог курсов.
- */
-const { explain: explainLock } = usePlanLock()
-const link = resolveComponent('NuxtLink')
-
 const route = useRoute()
 const router = useRouter()
 
@@ -57,15 +50,36 @@ const { data: categoryData } = await useAsyncData(
   () => fetchCategories(),
 )
 
+const categoryTree = computed<RegulationCategory[]>(() => categoryData.value?.data ?? [])
+
+/**
+ * Показывать ли сами материалы.
+ *
+ * Раздел открывается списком категорий и ничего кроме них не показывает
+ * (решение пользователя 2026-09-07): материалов десятки, и вываливать их все
+ * на первый экран значит просить читателя листать вместо того, чтобы выбрать
+ * категорию. Материалы появляются, когда человек в неё вошёл.
+ *
+ * Два исключения. Поиск отвечает по всему разделу — он на то и поиск, а не
+ * отбор внутри категории. И пока категорий нет вовсе, каталог показывает
+ * материалы: иначе экран был бы пуст, а материалы бы в нём были.
+ */
+const showsMaterials = computed(() =>
+  Boolean(category.value) || search.value.trim() !== '' || categoryTree.value.length === 0,
+)
+
 const { data, pending, error } = await useAsyncData(
   `lms.${props.section}`,
-  () => fetchRegulations({
-    search: search.value || undefined,
-    category: category.value || undefined,
-    status: STATUS_BY_TAB[tab.value],
-    page: page.value > 1 ? page.value : undefined,
-  }),
-  { watch: [search, tab, category, page] },
+  () => showsMaterials.value
+    ? fetchRegulations({
+        search: search.value || undefined,
+        category: category.value || undefined,
+        status: STATUS_BY_TAB[tab.value],
+        page: page.value > 1 ? page.value : undefined,
+      })
+    // Спрашивать нечего: на корне показаны одни категории.
+    : Promise.resolve({ data: [], meta: { current_page: 1, last_page: 1, per_page: 15, total: 0 } }),
+  { watch: [search, tab, category, page, showsMaterials] },
 )
 
 // Сузили список — прежняя страница ушла из-под ног: четвёртая страница всего
@@ -86,7 +100,6 @@ watchEffect(() => {
 })
 
 const documents = computed(() => data.value?.data ?? [])
-const categoryTree = computed<RegulationCategory[]>(() => categoryData.value?.data ?? [])
 
 const total = computed(() => data.value?.meta.total ?? 0)
 const currentPage = computed(() => data.value?.meta.current_page ?? 1)
@@ -247,63 +260,59 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </button>
     </div>
 
-    <p v-if="error" class="alert alert--danger" role="alert">
-      {{ `Не удалось загрузить раздел «${copy.title}».` }}
-    </p>
+    <!-- Материалы — только внутри категории и в ответ на поиск: раздел
+         открывается категориями, а не списком всего, что в нём есть. -->
+    <template v-if="showsMaterials">
+      <p v-if="error" class="alert alert--danger" role="alert">
+        {{ `Не удалось загрузить раздел «${copy.title}».` }}
+      </p>
 
-    <div v-else-if="pending" class="grid">
-      <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
-        <div class="skeleton skeleton-line skeleton-line--short" />
-        <div class="skeleton skeleton-line skeleton-line--title" />
-        <div class="skeleton skeleton-line skeleton-line--half" />
-      </div>
-    </div>
-
-    <UiEmptyState
-      v-else-if="!documents.length"
-      :title="copy.emptyCatalogue"
-      :description="search || category
-        ? 'Попробуйте изменить запрос или категорию.'
-        : 'Заведите первый — он будет виден всем, кто читает базу знаний.'"
-    >
-      <NuxtLink v-if="can('courses.create')" :to="`/lms/${copy.section}/new`" class="button-primary">
-        {{ copy.createLabel }}
-      </NuxtLink>
-    </UiEmptyState>
-
-    <div v-else ref="grid" class="grid">
-      <!-- Материал, до которого не дошла очередь плана, — кнопка, а не ссылка:
-           вести ей некуда, а нажать по карточке всё равно попробуют, и
-           ответить на это нажатие надо. -->
-      <component
-        :is="item.is_locked ? 'button' : link"
-        v-for="item in documents"
-        :key="item.id"
-        :type="item.is_locked ? 'button' : undefined"
-        :to="item.is_locked ? undefined : `/lms/${copy.section}/${item.slug}`"
-        class="card card--raised document"
-        :class="{ 'document--locked': item.is_locked }"
-        @click="item.is_locked ? explainLock(copy.materialLabel) : undefined"
-      >
-        <!-- Состояние сверху, как на карточке курса: сперва видно, что это за
-             документ, потом уже как он называется. -->
-        <div class="document__badges">
-          <span v-if="item.is_locked" class="badge">Закрыт планом</span>
-          <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
-          <span v-if="item.is_private" class="badge" title="Виден только допущенным">Закрыт</span>
-          <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
-          <span v-if="item.category" class="badge">{{ item.category.name }}</span>
+      <div v-else-if="pending" class="grid">
+        <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
+          <div class="skeleton skeleton-line skeleton-line--short" />
+          <div class="skeleton skeleton-line skeleton-line--title" />
+          <div class="skeleton skeleton-line skeleton-line--half" />
         </div>
+      </div>
 
-        <h2 class="document__title">
-          {{ item.title }}
-        </h2>
+      <UiEmptyState
+        v-else-if="!documents.length"
+        :title="copy.emptyCatalogue"
+        :description="search || category
+          ? 'Попробуйте изменить запрос или категорию.'
+          : 'Заведите первый — он будет виден всем, кто читает базу знаний.'"
+      >
+        <NuxtLink v-if="can('courses.create')" :to="`/lms/${copy.section}/new`" class="button-primary">
+          {{ copy.createLabel }}
+        </NuxtLink>
+      </UiEmptyState>
 
-        <p v-if="item.summary" class="document__summary">
-          {{ item.summary }}
-        </p>
-      </component>
-    </div>
+      <div v-else ref="grid" class="grid">
+        <NuxtLink
+          v-for="item in documents"
+          :key="item.id"
+          :to="`/lms/${copy.section}/${item.slug}`"
+          class="card card--raised document"
+        >
+          <!-- Состояние сверху, как на карточке курса: сперва видно, что это
+               за документ, потом уже как он называется. -->
+          <div class="document__badges">
+            <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
+            <span v-if="item.is_private" class="badge" title="Виден только допущенным">Закрыт</span>
+            <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
+            <span v-if="item.category" class="badge">{{ item.category.name }}</span>
+          </div>
+
+          <h2 class="document__title">
+            {{ item.title }}
+          </h2>
+
+          <p v-if="item.summary" class="document__summary">
+            {{ item.summary }}
+          </p>
+        </NuxtLink>
+      </div>
+    </template>
 
     <nav v-if="lastPage > 1" class="pager" :aria-label="`Страницы раздела «${copy.title}»`">
       <button
@@ -501,21 +510,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 
 .document:hover {
   box-shadow: var(--shadow-md);
-}
-
-/* Закрытый очередью материал не выключен — он читается и остаётся на месте,
-   чтобы человек видел, что материал есть и откроется после плана. */
-.document--locked {
-  width: 100%;
-  border: 0;
-  font: inherit;
-  text-align: left;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.document--locked:hover {
-  box-shadow: var(--shadow-sm);
 }
 
 .document__badges {

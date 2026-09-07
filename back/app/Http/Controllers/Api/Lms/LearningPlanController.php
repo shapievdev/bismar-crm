@@ -253,6 +253,9 @@ final class LearningPlanController extends Controller
      * Только в своём плане: составителю замки не нужны — он смотрит, что
      * назначено, а не что открыто, — и считается правило по тому, кто учится.
      *
+     * Шаг с документом не запирается: очередь держит только курсы, а к правилу
+     * компании приходят за ответом и посреди чужого обучения.
+     *
      * @param  Collection<int, LearningPlanItem>  $items
      * @return Collection<int, LearningPlanItem>
      */
@@ -263,7 +266,7 @@ final class LearningPlanController extends Controller
         return $items->each(fn (LearningPlanItem $item) => $item->setAttribute(
             'is_locked',
             $restrained
-                && ($item->plannable instanceof Course || $item->plannable instanceof Regulation)
+                && $item->plannable instanceof Course
                 && ! $plan->allows($item->plannable),
         ));
     }

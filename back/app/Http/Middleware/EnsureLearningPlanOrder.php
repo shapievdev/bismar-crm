@@ -5,27 +5,24 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Models\Contracts\PartOfCourse;
-use App\Models\Contracts\PartOfRegulation;
 use App\Models\Course;
-use App\Models\Regulation;
 use App\Support\Lms\LearningPlan;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Материал базы знаний открывается по очереди плана обучения, а не когда
- * вздумается.
+ * Курс открывается по очереди плана обучения, а не когда вздумается.
  *
  * Проверка стоит на входе во всю группу, как и доступ к курсу
- * (EnsureCourseAccess), и по той же причине: маршрутов, ведущих к материалу,
- * два десятка — урок, тест, попытка, вложение, отметка об ознакомлении, — и
- * проверять очередь в каждом значит однажды завести двадцать первый и забыть.
- * Само правило живёт в LearningPlan, здесь только место, где его спрашивают.
+ * (EnsureCourseAccess), и по той же причине: маршрутов, ведущих к курсу, два
+ * десятка — урок, тест, попытка, вложение, — и проверять очередь в каждом
+ * значит однажды завести двадцать первый и забыть. Само правило живёт в
+ * LearningPlan, здесь только место, где его спрашивают.
  *
- * Отказ — 403 с объяснением, а не 404: материал существует и человеку виден,
- * он лежит в каталоге под замком, и ответ «не найдено» соврал бы читателю о
- * том, что он видит своими глазами. Сообщение уходит наружу как есть — его и
+ * Отказ — 403 с объяснением, а не 404: курс существует и человеку виден, он
+ * лежит в каталоге под замком, и ответ «не найдено» соврал бы читателю о том,
+ * что он видит своими глазами. Сообщение уходит наружу как есть — его и
  * показывает экран.
  */
 final class EnsureLearningPlanOrder
@@ -54,53 +51,49 @@ final class EnsureLearningPlanOrder
             return $next($request);
         }
 
-        $materials = $this->materialsOf($request);
+        $courses = $this->coursesOf($request);
 
-        if ($materials === []) {
+        if ($courses === []) {
             return $next($request);
         }
 
         $plan = LearningPlan::of($user);
 
-        foreach ($materials as $material) {
-            abort_if(! $plan->allows($material), Response::HTTP_FORBIDDEN, $plan->refusal($material));
+        foreach ($courses as $course) {
+            abort_if(! $plan->allows($course), Response::HTTP_FORBIDDEN, $plan->refusal());
         }
 
         return $next($request);
     }
 
     /**
-     * Материалы, которых касается запрос, — они сами или то, что им
-     * принадлежит.
+     * Курсы, которых касается запрос, — сам курс или то, что ему принадлежит.
      *
-     * Часть без владельца пропускается молча: его удалили, и об этом уже
-     * сказал EnsureCourseAccess ответом «не найдено».
+     * Документы и справочники здесь не спрашиваются вовсе: очередь их не
+     * держит (решение пользователя 2026-09-07), и правило это выражено самим
+     * отсутствием проверки, а не ветвлением внутри неё.
      *
-     * @return list<Course|Regulation>
+     * Часть без курса пропускается молча: её курс удалён, и об этом уже сказал
+     * EnsureCourseAccess ответом «не найдено».
+     *
+     * @return list<Course>
      */
-    private function materialsOf(Request $request): array
+    private function coursesOf(Request $request): array
     {
-        $materials = [];
+        $courses = [];
 
         foreach ($request->route()?->parameters() ?? [] as $parameter) {
-            if ($parameter instanceof Course || $parameter instanceof Regulation) {
-                $materials[] = $parameter;
+            $course = match (true) {
+                $parameter instanceof Course => $parameter,
+                $parameter instanceof PartOfCourse => $parameter->owningCourse(),
+                default => null,
+            };
 
-                continue;
-            }
-
-            // Оба вопроса, а не первый подошедший: попытка теста — часть и
-            // курса, и документа, и на «не своём» вопросе честно отвечает
-            // пустотой (см. QuizAttempt::owningCourse).
-            if ($parameter instanceof PartOfCourse && ($course = $parameter->owningCourse()) !== null) {
-                $materials[] = $course;
-            }
-
-            if ($parameter instanceof PartOfRegulation && ($document = $parameter->owningRegulation()) !== null) {
-                $materials[] = $document;
+            if ($course !== null) {
+                $courses[] = $course;
             }
         }
 
-        return $materials;
+        return $courses;
     }
 }

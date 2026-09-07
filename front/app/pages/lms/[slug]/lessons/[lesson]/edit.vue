@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { JSONContent } from '@tiptap/core'
-import type { LessonAnswerPayload, LessonPayload, QuizPayload, SuggestedAnswer } from '~/types/lms'
+import type { LessonAnswerPayload, LessonPayload, QuizPayload, RegulationLink, SuggestedAnswer } from '~/types/lms'
 import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
@@ -20,6 +20,9 @@ const {
   suggestAnswers,
   fetchQuizStatistics,
   fetchLessonAttempt,
+  fetchLessonMaterials,
+  updateLessonMaterials,
+  searchLessonMaterialCandidates,
 } = useLmsApi()
 
 const lessonId = computed(() => String(route.params.lesson))
@@ -122,6 +125,60 @@ const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
 const savedAt = ref<string | null>(null)
+
+/*
+ * Документы и справочники, приложенные к уроку. Список сохраняется сам, без
+ * кнопки: он не часть статьи, и терять его вместе с несохранённой правкой
+ * текста было бы обидно.
+ */
+const materials = ref<RegulationLink[]>([])
+const isLoadingMaterials = ref(false)
+const isSavingMaterials = ref(false)
+const materialsError = ref<string | null>(null)
+
+async function loadMaterials() {
+  isLoadingMaterials.value = true
+
+  try {
+    materials.value = (await fetchLessonMaterials(lessonId.value)).data
+  }
+  finally {
+    isLoadingMaterials.value = false
+  }
+}
+
+onMounted(() => void loadMaterials())
+
+async function saveMaterials(next: RegulationLink[]) {
+  isSavingMaterials.value = true
+  materialsError.value = null
+
+  try {
+    materials.value = (await updateLessonMaterials(lessonId.value, next.map(document => document.id))).data
+  }
+  catch {
+    materialsError.value = 'Не удалось сохранить список документов.'
+  }
+  finally {
+    isSavingMaterials.value = false
+  }
+}
+
+/** Переставляет строку на шаг вверх или вниз — порядок здесь и есть смысл. */
+function moveMaterial(document: RegulationLink, delta: number) {
+  const from = materials.value.findIndex(one => one.id === document.id)
+  const to = from + delta
+
+  if (from === -1 || to < 0 || to >= materials.value.length) {
+    return
+  }
+
+  const next = [...materials.value]
+
+  next.splice(to, 0, ...next.splice(from, 1))
+
+  void saveMaterials(next)
+}
 
 const quizErrors = ref<ValidationErrors>({})
 const isSavingQuiz = ref(false)
@@ -354,6 +411,26 @@ async function removeQuiz() {
           :remove-file="deleteAttachment"
           :attach-drive-file="(file) => attachDriveFile(lessonId, file)"
           @changed="refresh"
+        />
+
+        <!-- Документы и справочники, к которым урок отправляет дочитать.
+             Список сохраняется сразу, без кнопки «Сохранить»: он не часть
+             статьи, и терять его вместе с несохранённой правкой текста было бы
+             обидно. -->
+        <RelatedDocumentsPanel
+          section="documents"
+          :documents="materials"
+          :is-loading="isLoadingMaterials"
+          :is-saving="isSavingMaterials"
+          :error-message="materialsError"
+          title="Что почитать к уроку"
+          note="Документы и справочники, к которым урок отправляет дочитать. Читатель увидит их сразу после статьи; первым ставьте главное."
+          empty-note="Пока ничего не приложено."
+          ordered
+          :search="term => searchLessonMaterialCandidates(lessonId, term).then(response => response.data)"
+          @add="document => saveMaterials([...materials, document])"
+          @remove="document => saveMaterials(materials.filter(one => one.id !== document.id))"
+          @move="moveMaterial"
         />
 
         <!-- После вложений и видео: расшифровка привязана к ним, и до появления

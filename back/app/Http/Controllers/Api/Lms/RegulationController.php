@@ -15,9 +15,7 @@ use App\Models\Regulation;
 use App\Models\RegulationCategory;
 use App\Models\User;
 use App\Support\Lms\CatalogSearch;
-use App\Support\Lms\LearningPlan;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -79,27 +77,7 @@ final class RegulationController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $this->markPlanLocks($regulations->getCollection(), $reader);
-
         return RegulationResource::collection($regulations);
-    }
-
-    /**
-     * Отмечает материалы, до которых у сотрудника не дошла очередь плана.
-     *
-     * Из каталога они не пропадают: материал есть, он виден, и человек должен
-     * понимать, что откроют его после плана, а не никогда.
-     *
-     * @param  EloquentCollection<int, Regulation>  $regulations
-     */
-    private function markPlanLocks(EloquentCollection $regulations, User $reader): void
-    {
-        $plan = LearningPlan::restrains($reader) ? LearningPlan::of($reader) : null;
-
-        $regulations->each(fn (Regulation $regulation) => $regulation->setAttribute(
-            'locked_by_plan',
-            $plan !== null && ! $plan->allows($regulation),
-        ));
     }
 
     public function show(Request $request, Regulation $regulation): RegulationResource

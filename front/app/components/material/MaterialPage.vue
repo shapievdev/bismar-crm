@@ -21,13 +21,7 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  // Закрытый очередью плана материал существует и человеку виден — ответить
-  // «не найдено» значит соврать про то, что он только что видел в каталоге.
-  const locked = planLockMessage(error.value)
-
-  throw locked === null
-    ? createError({ statusCode: 404, statusMessage: copy.notFound, fatal: true })
-    : createError({ statusCode: 403, statusMessage: locked, fatal: true })
+  throw createError({ statusCode: 404, statusMessage: copy.notFound, fatal: true })
 }
 
 const regulation = computed(() => data.value?.data ?? null)

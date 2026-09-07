@@ -45,6 +45,7 @@ final class CoursePublishingTest extends TestCase
         $this->actingAs($this->author())
             ->putJson(route('lms.courses.update', $course), [
                 'title' => $course->title,
+                'category_id' => $course->category_id,
                 'status' => CourseStatus::Published->value,
             ])
             ->assertOk()
@@ -65,6 +66,7 @@ final class CoursePublishingTest extends TestCase
         $this->actingAs($this->editor())
             ->putJson(route('lms.courses.update', $course), [
                 'title' => 'Исправленное название',
+                'category_id' => $course->category_id,
                 'status' => CourseStatus::Published->value,
             ])
             ->assertOk()
@@ -84,6 +86,7 @@ final class CoursePublishingTest extends TestCase
         $this->actingAs($editor)
             ->putJson(route('lms.courses.update', $course), [
                 'title' => $course->title,
+                'category_id' => $course->category_id,
                 'status' => CourseStatus::Draft->value,
             ])
             ->assertOk();

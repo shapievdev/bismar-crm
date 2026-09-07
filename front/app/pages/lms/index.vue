@@ -56,15 +56,36 @@ const { data: reference } = await useAsyncData('lms.catalogue.reference', async 
   }
 })
 
+const categoryTree = computed<Category[]>(() => reference.value?.categories ?? [])
+
+/**
+ * Показывать ли сами курсы.
+ *
+ * Каталог открывается списком категорий и ничего кроме них не показывает
+ * (решение пользователя 2026-09-07): в компании десятки курсов, и вываливать
+ * их все на первый экран значит просить читателя листать вместо того, чтобы
+ * выбрать раздел. Курсы появляются, когда человек вошёл в категорию.
+ *
+ * Два исключения. Поиск отвечает по всей базе — он на то и поиск, а не отбор
+ * внутри раздела. И пока категорий нет вовсе, каталог показывает курсы: иначе
+ * на новой установке экран был бы пуст, а курсы бы в нём были.
+ */
+const showsCourses = computed(() =>
+  Boolean(category.value) || search.value.trim() !== '' || categoryTree.value.length === 0,
+)
+
 const { data, pending, error } = await useAsyncData(
   'lms.catalogue.courses',
-  () => fetchCourses({
-    search: search.value || undefined,
-    category: category.value || undefined,
-    status: STATUS_BY_TAB[tab.value],
-    page: page.value > 1 ? page.value : undefined,
-  }),
-  { watch: [search, tab, category, page] },
+  () => showsCourses.value
+    ? fetchCourses({
+        search: search.value || undefined,
+        category: category.value || undefined,
+        status: STATUS_BY_TAB[tab.value],
+        page: page.value > 1 ? page.value : undefined,
+      })
+    // Спрашивать нечего: на корне показаны одни категории.
+    : Promise.resolve({ data: [], meta: { current_page: 1, last_page: 1, per_page: 15, total: 0 } }),
+  { watch: [search, tab, category, page, showsCourses] },
 )
 
 // Narrowing the results moves the ground under the current page: page 4 of the
@@ -137,8 +158,6 @@ function pageFromQuery(value: unknown): number {
 
   return Number.isInteger(parsed) && parsed > 1 ? parsed : 1
 }
-
-const categoryTree = computed<Category[]>(() => reference.value?.categories ?? [])
 
 /**
  * Дорога от корня до выбранной категории: в адресе лежит один slug, а крошкам
@@ -282,39 +301,43 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </button>
     </div>
 
-    <p v-if="error" class="alert alert--danger" role="alert">
-      Не удалось загрузить курсы.
-    </p>
+    <!-- Курсы — только внутри категории и в ответ на поиск: каталог
+         открывается разделами, а не списком всего, что есть в компании. -->
+    <template v-if="showsCourses">
+      <p v-if="error" class="alert alert--danger" role="alert">
+        Не удалось загрузить курсы.
+      </p>
 
-    <div v-else-if="pending" class="grid">
-      <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
-        <div class="skeleton skeleton-line skeleton-line--short" />
-        <div class="skeleton skeleton-line skeleton-line--title" />
-        <div class="skeleton skeleton-line" />
-        <div class="skeleton skeleton-line skeleton-line--half" />
+      <div v-else-if="pending" class="grid">
+        <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
+          <div class="skeleton skeleton-line skeleton-line--short" />
+          <div class="skeleton skeleton-line skeleton-line--title" />
+          <div class="skeleton skeleton-line" />
+          <div class="skeleton skeleton-line skeleton-line--half" />
+        </div>
       </div>
-    </div>
 
-    <UiEmptyState
-      v-else-if="!visibleCourses.length"
-      title="Курсов пока нет"
-      :description="search || category
-        ? 'Попробуйте изменить запрос или категорию.'
-        : 'Как только появятся курсы, они будут здесь.'"
-    >
-      <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
-        Создать первый курс
-      </NuxtLink>
-    </UiEmptyState>
+      <UiEmptyState
+        v-else-if="!visibleCourses.length"
+        title="Курсов пока нет"
+        :description="search || category
+          ? 'Попробуйте изменить запрос или категорию.'
+          : 'Как только появятся курсы, они будут здесь.'"
+      >
+        <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
+          Создать первый курс
+        </NuxtLink>
+      </UiEmptyState>
 
-    <div v-else ref="grid" class="grid">
-      <CourseCard
-        v-for="course in visibleCourses"
-        :key="course.slug"
-        :course="course"
-        @locked="explainLock"
-      />
-    </div>
+      <div v-else ref="grid" class="grid">
+        <CourseCard
+          v-for="course in visibleCourses"
+          :key="course.slug"
+          :course="course"
+          @locked="explainLock"
+        />
+      </div>
+    </template>
 
     <nav v-if="lastPage > 1" class="pager" aria-label="Страницы каталога">
       <button

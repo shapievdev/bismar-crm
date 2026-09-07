@@ -70,11 +70,6 @@ final class RegulationResource extends JsonResource
             // Проставляет контроллер — он один знает, кто спрашивает.
             'own_attempts' => $this->own_attempts,
 
-            // Дошла ли до материала очередь плана обучения. Проставляет
-            // каталог: на самой странице поля нет — закрытый материал туда не
-            // пускает EnsureLearningPlanOrder.
-            'is_locked' => (bool) ($this->locked_by_plan ?? false),
-
             // Весь прогресс, какой у регламента бывает. Проставляет контроллер:
             // он один знает, кто спрашивает.
             'is_acknowledged' => (bool) $this->is_acknowledged,

@@ -59,26 +59,6 @@ final class StepCompletion
     }
 
     /**
-     * Документы и справочники, пройденные этим человеком, — все, а не только
-     * плановые.
-     *
-     * Спрашивает очередь плана: прочитанное однажды остаётся открытым, где бы
-     * его ни назначили и назначали ли вообще.
-     *
-     * @return list<int>
-     */
-    public function documentsPassedBy(User $learner): array
-    {
-        $acknowledged = RegulationAcknowledgement::query()
-            ->where('user_id', $learner->getKey())
-            ->pluck('regulation_id')
-            ->map(intval(...))
-            ->all();
-
-        return array_values(array_diff($acknowledged, $this->documentsAwaitingQuiz($learner, $acknowledged)));
-    }
-
-    /**
      * Курсы, закрытые этим человеком целиком.
      *
      * Дата берётся из записи на курс, а не считается заново: её проставили в
