@@ -619,6 +619,16 @@ const canTogglePush = computed(() =>
   inset: 0 0 auto;
   height: 14rem;
   overflow: hidden;
+
+  /*
+   * Скругление подложка режет себе сама. Размытие выносит снимок в отдельный
+   * слой, а его Safari на iPhone обрезает по прямоугольнику: `overflow` карточки
+   * такому слою не указ, и в приложении на телефоне верхние углы шапки выходили
+   * рублеными. `clip-path` действует и на вынесенный слой — углы остаются
+   * такими же, как у самой карточки.
+   */
+  border-radius: inherit;
+  clip-path: inset(0 round var(--radius-lg) var(--radius-lg) 0 0);
 }
 
 .hero__cover::before {
