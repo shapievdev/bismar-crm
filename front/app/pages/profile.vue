@@ -24,6 +24,16 @@ onMounted(() => {
   }
 })
 
+/**
+ * Разделы профиля открываются по одному и поверх страницы, а не лежат на ней
+ * четырьмя развёрнутыми формами. Сама страница остаётся списком: с неё видно,
+ * что здесь вообще можно поменять, и не приходится прокручивать чужую форму,
+ * чтобы добраться до своей.
+ */
+type Section = 'account' | 'password' | 'appearance' | 'push'
+
+const sheet = ref<Section | null>(null)
+
 const form = reactive({
   last_name: user.value?.last_name ?? '',
   first_name: user.value?.first_name ?? '',
@@ -62,6 +72,10 @@ async function save() {
       job_title: form.job_title || null,
     })
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
+
+    // Раздел закрывается сам: сохранённое видно в шапке и в строке списка, и
+    // окно, оставшееся стоять поверх страницы, только прячет свой же итог.
+    sheet.value = null
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -102,6 +116,7 @@ async function savePassword() {
     password.password_confirmation = ''
 
     passwordChangedAt.value = new Date().toLocaleTimeString('ru-RU')
+    sheet.value = null
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -215,6 +230,88 @@ const pushHint = computed(() => {
 const canTogglePush = computed(() =>
   !push.needsInstall.value && push.supported.value && push.configured.value,
 )
+
+/**
+ * Строка называет раздел, а справа отвечает, что в нём сейчас: оформление —
+ * выбранной парой, уведомления — своим состоянием. Ради этого ответа список и
+ * заведён: иначе, чтобы узнать, включены ли уведомления, пришлось бы открывать
+ * раздел.
+ */
+const appearanceValue = computed(() => [
+  options.find(option => option.value === preference.value)?.label,
+  palettes.find(option => option.value === palette.value)?.label,
+].filter(Boolean).join(' · '))
+
+const pushValue = computed(() => {
+  if (push.needsInstall.value) {
+    return 'Нужна установка'
+  }
+
+  if (!push.supported.value) {
+    return 'Недоступны'
+  }
+
+  if (!push.configured.value) {
+    return 'Не настроены'
+  }
+
+  return push.enabled.value ? 'Включены' : 'Выключены'
+})
+
+/*
+ * Значки строк — по одному на раздел. Список из четырёх одинаковых строк
+ * читается по подписям, а со значками — с одного взгляда, и рука тянется к
+ * нужной, не перечитывая соседние.
+ */
+const ICONS: Record<Section, string[]> = {
+  account: [
+    'M12 12.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5Z',
+    'M4.5 20a7.5 7.5 0 0 1 15 0',
+  ],
+  password: [
+    'M7.5 10.5V7.75a4.5 4.5 0 0 1 9 0v2.75',
+    'M5.75 10.5h12.5a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H5.75a1 1 0 0 1-1-1v-7.5a1 1 0 0 1 1-1Z',
+  ],
+  appearance: [
+    'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z',
+    'M12 3a9 9 0 0 1 0 18Z',
+  ],
+  push: [
+    'M18 16.5V11a6 6 0 0 0-12 0v5.5L4.5 19h15L18 16.5Z',
+    'M10 19a2 2 0 0 0 4 0',
+  ],
+}
+
+/**
+ * Учётная запись и это устройство разведены по двум спискам: одно правится для
+ * всех, кто вас видит, второе живёт в этом браузере и на другом устройстве
+ * будет своим. Раньше об этом говорила оговорка под заголовком карточки, теперь
+ * — сама разбивка.
+ */
+const groups = computed(() => [
+  {
+    caption: 'Учётная запись',
+    items: [
+      {
+        key: 'account' as const,
+        label: 'Данные',
+        value: savedAt.value ? `Сохранено в ${savedAt.value}` : null,
+      },
+      {
+        key: 'password' as const,
+        label: 'Пароль',
+        value: passwordChangedAt.value ? `Изменён в ${passwordChangedAt.value}` : null,
+      },
+    ],
+  },
+  {
+    caption: 'Это устройство',
+    items: [
+      { key: 'appearance' as const, label: 'Оформление', value: appearanceValue.value },
+      { key: 'push' as const, label: 'Уведомления', value: pushValue.value },
+    ],
+  },
+])
 </script>
 
 <template>
@@ -302,300 +399,342 @@ const canTogglePush = computed(() =>
       </div>
     </header>
 
-    <div class="blocks">
-      <section class="card card--raised block block--wide">
-        <header class="block__head">
-          <h2 class="block__title">
-            Данные
-          </h2>
-          <p class="block__hint">
-            Имя и адрес, под которыми вас видят в системе.
-          </p>
-        </header>
+    <!--
+      Дальше страница — список разделов, а не стопка развёрнутых форм. С него
+      видно, что здесь вообще можно поменять, и не приходится прокручивать
+      чужую форму, чтобы добраться до своей; сама правка открывается окном
+      поверх страницы.
+    -->
+    <div class="groups">
+      <section v-for="group in groups" :key="group.caption" class="group">
+        <h2 class="group__caption">
+          {{ group.caption }}
+        </h2>
 
-        <p v-if="generalError" class="alert alert--danger" role="alert">
-          {{ generalError }}
+        <div class="card card--raised list">
+          <button
+            v-for="item in group.items"
+            :key="item.key"
+            type="button"
+            class="entry"
+            @click="sheet = item.key"
+          >
+            <svg
+              class="entry__icon"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path v-for="path in ICONS[item.key]" :key="path" :d="path" />
+            </svg>
+
+            <span class="entry__label">{{ item.label }}</span>
+
+            <span v-if="item.value" class="entry__value">{{ item.value }}</span>
+
+            <svg
+              class="entry__chevron"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m9.5 6 6 6-6 6" />
+            </svg>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <AppSheet
+      :open="sheet === 'account'"
+      title="Данные"
+      hint="Имя и адрес, под которыми вас видят в системе."
+      @close="sheet = null"
+    >
+      <p v-if="generalError" class="alert alert--danger" role="alert">
+        {{ generalError }}
+      </p>
+
+      <form class="form" novalidate @submit.prevent="save">
+        <!-- Поля идут в одну колонку: окно узкое, и пара коротких полей в ряд
+             оставляла бы обоим по половине телефонного экрана. -->
+        <div class="field">
+          <label class="field-label" for="last-name">Фамилия</label>
+          <input id="last-name" v-model.trim="form.last_name" class="input" autocomplete="family-name">
+          <p v-if="errors.last_name?.length" class="field-error">
+            {{ errors.last_name[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="first-name">Имя</label>
+          <input id="first-name" v-model.trim="form.first_name" class="input" autocomplete="given-name">
+          <p v-if="errors.first_name?.length" class="field-error">
+            {{ errors.first_name[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="middle-name">
+            Отчество <span class="field-optional">— если есть</span>
+          </label>
+          <input id="middle-name" v-model.trim="form.middle_name" class="input" autocomplete="additional-name">
+          <p v-if="errors.middle_name?.length" class="field-error">
+            {{ errors.middle_name[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="job-title">
+            Должность <span class="field-optional">— если есть</span>
+          </label>
+          <input id="job-title" v-model.trim="form.job_title" class="input" autocomplete="organization-title">
+          <p v-if="errors.job_title?.length" class="field-error">
+            {{ errors.job_title[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="email">Email</label>
+          <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
+          <p v-if="errors.email?.length" class="field-error">
+            {{ errors.email[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="phone">
+            Телефон <span class="field-optional">— если есть</span>
+          </label>
+          <input
+            id="phone"
+            :value="form.phone"
+            type="tel"
+            inputmode="tel"
+            class="input"
+            autocomplete="tel"
+            placeholder="+7 (999) 000-99-77"
+            @input="onPhoneInput"
+          >
+          <p v-if="errors.phone?.length" class="field-error">
+            {{ errors.phone[0] }}
+          </p>
+        </div>
+
+        <div class="form__actions">
+          <button type="submit" class="button-primary" :disabled="isSaving">
+            {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
+          </button>
+        </div>
+      </form>
+    </AppSheet>
+
+    <AppSheet
+      :open="sheet === 'password'"
+      title="Пароль"
+      hint="Не короче восьми знаков. После смены войти останется только здесь — на остальных устройствах спросят заново."
+      @close="sheet = null"
+    >
+      <p v-if="passwordError" class="alert alert--danger" role="alert">
+        {{ passwordError }}
+      </p>
+
+      <form class="form" novalidate @submit.prevent="savePassword">
+        <!-- Не для чтения, а для менеджеров паролей: без имени учётной
+             записи рядом они не понимают, чей пароль им предлагают заменить. -->
+        <input
+          :value="user?.email"
+          type="text"
+          class="visually-hidden"
+          autocomplete="username"
+          tabindex="-1"
+          aria-hidden="true"
+          readonly
+        >
+
+        <div class="field">
+          <label class="field-label" for="current-password">Текущий пароль</label>
+          <input
+            id="current-password"
+            v-model="password.current_password"
+            type="password"
+            class="input"
+            autocomplete="current-password"
+          >
+          <p v-if="passwordErrors.current_password?.length" class="field-error">
+            {{ passwordErrors.current_password[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="new-password">Новый пароль</label>
+          <input
+            id="new-password"
+            v-model="password.password"
+            type="password"
+            class="input"
+            autocomplete="new-password"
+          >
+          <p v-if="passwordErrors.password?.length" class="field-error">
+            {{ passwordErrors.password[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="repeat-password">Ещё раз</label>
+          <input
+            id="repeat-password"
+            v-model="password.password_confirmation"
+            type="password"
+            class="input"
+            autocomplete="new-password"
+          >
+        </div>
+
+        <div class="form__actions">
+          <button type="submit" class="button-primary" :disabled="isChangingPassword">
+            {{ isChangingPassword ? 'Меняем…' : 'Сменить пароль' }}
+          </button>
+        </div>
+      </form>
+    </AppSheet>
+
+    <!--
+      Тема и палитра стоят в одном окне: обе описывают не учётную запись, а
+      экран перед вами, и выбирают их разом — светлый экран или тёмный, и
+      какими цветами он нарисован.
+    -->
+    <AppSheet
+      :open="sheet === 'appearance'"
+      title="Оформление"
+      hint="Настройки этого браузера, а не аккаунта: на телефоне и на компьютере они свои."
+      @close="sheet = null"
+    >
+      <div class="rows">
+        <div class="row">
+          <div class="row__text">
+            <span class="row__label">Схема</span>
+            <span class="row__hint">Светлый экран или тёмный.</span>
+          </div>
+
+          <div class="segmented" role="radiogroup" aria-label="Тема оформления">
+            <button
+              v-for="option in options"
+              :key="option.value"
+              type="button"
+              role="radio"
+              class="segmented__option"
+              :class="{ 'segmented__option--on': preference === option.value }"
+              :aria-checked="preference === option.value"
+              @click="choose(option.value)"
+            >
+              <svg
+                class="segmented__icon"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <template v-if="option.value === 'system'">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M9 20h6" />
+                </template>
+                <template v-else-if="option.value === 'light'">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+                </template>
+                <template v-else>
+                  <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+                </template>
+              </svg>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Вторая ось, независимая от первой: схема говорит, светлый экран
+             или тёмный, палитра — какими цветами он нарисован. Две точки
+             рядом с названием отвечают «как это будет выглядеть» до нажатия. -->
+        <div class="row">
+          <div class="row__text">
+            <span class="row__label">Палитра</span>
+            <span class="row__hint">Какими цветами он нарисован.</span>
+          </div>
+
+          <div class="segmented" role="radiogroup" aria-label="Цветовая палитра">
+            <button
+              v-for="option in palettes"
+              :key="option.value"
+              type="button"
+              role="radio"
+              class="segmented__option"
+              :class="{ 'segmented__option--on': palette === option.value }"
+              :aria-checked="palette === option.value"
+              @click="choosePalette(option.value)"
+            >
+              <span class="swatch" aria-hidden="true">
+                <i class="swatch__dot" :style="{ background: option.swatch[0] }" />
+                <i class="swatch__dot" :style="{ background: option.swatch[1] }" />
+              </span>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </AppSheet>
+
+    <AppSheet
+      :open="sheet === 'push'"
+      title="Уведомления"
+      hint="Подписка живёт в самом устройстве: на телефоне её включают отдельно от рабочего компьютера."
+      @close="sheet = null"
+    >
+      <p v-if="push.error.value" class="alert alert--danger" role="alert">
+        {{ push.error.value }}
+      </p>
+
+      <div class="note">
+        <p class="note__text">
+          {{ pushHint }}
         </p>
 
-        <form class="form" novalidate @submit.prevent="save">
-          <!-- Короткие поля стоят парами: столбец в полстраницы, а под каждым
-               именем — строка на всю ширину, и форма растягивается вдвое
-               длиннее, чем в ней написано. -->
-          <div class="form__grid">
-            <div class="field">
-              <label class="field-label" for="last-name">Фамилия</label>
-              <input id="last-name" v-model.trim="form.last_name" class="input" autocomplete="family-name">
-              <p v-if="errors.last_name?.length" class="field-error">
-                {{ errors.last_name[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="first-name">Имя</label>
-              <input id="first-name" v-model.trim="form.first_name" class="input" autocomplete="given-name">
-              <p v-if="errors.first_name?.length" class="field-error">
-                {{ errors.first_name[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="middle-name">
-                Отчество <span class="field-optional">— если есть</span>
-              </label>
-              <input id="middle-name" v-model.trim="form.middle_name" class="input" autocomplete="additional-name">
-              <p v-if="errors.middle_name?.length" class="field-error">
-                {{ errors.middle_name[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="job-title">
-                Должность <span class="field-optional">— если есть</span>
-              </label>
-              <input id="job-title" v-model.trim="form.job_title" class="input" autocomplete="organization-title">
-              <p v-if="errors.job_title?.length" class="field-error">
-                {{ errors.job_title[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="email">Email</label>
-              <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
-              <p v-if="errors.email?.length" class="field-error">
-                {{ errors.email[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="phone">
-                Телефон <span class="field-optional">— если есть</span>
-              </label>
-              <input
-                id="phone"
-                :value="form.phone"
-                type="tel"
-                inputmode="tel"
-                class="input"
-                autocomplete="tel"
-                placeholder="+7 (999) 000-99-77"
-                @input="onPhoneInput"
-              >
-              <p v-if="errors.phone?.length" class="field-error">
-                {{ errors.phone[0] }}
-              </p>
-            </div>
-          </div>
-
-          <div class="form__actions">
-            <button type="submit" class="button-primary" :disabled="isSaving">
-              {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
-            </button>
-            <span v-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
-          </div>
-        </form>
-      </section>
-
-      <div class="blocks__side">
-        <section class="card card--raised block">
-          <header class="block__head">
-            <h2 class="block__title">
-              Пароль
-            </h2>
-            <p class="block__hint">
-              Не короче восьми знаков. После смены войти останется только здесь — на остальных устройствах спросят заново.
-            </p>
-          </header>
-
-          <p v-if="passwordError" class="alert alert--danger" role="alert">
-            {{ passwordError }}
-          </p>
-
-          <form class="form" novalidate @submit.prevent="savePassword">
-            <!-- Не для чтения, а для менеджеров паролей: без имени учётной
-                 записи рядом они не понимают, чей пароль им предлагают заменить. -->
-            <input
-              :value="user?.email"
-              type="text"
-              class="visually-hidden"
-              autocomplete="username"
-              tabindex="-1"
-              aria-hidden="true"
-              readonly
-            >
-
-            <div class="field">
-              <label class="field-label" for="current-password">Текущий пароль</label>
-              <input
-                id="current-password"
-                v-model="password.current_password"
-                type="password"
-                class="input"
-                autocomplete="current-password"
-              >
-              <p v-if="passwordErrors.current_password?.length" class="field-error">
-                {{ passwordErrors.current_password[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="new-password">Новый пароль</label>
-              <input
-                id="new-password"
-                v-model="password.password"
-                type="password"
-                class="input"
-                autocomplete="new-password"
-              >
-              <p v-if="passwordErrors.password?.length" class="field-error">
-                {{ passwordErrors.password[0] }}
-              </p>
-            </div>
-
-            <div class="field">
-              <label class="field-label" for="repeat-password">Ещё раз</label>
-              <input
-                id="repeat-password"
-                v-model="password.password_confirmation"
-                type="password"
-                class="input"
-                autocomplete="new-password"
-              >
-            </div>
-
-            <div class="form__actions">
-              <button type="submit" class="button-primary" :disabled="isChangingPassword">
-                {{ isChangingPassword ? 'Меняем…' : 'Сменить пароль' }}
-              </button>
-              <span v-if="passwordChangedAt" class="faint">Изменён в {{ passwordChangedAt }}</span>
-            </div>
-          </form>
-        </section>
-
-        <!--
-          Тема и уведомления собраны в одну карточку: обе описывают не учётную
-          запись, а экран перед вами — тема живёт в куке браузера, подписка на
-          уведомления в самом устройстве. Порознь они читались как две разные
-          настройки, и обе объясняли это одной и той же оговоркой.
-        -->
-        <section class="card card--raised block">
-          <header class="block__head">
-            <h2 class="block__title">
-              Это устройство
-            </h2>
-            <p class="block__hint">
-              Настройки этого браузера, а не аккаунта: на телефоне и на компьютере они свои.
-            </p>
-          </header>
-
-          <p v-if="push.error.value" class="alert alert--danger" role="alert">
-            {{ push.error.value }}
-          </p>
-
-          <div class="rows">
-            <div class="row">
-              <div class="row__text">
-                <span class="row__label">Схема</span>
-                <span class="row__hint">Светлый экран или тёмный.</span>
-              </div>
-
-              <div class="segmented" role="radiogroup" aria-label="Тема оформления">
-                <button
-                  v-for="option in options"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  class="segmented__option"
-                  :class="{ 'segmented__option--on': preference === option.value }"
-                  :aria-checked="preference === option.value"
-                  @click="choose(option.value)"
-                >
-                  <svg
-                    class="segmented__icon"
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.6"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <template v-if="option.value === 'system'">
-                      <rect x="3" y="4" width="18" height="13" rx="2" />
-                      <path d="M9 20h6" />
-                    </template>
-                    <template v-else-if="option.value === 'light'">
-                      <circle cx="12" cy="12" r="4" />
-                      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
-                    </template>
-                    <template v-else>
-                      <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
-                    </template>
-                  </svg>
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Вторая ось, независимая от первой: схема говорит, светлый экран
-                 или тёмный, палитра — какими цветами он нарисован. Две точки
-                 рядом с названием отвечают «как это будет выглядеть» до нажатия. -->
-            <div class="row">
-              <div class="row__text">
-                <span class="row__label">Палитра</span>
-                <span class="row__hint">Какими цветами он нарисован.</span>
-              </div>
-
-              <div class="segmented" role="radiogroup" aria-label="Цветовая палитра">
-                <button
-                  v-for="option in palettes"
-                  :key="option.value"
-                  type="button"
-                  role="radio"
-                  class="segmented__option"
-                  :class="{ 'segmented__option--on': palette === option.value }"
-                  :aria-checked="palette === option.value"
-                  @click="choosePalette(option.value)"
-                >
-                  <span class="swatch" aria-hidden="true">
-                    <i class="swatch__dot" :style="{ background: option.swatch[0] }" />
-                    <i class="swatch__dot" :style="{ background: option.swatch[1] }" />
-                  </span>
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="row__text">
-                <span class="row__label">Уведомления</span>
-                <span class="row__hint">{{ pushHint }}</span>
-              </div>
-
-              <button
-                v-if="canTogglePush && push.enabled.value"
-                type="button"
-                class="button-secondary button-sm"
-                :disabled="push.isBusy.value"
-                @click="push.disable()"
-              >
-                {{ push.isBusy.value ? 'Выключаем…' : 'Выключить' }}
-              </button>
-              <button
-                v-else-if="canTogglePush"
-                type="button"
-                class="button-primary button-sm"
-                :disabled="push.isBusy.value || push.permission.value === 'denied'"
-                @click="push.enable()"
-              >
-                {{ push.isBusy.value ? 'Включаем…' : 'Включить' }}
-              </button>
-            </div>
-          </div>
-        </section>
+        <button
+          v-if="canTogglePush && push.enabled.value"
+          type="button"
+          class="button-secondary"
+          :disabled="push.isBusy.value"
+          @click="push.disable()"
+        >
+          {{ push.isBusy.value ? 'Выключаем…' : 'Выключить' }}
+        </button>
+        <button
+          v-else-if="canTogglePush"
+          type="button"
+          class="button-primary"
+          :disabled="push.isBusy.value || push.permission.value === 'denied'"
+          @click="push.enable()"
+        >
+          {{ push.isBusy.value ? 'Включаем…' : 'Включить' }}
+        </button>
       </div>
-    </div>
+    </AppSheet>
   </section>
 </template>
 
@@ -752,67 +891,126 @@ const canTogglePush = computed(() =>
 }
 
 /*
- * The page fills its column, like the other settings screens do — capping it
- * at a reading measure left the content huddled against the left edge with the
- * header stretching past it, and made the heading jump when you switched tabs.
- *
- * One column until there is room for two. Above that the account form takes the
- * full width — its own fields pair up inside it — and the two short cards stand
- * side by side underneath, which is what keeps the page from ending in a column
- * of air beside a tall stack.
+ * Список разделов. Две группы, а не одна: учётная запись правится для всех, кто
+ * вас видит, а оформление с уведомлениями живут в этом браузере и на другом
+ * устройстве будут своими. Раньше об этом говорила оговорка под заголовком
+ * карточки, теперь — сама разбивка.
  */
-.blocks {
+.groups {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+  gap: 1.4rem;
 }
 
-/* Обёртка ничего не раскладывает: её карточки — прямые ячейки сетки страницы,
-   иначе высота одной подгоняла бы под себя соседнюю. */
-.blocks__side {
-  display: contents;
-}
-
+/* Рядом, когда есть куда: два коротких списка друг под другом оставляли бы
+   полстраницы воздуха справа. */
 @media (min-width: 68rem) {
-  .blocks {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    /* Each card keeps its own height instead of stretching to its neighbour. */
+  .groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
+}
 
-  .block--wide {
-    grid-column: 1 / -1;
-  }
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Подпись группы стоит над карточкой и говорит вполголоса: она делит список, а
+   не соперничает с именами разделов внутри. */
+.group__caption {
+  margin: 0;
+  padding-left: 0.35rem;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.list {
+  overflow: hidden;
 }
 
 /*
- * Every block is the same shape — heading, one line of explanation, then the
- * controls — so the cards line up down the page instead of each finding its
- * own rhythm.
+ * Строка целиком — кнопка: на телефоне попадают пальцем, а не в подпись, и
+ * промахнуться мимо неё негде. Стрелка справа обещает, что раздел откроется, а
+ * не переключится на месте.
  */
-.block {
+.entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.9rem 1.1rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+/* Линия начинается там же, где подпись: доведённая до самого края, она резала
+   бы список на клетки, а так — просто отделяет строку от строки. */
+.entry + .entry::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 3.2rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.entry:hover {
+  background: var(--color-surface-sunken);
+}
+
+.entry__icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.entry__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.98rem;
+}
+
+/* Ответ строки — что в разделе сейчас — прижат к стрелке и приглушён: его
+   читают вторым, после названия. */
+.entry__value {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry__chevron {
+  flex-shrink: 0;
+  color: var(--color-text-faint);
+}
+
+/* Пояснение и кнопка в окне уведомлений: строка настройки без второй половины
+   осталась бы подписью, висящей над пустым местом. */
+.note {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.4rem 1.5rem;
+  align-items: flex-start;
+  gap: 0.9rem;
 }
 
-.block__head {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.block__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-}
-
-.block__hint {
+.note__text {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 0.87rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 /*
@@ -879,30 +1077,6 @@ const canTogglePush = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-/*
- * Поля стоят рядами по два, а на широком экране — по три: шесть коротких строк
- * делятся на ряды нацело, и форма нигде не кончается одиноким полем в новой
- * строке. Число колонок задано, а не подобрано `auto-fit`: тот набивал пять
- * полей в ряд, и шестое оставалось сиротой.
- */
-.form__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-}
-
-@media (min-width: 40rem) {
-  .form__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 68rem) {
-  .form__grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 /* Marks the one field that may be left empty, so nobody hunts for a rule that
@@ -996,10 +1170,6 @@ const canTogglePush = computed(() =>
 }
 
 @media (max-width: 48rem) {
-  .block {
-    padding: 1.15rem 1.15rem 1.25rem;
-  }
-
   .hero__body {
     padding: 2.1rem 1.15rem 1.5rem;
   }
@@ -1009,12 +1179,6 @@ const canTogglePush = computed(() =>
   .row {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  /* Растянуться должна полоса выбора, а не кнопка: она осталась бы шириной в
-     экран ради одного слова. */
-  .row > button {
-    align-self: flex-start;
   }
 
   /* Nothing left to give: the group stops hugging its labels and shares the
