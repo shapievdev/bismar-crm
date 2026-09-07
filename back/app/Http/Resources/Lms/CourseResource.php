@@ -45,9 +45,12 @@ final class CourseResource extends JsonResource
             'category' => CategoryResource::make($this->whenLoaded('category')),
             'lessons_count' => $this->whenCounted('lessons'),
             'enrollments_count' => $this->whenCounted('enrollments'),
+            // Лицо автору нужно наравне с именем: когда ответственных не
+            // назначили, спрашивают его, и в списке он встаёт такой же строкой.
             'author' => $this->whenLoaded('author', fn (): ?array => $this->author === null ? null : [
                 'id' => $this->author->id,
                 'name' => $this->author->name,
+                'avatar_url' => $this->author->avatarUrl(),
             ]),
             // Кому писать, если написанного не хватило.
             'experts' => CoursePersonResource::collection($this->whenLoaded('experts')),

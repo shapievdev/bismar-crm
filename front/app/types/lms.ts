@@ -208,7 +208,7 @@ export interface Course {
   category: Category | null
   lessons_count?: number
   enrollments_count?: number
-  author: { id: number, name: string } | null
+  author: { id: number, name: string, avatar_url: string | null } | null
   /** Кому писать, если написанного в курсе не хватило. */
   experts?: CoursePerson[]
   modules?: CourseModule[]
@@ -363,7 +363,7 @@ export interface Regulation {
   can_manage_access: boolean
   members_count?: number
   category: RegulationCategory | null
-  author?: { id: number, name: string } | null
+  author?: { id: number, name: string, avatar_url: string | null } | null
   experts?: CoursePerson[]
   /** Что читать рядом. Приходит уже отобранным под того, кто спрашивает. */
   related?: RegulationLink[]

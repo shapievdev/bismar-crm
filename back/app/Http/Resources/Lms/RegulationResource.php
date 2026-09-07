@@ -44,9 +44,12 @@ final class RegulationResource extends JsonResource
             'members_count' => $this->whenCounted('members'),
 
             'category' => RegulationCategoryResource::make($this->whenLoaded('category')),
+            // Лицо автору нужно наравне с именем: когда ответственных не
+            // назначили, спрашивают его, и в списке он встаёт такой же строкой.
             'author' => $this->whenLoaded('author', fn (): ?array => $this->author === null ? null : [
                 'id' => $this->author->id,
                 'name' => $this->author->name,
+                'avatar_url' => $this->author->avatarUrl(),
             ]),
 
             // Кому писать, если написанного не хватило.

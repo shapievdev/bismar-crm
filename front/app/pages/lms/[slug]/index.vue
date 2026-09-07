@@ -3,7 +3,7 @@ definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
 const { fetchCourse } = useLmsApi()
-const { can } = useAuth()
+const { can, user } = useAuth()
 
 const slug = computed(() => String(route.params.slug))
 
@@ -24,6 +24,28 @@ if (error.value) {
 
 const course = computed(() => data.value?.data)
 useHead(() => ({ title: course.value?.title ?? 'Курс' }))
+
+/**
+ * Кого спрашивать, если в курсе ответа не нашлось.
+ *
+ * Ответственных назначают не всегда, а спросить хочется в любом случае — тогда
+ * остаётся автор: курс собрал он, и он же его поправит. Себя в этом списке
+ * читатель не видит: писать самому себе незачем.
+ */
+const asked = computed<{ id: number, name: string, avatar_url: string | null }[]>(() => {
+  const experts = course.value?.experts ?? []
+
+  if (experts.length > 0) {
+    return experts
+  }
+
+  const author = course.value?.author
+
+  return author && author.id !== user.value?.id ? [author] : []
+})
+
+/** Автор отвечает за курс не по назначению, а по авторству — так и сказано. */
+const askedTitle = computed(() => course.value?.experts?.length ? 'Ответственные' : 'Автор курса')
 
 const enrollment = computed(() => course.value?.enrollment ?? null)
 const modules = computed(() => course.value?.modules ?? [])
@@ -201,15 +223,15 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
 
         <!-- К кому идти, если в материале ответа не нашлось. Здесь же, а не
              только в чате: человек, открывший курс, спрашивает по нему. -->
-        <aside v-if="course.experts?.length" class="about card">
+        <aside v-if="asked.length" class="about card">
           <h2 class="section-title section-title--tight">
-            Ответственные
+            {{ askedTitle }}
           </h2>
           <p class="about__text">
-            Напишите им, если в курсе не нашлось ответа.
+            Напишите, если в курсе не нашлось ответа.
           </p>
           <ul class="experts">
-            <li v-for="person in course.experts" :key="person.id" class="experts__item">
+            <li v-for="person in asked" :key="person.id" class="experts__item">
               <UserAvatar :name="person.name" :src="person.avatar_url" :size="32" />
               <span class="experts__body">
                 <span class="experts__name">{{ person.name }}</span>

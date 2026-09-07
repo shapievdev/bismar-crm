@@ -12,7 +12,7 @@ const copy = useMaterialSection(props.section)
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 
-const { can } = useAuth()
+const { can, user } = useAuth()
 const { fetchRegulation, acknowledge, fetchReaders, fetchCategories, submitQuiz } = useMaterialsApi(props.section)
 
 const { data, error, refresh } = await useAsyncData(
@@ -52,6 +52,31 @@ const article = computed(() => withResolvedMedia(
   regulation.value?.content_json ?? null,
   regulation.value?.attachments ?? [],
 ))
+
+/**
+ * Кого спрашивать, если написанного не хватило.
+ *
+ * Ответственных назначают не всегда, а спросить хочется в любом случае — тогда
+ * остаётся автор: материал написал он, и он же его поправит. Себя в этом
+ * списке читатель не видит: панель, предлагающая написать самому себе, не
+ * отвечает ни на один вопрос.
+ */
+const asked = computed<{ id: number, name: string, avatar_url: string | null }[]>(() => {
+  const experts = regulation.value?.experts ?? []
+
+  if (experts.length > 0) {
+    return experts
+  }
+
+  const author = regulation.value?.author
+
+  return author && author.id !== user.value?.id ? [author] : []
+})
+
+/** Автор отвечает за материал не по назначению, а по авторству — так и сказано. */
+const askedTitle = computed(() =>
+  regulation.value?.experts?.length ? 'Спросите ответственного' : 'Спросите автора',
+)
 
 const documents = computed(() =>
   (regulation.value?.attachments ?? []).filter(file =>
@@ -346,13 +371,14 @@ async function toggleReaders() {
           </ul>
         </section>
 
-        <!-- Кому писать, если написанного не хватило. -->
-        <section v-if="regulation.experts?.length" class="card experts">
+        <!-- Кому писать, если написанного не хватило: ответственным, а когда
+             их не назначили — автору. -->
+        <section v-if="asked.length" class="card experts">
           <h2 class="files__title">
-            Спросите ответственного
+            {{ askedTitle }}
           </h2>
           <ul class="people">
-            <li v-for="person in regulation.experts" :key="person.id" class="person">
+            <li v-for="person in asked" :key="person.id" class="person">
               <UserAvatar :name="person.name" :src="person.avatar_url" :size="26" />
               <span class="person__body">
                 <span>{{ person.name }}</span>
