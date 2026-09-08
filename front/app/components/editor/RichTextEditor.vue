@@ -2,6 +2,8 @@
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { JSONContent } from '@tiptap/core'
 import type { UploadedMedia } from '~/utils/editor/attachments'
+import { isSameDocument } from '~/utils/editor/document'
+import { insertBlock } from '~/utils/editor/insertBlock'
 
 const props = defineProps<{
   /**
@@ -34,13 +36,20 @@ const editor = useEditor({
 // The parent may replace the document (a reload, a discarded draft); pushing it
 // back in only when it differs keeps the caret from jumping on every keystroke.
 watch(model, (value) => {
-  if (!editor.value || !value) {
+  if (!editor.value || !value || isSameDocument(editor.value.getJSON(), value)) {
     return
   }
 
-  if (JSON.stringify(editor.value.getJSON()) !== JSON.stringify(value)) {
-    editor.value.commands.setContent(value, { emitUpdate: false })
-  }
+  // Место, где стоит курсор, переживает подмену.
+  //
+  // Документ подменяют не только при загрузке: страница перечитывает запись, и
+  // у вложений обновляются подписанные адреса — в глазах редактора это новый
+  // документ. Без этого курсор уезжал в начало статьи, и следующая вставка —
+  // картинка, видео, HTML-блок — попадала не туда, куда автор её ставил.
+  const { from, to } = editor.value.state.selection
+
+  editor.value.commands.setContent(value, { emitUpdate: false })
+  editor.value.commands.setTextSelection({ from, to })
 })
 
 onBeforeUnmount(() => editor.value?.destroy())
@@ -65,10 +74,12 @@ async function onImageChosen(event: Event) {
   try {
     const media = await upload.track(file, options => props.uploadImage!(file, options))
 
-    editor.value?.chain().focus().insertContent({
+    // Через ту же вставку, что и остальные блоки: курсор обязан уйти за
+    // картинку, иначе следующее действие встанет на её место.
+    editor.value?.chain().focus().command(insertBlock({
       type: 'image',
       attrs: { src: media.url, alt: file.name, attachmentId: media.id },
-    }).run()
+    })).run()
   }
   catch (caught) {
     // Cancelling is a decision, not a failure: nothing goes into the document
@@ -288,7 +299,7 @@ function isActive(name: string, attrs?: Record<string, unknown>): boolean {
       </div>
 
       <div class="toolbar__group">
-        <button type="button" class="tool tool--wide" title="Блок HTML" @click="editor.chain().focus().setHtmlBlock('<h1>Привет</h1>').run()">
+        <button type="button" class="tool tool--wide" title="Блок HTML" @click="editor.chain().focus().setHtmlBlock().run()">
           HTML
         </button>
       </div>

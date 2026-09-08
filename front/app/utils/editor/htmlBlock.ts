@@ -1,11 +1,12 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import HtmlBlockView from '~/components/editor/HtmlBlockView.vue'
+import { insertBlock } from '~/utils/editor/insertBlock'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     htmlBlock: {
-      setHtmlBlock: (html: string) => ReturnType
+      setHtmlBlock: (html?: string) => ReturnType
     }
   }
 }
@@ -54,8 +55,10 @@ export const HtmlBlock = Node.create({
 
   addCommands() {
     return {
-      setHtmlBlock: (html: string) => ({ commands }) =>
-        commands.insertContent({ type: this.name, attrs: { html } }),
+      // Пустым по умолчанию: блок заводят, чтобы вставить в него свою разметку,
+      // и образец в нём — не подсказка, а лишний шаг. Пустой открывается сразу
+      // полем для кода — см. HtmlBlockView.
+      setHtmlBlock: (html = '') => insertBlock({ type: this.name, attrs: { html } }),
     }
   },
 })

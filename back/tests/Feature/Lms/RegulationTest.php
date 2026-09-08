@@ -174,6 +174,66 @@ final class RegulationTest extends TestCase
         $this->assertNotNull(Regulation::query()->sole()->published_at);
     }
 
+    /**
+     * Имена блокам присваивает сервер, и присваивает при обычном сохранении.
+     *
+     * Не косметика: расшифровка документа собирается по блокам с именами, и
+     * безымянный документ не попадал в поиск консультанта вовсе — до тех пор,
+     * пока кто-нибудь не запустит руками `lms:reindex`.
+     */
+    public function test_saving_a_regulation_names_its_blocks_and_indexes_the_article(): void
+    {
+        $this->actingAs($this->author())
+            ->postJson(route('lms.documents.store'), $this->payload([
+                'content_json' => [
+                    'type' => 'doc',
+                    'content' => [[
+                        'type' => 'paragraph',
+                        'content' => [['type' => 'text', 'text' => 'Возврат принимаем только по чеку.']],
+                    ]],
+                ],
+            ]))
+            ->assertCreated();
+
+        $regulation = Regulation::query()->sole();
+
+        $this->assertIsString($regulation->content_json['content'][0]['attrs']['blockId'] ?? null);
+        $this->assertSame(1, $regulation->transcripts()->count());
+    }
+
+    /**
+     * Присвоенное имя живёт, пока живёт блок: на него ссылается таблица
+     * ответов, и правка соседнего абзаца не должна её обрывать.
+     */
+    public function test_editing_a_regulation_keeps_the_names_of_its_blocks(): void
+    {
+        $editor = $this->author();
+        $article = [
+            'type' => 'doc',
+            'content' => [[
+                'type' => 'paragraph',
+                'content' => [['type' => 'text', 'text' => 'Возврат принимаем только по чеку.']],
+            ]],
+        ];
+
+        $this->actingAs($editor)
+            ->postJson(route('lms.documents.store'), $this->payload(['content_json' => $article]))
+            ->assertCreated();
+
+        $regulation = Regulation::query()->sole();
+        $named = $regulation->content_json;
+        $named['content'][0]['content'][0]['text'] = 'Возврат принимаем по чеку и по карте.';
+
+        $this->actingAs($editor)
+            ->putJson(route('lms.documents.update', $regulation), $this->payload(['content_json' => $named]))
+            ->assertOk();
+
+        $this->assertSame(
+            $regulation->content_json['content'][0]['attrs']['blockId'],
+            $regulation->fresh()->content_json['content'][0]['attrs']['blockId'],
+        );
+    }
+
     public function test_a_reader_cannot_write_regulations(): void
     {
         $this->actingAs($this->learner())

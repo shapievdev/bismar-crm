@@ -27,10 +27,21 @@ const theme: ThemePreference = chosenTheme === 'light' || chosenTheme === 'dark'
 const chosenPalette = import.meta.client ? document.documentElement.dataset.palette : undefined
 const palette: PalettePreference = chosenPalette === 'crimson' ? chosenPalette : 'graphite'
 
-const isEditing = ref(false)
-const draft = ref<string>(props.node.attrs.html ?? '')
-
 const html = computed<string>(() => props.node.attrs.html ?? '')
+
+// Только что заведённый блок пуст, и показывать в нём пустую рамку незачем:
+// его завели ради разметки, значит открываем сразу поле для неё.
+const isEditing = ref(props.editor.isEditable && html.value === '')
+const draft = ref<string>(html.value)
+
+// Разметку меняет не только это поле: отмена правки (Ctrl+Z) и перечитанная
+// запись возвращают блоку прежний атрибут. Черновик обязан идти следом, иначе
+// «Код» открывал бы отменённое, а «Применить» возвращало бы его в статью.
+watch(html, (value) => {
+  if (!isEditing.value) {
+    draft.value = value
+  }
+})
 
 /** A stored height pins the frame; null lets it follow its content. */
 const pinnedHeight = computed<number | null>(() => {

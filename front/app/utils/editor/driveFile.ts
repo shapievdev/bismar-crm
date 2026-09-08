@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import DriveFileView from '~/components/editor/DriveFileView.vue'
+import { insertBlock } from '~/utils/editor/insertBlock'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -69,7 +70,7 @@ export const DriveFile = Node.create({
 
   addCommands() {
     return {
-      setDriveFile: attrs => ({ commands }) => commands.insertContent({ type: this.name, attrs }),
+      setDriveFile: attrs => insertBlock({ type: this.name, attrs }),
     }
   },
 })

@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import VideoEmbedView from '~/components/editor/VideoEmbedView.vue'
 import { attachmentIdAttribute } from '~/utils/editor/attachments'
+import { insertBlock } from '~/utils/editor/insertBlock'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -53,8 +54,8 @@ export const VideoEmbed = Node.create({
 
   addCommands() {
     return {
-      setVideoEmbed: attrs => ({ commands }) =>
-        commands.insertContent({ type: this.name, attrs: { provider: 'embed', ...attrs } }),
+      setVideoEmbed: attrs =>
+        insertBlock({ type: this.name, attrs: { provider: 'embed', ...attrs } }),
     }
   },
 })

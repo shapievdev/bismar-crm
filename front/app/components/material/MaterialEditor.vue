@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { JSONContent } from '@tiptap/core'
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type {
   CoursePerson,
@@ -9,7 +8,7 @@ import type {
   QuizPayload,
   RegulationLink,
 } from '~/types/lms'
-import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
+import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 import type { UploadOptions } from '~/utils/upload'
 
 /**
@@ -78,9 +77,25 @@ const form = reactive({
   keywords: [] as string[],
 })
 
-const document = ref<JSONContent | null>(null)
+// Адреса вложенных картинок и видео живут час, а правило — годы: документ
+// хранит номера, и адрес подставляется на пути к редактору. Написанное при
+// этом переживает перечитывание записи — см. useArticleDocument.
+const { document, isDirty: hasArticleEdits, adoptSaved } = useArticleDocument(regulation, value => ({
+  content: value.content_json ?? null,
+  attachments: value.attachments ?? [],
+}))
 
-watch(regulation, (value) => {
+/*
+ * Поля заполняются один раз на материал, а не при каждом перечитывании записи.
+ *
+ * Перечитывают её отсюда из полудюжины мест — загрузили файл, сохранили список
+ * людей, завели проверку, — и набранное название возвращалось к сохранённому от
+ * любого из них. По той же причине, что и статья, только тише: заголовок
+ * подменяется на глазах, и заметить это можно уже после ухода со страницы.
+ */
+watch(() => regulation.value?.id, () => {
+  const value = regulation.value
+
   if (!value) {
     return
   }
@@ -91,11 +106,24 @@ watch(regulation, (value) => {
   form.visibility = value.visibility
   form.category_id = value.category?.id ?? null
   form.keywords = value.keywords ?? []
-
-  // Адреса вложенных картинок и видео живут час, а правило — годы: документ
-  // хранит номера, и адрес подставляется на пути к редактору.
-  document.value = withResolvedMedia(value.content_json ?? null, value.attachments ?? [])
 }, { immediate: true })
+
+/** Есть ли что терять: об этом надо сказать до того, как автор уйдёт со страницы. */
+const isDirty = computed(() => {
+  const saved = regulation.value
+
+  if (!saved) {
+    return false
+  }
+
+  return hasArticleEdits.value
+    || form.title !== saved.title
+    || form.summary !== (saved.summary ?? '')
+    || form.status !== saved.status
+    || form.visibility !== saved.visibility
+    || form.category_id !== (saved.category?.id ?? null)
+    || form.keywords.join(' ') !== (saved.keywords ?? []).join(' ')
+})
 
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
@@ -108,11 +136,13 @@ async function save() {
   generalError.value = null
   savedAt.value = null
 
+  const sent = withoutResolvedMedia(document.value)
+
   try {
     await updateRegulation(slug.value, {
       title: form.title,
       summary: form.summary || null,
-      content_json: withoutResolvedMedia(document.value),
+      content_json: sent,
       status: form.status,
       visibility: form.visibility,
       category_id: form.category_id,
@@ -121,6 +151,9 @@ async function save() {
 
     savedAt.value = new Date().toLocaleTimeString('ru-RU')
     await refresh()
+
+    // Сохранённое возвращается с именами блоков, проставленными сервером.
+    adoptSaved(sent)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -151,7 +184,10 @@ const quizErrors = ref<ValidationErrors>({})
 const isSavingQuiz = ref(false)
 const showQuizBuilder = ref(false)
 
-watch(regulation, value => showQuizBuilder.value = Boolean(value?.quiz), { immediate: true })
+// По записи, а не по каждому её перечитыванию: конструктор, открытый кнопкой
+// «Добавить проверку», закрывался от загрузки картинки в статью — вместе с
+// набранными вопросами.
+watch(() => regulation.value?.id, () => showQuizBuilder.value = Boolean(regulation.value?.quiz), { immediate: true })
 
 async function persistQuiz(payload: QuizPayload) {
   isSavingQuiz.value = true
@@ -196,7 +232,11 @@ async function dropQuiz() {
  */
 async function uploadInline(file: File, options: UploadOptions, label: string): Promise<UploadedMedia> {
   const { data: attachment } = await uploadAttachment(slug.value, file, label, options)
-  await refresh()
+
+  // Список файлов перечитываем, но не дожидаемся: редактор вставит узел сразу
+  // после возврата, и перечитанная запись не должна встрять между загрузкой и
+  // вставкой — иначе картинка приземляется не туда, где стоял курсор.
+  void refresh()
 
   return { id: attachment.id, url: attachment.url }
 }
@@ -596,7 +636,10 @@ function moveQuestion(document: RegulationLink, delta: number) {
       <button type="button" class="button-primary" :disabled="isSaving" @click="save">
         {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
       </button>
-      <span v-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
+      <!-- Кнопка одна на всю страницу, а списки людей и соседей сохраняются
+           сами: без этой строчки автор не отличает сохранённое от набранного. -->
+      <span v-if="isDirty" class="faint">Есть несохранённые правки</span>
+      <span v-else-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
       <button type="button" class="button-ghost actions__remove" @click="remove">
         {{ copy.removeLabel }}
       </button>

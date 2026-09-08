@@ -9,6 +9,7 @@ use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\BlockIdentifier;
 use App\Support\Lms\Keywords;
 use App\Support\SlugGenerator;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class SaveRegulation
 {
-    public function __construct(private SlugGenerator $slugs) {}
+    public function __construct(private SlugGenerator $slugs, private BlockIdentifier $blocks) {}
 
     /**
      * @param  array{
@@ -49,10 +50,17 @@ final readonly class SaveRegulation
                 'kind' => $attributes['kind'] ?? MaterialKind::Document,
             ]);
 
+            // Имена блокам присваивает сервер — как уроку, и по той же причине:
+            // имя, пришедшее от клиента, может оказаться выдуманным или чужим, а
+            // ссылаться на него будут потом годами. Без этого шага у блоков
+            // документа имён не было вовсе, а расшифровка собирается по ним — и
+            // статья не попадала в поиск консультанта до ручной переиндексации.
+            $document = $this->blocks->assign($attributes['content_json'] ?? null);
+
             $regulation->fill([
                 'title' => $attributes['title'],
                 'summary' => $attributes['summary'] ?? null,
-                'content_json' => $attributes['content_json'] ?? null,
+                'content_json' => $document,
                 'status' => $status,
                 'visibility' => CourseVisibility::from($attributes['visibility']),
                 'category_id' => $attributes['category_id'] ?? null,

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
-import type { JSONContent } from '@tiptap/core'
 import type { LessonAnswerPayload, LessonPayload, QuizPayload, RegulationLink, SuggestedAnswer } from '~/types/lms'
-import { type UploadedMedia, withResolvedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
+import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
@@ -48,20 +47,14 @@ const form = ref<LessonPayload>({
 })
 
 // Addresses are resolved on the way in and dropped again on the way out, so
-// the record holds attachment ids and never a signature that expires.
-const document = ref<JSONContent | null>(
-  withResolvedMedia(lesson.value?.content_json ?? null, lesson.value?.attachments ?? []),
-)
+// the record holds attachment ids and never a signature that expires. Написанное
+// при этом переживает перечитывание урока — см. useArticleDocument.
+const { document, isDirty: hasArticleEdits, adoptSaved } = useArticleDocument(lesson, value => ({
+  content: value.content_json ?? null,
+  attachments: value.attachments ?? [],
+}))
 
-/**
- * Расходится ли форма с тем, что лежит на сервере.
- *
- * Сравнивается не со слепком, снятым при загрузке, а с самим уроком: страница
- * перечитывает его не только после сохранения — например, когда удалили файл, —
- * и слепок пришлось бы обновлять в каждом таком месте, не забыв ни одного.
- * С этим сравнением состояние чинится само: пришли свежие данные — расхождение
- * пересчиталось.
- */
+/** Расходится ли форма с тем, что лежит на сервере. */
 const isDirty = computed(() => {
   const saved = lesson.value
 
@@ -69,32 +62,10 @@ const isDirty = computed(() => {
     return false
   }
 
-  return form.value.title !== (saved.title ?? '')
+  return hasArticleEdits.value
+    || form.value.title !== (saved.title ?? '')
     || (form.value.video_url ?? '') !== (saved.video_url ?? '')
     || (form.value.duration_minutes ?? null) !== (saved.duration_minutes ?? null)
-    // Адреса вложений в сравнении не участвуют: они подставляются на входе и
-    // снимаются на выходе, а в записи хранятся одни номера.
-    || JSON.stringify(withoutResolvedMedia(document.value)) !== JSON.stringify(saved.content_json ?? null)
-})
-
-/**
- * A save refetches the lesson, and deleting a file refreshes the attachment
- * list — either way the document needs its addresses resolved again.
- *
- * Но перечитанный урок не должен затирать ненаписанное. Урок перечитывается не
- * только после сохранения: удалили файл, добавили расшифровку — и статья
- * возвращалась к последней сохранённой, унося абзац, который автор писал прямо
- * сейчас. Ошибка тихая и обиднее многих: ничего не мигнуло, текст просто исчез.
- *
- * Поэтому при несохранённых правках остаётся написанное автором, а обновляются
- * в нём только адреса вложений — ради них обновление и затевалось.
- */
-watch(lesson, (value) => {
-  const attachments = value?.attachments ?? []
-
-  document.value = isDirty.value
-    ? withResolvedMedia(document.value, attachments)
-    : withResolvedMedia(value?.content_json ?? null, attachments)
 })
 
 /**
@@ -196,17 +167,23 @@ async function save() {
   generalError.value = null
   savedAt.value = null
 
+  const sent = withoutResolvedMedia(document.value)
+
   try {
     await updateLesson(lessonId.value, {
       ...form.value,
       // The server derives the searchable plain text from the document, so
       // only the document itself is sent.
       content: null,
-      content_json: withoutResolvedMedia(document.value),
+      content_json: sent,
       video_url: form.value.video_url || null,
     })
 
     await refresh()
+
+    // Сохранённое возвращается с именами блоков, проставленными сервером, — на
+    // них и ссылаются строки таблицы ответов ниже.
+    adoptSaved(sent)
 
     // Правка статьи пересобирает выведенные расшифровки на сервере: у нового
     // абзаца она появляется, у исчезнувшего пропадает. Без этого список
