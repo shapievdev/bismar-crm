@@ -346,6 +346,55 @@ final class RegulationTest extends TestCase
             ->assertForbidden();
     }
 
+    /** Отметка «важная» есть и здесь: разделов, где категории показывают, три. */
+    public function test_a_category_can_be_marked_important(): void
+    {
+        $category = RegulationCategory::factory()->create();
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.documents.categories.update', $category), [
+                'name' => $category->name,
+                'is_important' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_important', true);
+
+        $this->assertTrue($category->refresh()->is_important);
+    }
+
+    /** Важные идут первыми — в этом и смысл отметки. */
+    public function test_important_categories_come_first(): void
+    {
+        RegulationCategory::factory()->create(['name' => 'Кадры', 'position' => 0]);
+        RegulationCategory::factory()->important()->create(['name' => 'Охрана труда', 'position' => 1]);
+
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.categories.index'))
+            ->assertOk();
+
+        $this->assertSame(
+            ['Охрана труда', 'Кадры'],
+            array_column($response->json('data'), 'name'),
+        );
+    }
+
+    /**
+     * Перестановка в списке шлёт только порядок, и отметка не должна слетать от
+     * того, что кто-то подвинул категорию стрелкой.
+     */
+    public function test_reordering_a_category_leaves_its_mark_alone(): void
+    {
+        $category = RegulationCategory::factory()->important()->create(['position' => 0]);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.documents.categories.update', $category), [
+                'name' => $category->name,
+                'position' => 3,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_important', true);
+    }
+
     /* ---------- Ознакомление ---------- */
 
     public function test_a_reader_marks_a_regulation_as_read(): void
