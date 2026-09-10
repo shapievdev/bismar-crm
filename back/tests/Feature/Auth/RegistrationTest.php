@@ -25,6 +25,7 @@ final class RegistrationTest extends TestCase
             'first_name' => 'Ада',
             'middle_name' => 'Августовна',
             'email' => 'ada@example.com',
+            'phone' => '+79990009977',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'correct-horse-battery-staple',
         ]);
@@ -50,9 +51,43 @@ final class RegistrationTest extends TestCase
             'last_name' => 'Лавлейс',
             'first_name' => 'Ада',
             'email' => 'taken@example.com',
+            'phone' => '+79990009977',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'correct-horse-battery-staple',
         ])->assertUnprocessable()->assertJsonValidationErrors('email');
+
+        $this->assertGuest();
+    }
+
+    /**
+     * Номер — логин, а логин у двоих не бывает общим: занятый номер отвергается
+     * так же, как занятая почта.
+     */
+    public function test_registration_rejects_a_phone_that_is_already_taken(): void
+    {
+        User::factory()->create(['phone' => '+79990009977']);
+
+        $this->postJson(route('auth.register'), [
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
+            'email' => 'ada@example.com',
+            'phone' => '8 (999) 000-99-77',
+            'password' => 'correct-horse-battery-staple',
+            'password_confirmation' => 'correct-horse-battery-staple',
+        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
+
+        $this->assertGuest();
+    }
+
+    public function test_registration_requires_a_phone(): void
+    {
+        $this->postJson(route('auth.register'), [
+            'last_name' => 'Лавлейс',
+            'first_name' => 'Ада',
+            'email' => 'ada@example.com',
+            'password' => 'correct-horse-battery-staple',
+            'password_confirmation' => 'correct-horse-battery-staple',
+        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
 
         $this->assertGuest();
     }
@@ -64,6 +99,7 @@ final class RegistrationTest extends TestCase
             'first_name' => 'Ада',
             'middle_name' => 'Августовна',
             'email' => 'ada@example.com',
+            'phone' => '+79990009977',
             'password' => 'correct-horse-battery-staple',
             'password_confirmation' => 'something-else',
         ])->assertUnprocessable()->assertJsonValidationErrors('password');

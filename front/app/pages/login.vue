@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import { maskPhone, phoneForApi } from '~/utils/phone'
 
 definePageMeta({ middleware: 'guest' })
 useHead({ title: 'Вход' })
@@ -8,8 +9,9 @@ const { login } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
+/** Номер держится в поле разбитым на части — так его и набирают, и читают. */
 const form = reactive({
-  email: '',
+  phone: '',
   password: '',
   remember: false,
 })
@@ -24,7 +26,13 @@ async function handleSubmit() {
   generalError.value = null
 
   try {
-    await login(form)
+    await login({
+      // Скобки и дефисы — дело показа: на сервер уходит одно число. Пустое
+      // поле уходит пустым, чтобы о нём сказала проверка, а не тишина.
+      phone: phoneForApi(form.phone) ?? '',
+      password: form.password,
+      remember: form.remember,
+    })
 
     const { redirect } = route.query
     await router.push(typeof redirect === 'string' ? redirect : '/')
@@ -57,12 +65,15 @@ async function handleSubmit() {
       </p>
 
       <FormField
-        id="email"
-        v-model="form.email"
-        label="Email"
-        type="email"
-        autocomplete="email"
-        :errors="errors.email"
+        id="phone"
+        v-model="form.phone"
+        label="Телефон"
+        type="tel"
+        inputmode="tel"
+        autocomplete="tel"
+        placeholder="+7 (999) 000-99-77"
+        :format="maskPhone"
+        :errors="errors.phone"
       />
 
       <FormField

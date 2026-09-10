@@ -32,6 +32,7 @@ final class ProfileTest extends TestCase
                 'first_name' => 'Ада',
                 'middle_name' => 'Августовна',
                 'email' => $user->email,
+                'phone' => $user->phone,
             ])
             ->assertOk()
             ->assertJsonPath('data.last_name', 'Лавлейс')
@@ -87,8 +88,8 @@ final class ProfileTest extends TestCase
         $this->assertSame('+79990009977', $user->refresh()->phone);
     }
 
-    /** Пустое поле — это «убрать», как и с отчеством. */
-    public function test_a_phone_and_a_job_title_are_cleared_from_the_profile(): void
+    /** Пустая должность — это «убрать», как и с отчеством. */
+    public function test_a_job_title_is_cleared_from_the_profile(): void
     {
         $user = User::factory()->create(['phone' => '+79990009977', 'job_title' => 'Стажёр']);
 
@@ -97,15 +98,52 @@ final class ProfileTest extends TestCase
                 'last_name' => 'Лавлейс',
                 'first_name' => 'Ада',
                 'email' => $user->email,
-                'phone' => '',
+                'phone' => '+79990009977',
                 'job_title' => null,
             ])
             ->assertOk();
 
-        $user->refresh();
+        $this->assertNull($user->refresh()->job_title);
+    }
 
-        $this->assertNull($user->phone);
-        $this->assertNull($user->job_title);
+    /**
+     * Свой номер человек правит сам, но стереть его не может: с него он и
+     * входит, и пустое поле заперло бы его снаружи.
+     */
+    public function test_a_phone_cannot_be_cleared_from_the_profile(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977']);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+                'phone' => '',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+
+        $this->assertSame('+79990009977', $user->refresh()->phone);
+    }
+
+    /** Чужой номер занять нельзя — иначе двое входили бы в одну запись. */
+    public function test_a_phone_that_belongs_to_someone_else_is_refused_in_the_profile(): void
+    {
+        User::factory()->create(['phone' => '+79991112233']);
+        $user = User::factory()->create(['phone' => '+79990009977']);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => $user->email,
+                'phone' => '8 (999) 111-22-33',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+
+        $this->assertSame('+79990009977', $user->refresh()->phone);
     }
 
     public function test_a_patronymic_is_optional_and_can_be_cleared(): void
@@ -121,6 +159,7 @@ final class ProfileTest extends TestCase
                 'last_name' => 'Лавлейс',
                 'first_name' => 'Ада',
                 'email' => $user->email,
+                'phone' => $user->phone,
             ])
             ->assertOk()
             ->assertJsonPath('data.middle_name', null)
@@ -150,6 +189,7 @@ final class ProfileTest extends TestCase
                 'last_name' => 'Новая',
                 'first_name' => 'Фамилия',
                 'email' => $user->email,
+                'phone' => $user->phone,
             ])
             ->assertOk();
     }

@@ -7,18 +7,18 @@ namespace App\Data\Auth;
 final readonly class LoginData
 {
     public function __construct(
-        public string $email,
+        public string $phone,
         public string $password,
         public bool $remember = false,
     ) {}
 
     /**
-     * @param  array{email: string, password: string, remember?: bool}  $validated
+     * @param  array{phone: string, password: string, remember?: bool}  $validated
      */
     public static function fromArray(array $validated): self
     {
         return new self(
-            email: $validated['email'],
+            phone: $validated['phone'],
             password: $validated['password'],
             remember: $validated['remember'] ?? false,
         );
@@ -27,12 +27,12 @@ final readonly class LoginData
     /**
      * Credentials in the shape expected by the authentication guard.
      *
-     * @return array{email: string, password: string}
+     * @return array{phone: string, password: string}
      */
     public function credentials(): array
     {
         return [
-            'email' => $this->email,
+            'phone' => $this->phone,
             'password' => $this->password,
         ];
     }

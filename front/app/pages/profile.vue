@@ -522,7 +522,7 @@ const groups = computed(() => [
 
         <div class="field">
           <label class="field-label" for="phone">
-            Телефон <span class="field-optional">— если есть</span>
+            Телефон <span class="field-optional">— по нему вы входите</span>
           </label>
           <input
             id="phone"

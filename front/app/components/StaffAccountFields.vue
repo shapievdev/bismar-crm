@@ -26,7 +26,7 @@ const draft = defineModel<StaffAccountDraft>({ required: true })
     <FormField
       id="phone"
       v-model="draft.phone"
-      label="Телефон — если есть"
+      label="Телефон — по нему сотрудник входит"
       type="tel"
       inputmode="tel"
       autocomplete="off"

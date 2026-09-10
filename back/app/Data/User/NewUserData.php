@@ -11,13 +11,14 @@ final readonly class NewUserData
         public string $firstName,
         public ?string $middleName,
         public string $email,
-        public ?string $phone,
+        /** Логин: с него сотрудник входит, поэтому обязателен. */
+        public string $phone,
         public ?string $jobTitle,
         public string $password,
     ) {}
 
     /**
-     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone?: string|null, job_title?: string|null, password: string}  $validated
+     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone: string, job_title?: string|null, password: string}  $validated
      */
     public static function fromArray(array $validated): self
     {
@@ -26,7 +27,7 @@ final readonly class NewUserData
             firstName: $validated['first_name'],
             middleName: $validated['middle_name'] ?? null,
             email: $validated['email'],
-            phone: $validated['phone'] ?? null,
+            phone: $validated['phone'],
             jobTitle: $validated['job_title'] ?? null,
             password: $validated['password'],
         );

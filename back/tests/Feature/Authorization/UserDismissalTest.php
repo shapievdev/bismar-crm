@@ -38,11 +38,11 @@ final class UserDismissalTest extends TestCase
         $user = User::factory()->dismissed()->create();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'password',
         ])
             ->assertStatus(422)
-            ->assertJsonValidationErrors('email');
+            ->assertJsonValidationErrors('phone');
 
         $this->assertGuest();
     }
@@ -158,7 +158,7 @@ final class UserDismissalTest extends TestCase
         $this->assertNull($user->fresh()?->dismissed_at);
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'password',
         ])->assertOk();
     }

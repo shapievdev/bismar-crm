@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import { maskPhone, phoneForApi } from '~/utils/phone'
 
 definePageMeta({ middleware: 'guest' })
 useHead({ title: 'Регистрация' })
@@ -12,6 +13,7 @@ const form = reactive({
   first_name: '',
   middle_name: '',
   email: '',
+  phone: '',
   password: '',
   password_confirmation: '',
 })
@@ -26,7 +28,11 @@ async function handleSubmit() {
   generalError.value = null
 
   try {
-    await register(form)
+    await register({
+      ...form,
+      // Скобки и дефисы — дело показа: на сервер уходит одно число.
+      phone: phoneForApi(form.phone),
+    })
     await router.push('/')
   }
   catch (error) {
@@ -87,6 +93,20 @@ async function handleSubmit() {
         type="email"
         autocomplete="email"
         :errors="errors.email"
+      />
+
+      <!-- Номер, а не почта, — логин: подпись говорит об этом сразу, чтобы
+           набранное наспех не оказалось тем, чем потом входят. -->
+      <FormField
+        id="phone"
+        v-model="form.phone"
+        label="Телефон — по нему вы будете входить"
+        type="tel"
+        inputmode="tel"
+        autocomplete="tel"
+        placeholder="+7 (999) 000-99-77"
+        :format="maskPhone"
+        :errors="errors.phone"
       />
 
       <FormField

@@ -85,6 +85,9 @@ final class UserController extends Controller
             'last_name' => $request->validated('last_name'),
             'first_name' => $request->validated('first_name'),
             'email' => $request->validated('email'),
+            // Телефон здесь, а не среди необязательных: с него входят, стереть
+            // его нельзя, и пустым он до этого места не доходит.
+            'phone' => $request->validated('phone'),
             // Sent only when the administrator is resetting it; array_filter
             // would also drop a cleared patronymic, so that one is set below.
             'password' => $request->validated('password'),
@@ -95,7 +98,6 @@ final class UserController extends Controller
         // Форма присылает запись целиком, поэтому непришедшее — тоже «убрать».
         $user->update([
             'middle_name' => $request->validated('middle_name'),
-            'phone' => $request->validated('phone'),
             'job_title' => $request->validated('job_title'),
         ]);
 

@@ -33,8 +33,15 @@ final class UpdateUserRequest extends FormRequest
                 // not collide with their own record.
                 Rule::unique(User::class, 'email')->ignore($this->route('user')?->getKey()),
             ],
-            // Необязательные — и остаются такими: пустое поле означает «убрать».
-            'phone' => ['nullable', 'string', 'regex:'.Phone::PATTERN],
+            // Телефон стёрть нельзя: с него сотрудник входит, и пустое поле
+            // заперло бы его снаружи. Уникальность — по той же причине, что и у
+            // почты, и с тем же исключением для собственной записи.
+            'phone' => [
+                'required', 'string', 'regex:'.Phone::PATTERN,
+                Rule::unique(User::class, 'phone')->ignore($this->route('user')?->getKey()),
+            ],
+
+            // Должность — по-прежнему необязательная: пустое поле значит «убрать».
             'job_title' => ['nullable', 'string', 'max:255'],
 
             // Optional: sent only when the administrator is resetting it.
@@ -51,6 +58,7 @@ final class UpdateUserRequest extends FormRequest
     {
         return [
             'phone.regex' => 'Телефон должен быть российским номером: +7 и десять цифр.',
+            'phone.unique' => 'Этот номер уже занят: по нему входит другой сотрудник.',
         ];
     }
 

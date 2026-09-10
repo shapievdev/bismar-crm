@@ -62,12 +62,12 @@ final class PasswordTest extends TestCase
         $this->flushSession();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => self::CURRENT,
         ])->assertUnprocessable();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => self::REPLACEMENT,
         ])->assertOk();
     }

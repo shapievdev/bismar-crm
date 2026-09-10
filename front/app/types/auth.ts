@@ -90,7 +90,8 @@ export interface PermissionOption {
 }
 
 export interface LoginCredentials {
-  email: string
+  /** Логин — номер телефона: «+79990009977», уже без скобок и дефисов. */
+  phone: string
   password: string
   remember?: boolean
 }
@@ -100,6 +101,8 @@ export interface RegisterCredentials {
   first_name: string
   middle_name: string
   email: string
+  /** Тот самый номер, которым потом входят. */
+  phone: string | null
   password: string
   password_confirmation: string
 }

@@ -25,9 +25,12 @@ final class StoreUserRequest extends FormRequest
             'middle_name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
 
-            // Телефон и должность необязательны: под рукой они бывают не
+            // Телефон обязателен и уникален: с него сотрудник входит, и запись
+            // без номера была бы учётной записью, в которую нельзя попасть.
+            'phone' => ['required', 'string', 'regex:'.Phone::PATTERN, Rule::unique(User::class, 'phone')],
+
+            // Должность по-прежнему необязательна: под рукой она бывает не
             // всегда, а завести человека нужно сегодня.
-            'phone' => ['nullable', 'string', 'regex:'.Phone::PATTERN],
             'job_title' => ['nullable', 'string', 'max:255'],
 
             // The administrator sets the first password and passes it on; the
@@ -46,6 +49,7 @@ final class StoreUserRequest extends FormRequest
     {
         return [
             'phone.regex' => 'Телефон должен быть российским номером: +7 и десять цифр.',
+            'phone.unique' => 'Этот номер уже занят: по нему входит другой сотрудник.',
         ];
     }
 
@@ -60,7 +64,7 @@ final class StoreUserRequest extends FormRequest
 
     public function toData(): NewUserData
     {
-        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone?: string|null, job_title?: string|null, password: string} $validated */
+        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone: string, job_title?: string|null, password: string} $validated */
         $validated = $this->validated();
 
         return NewUserData::fromArray($validated);

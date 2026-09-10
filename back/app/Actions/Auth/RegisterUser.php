@@ -26,6 +26,7 @@ final readonly class RegisterUser
                 'first_name' => $data->firstName,
                 'middle_name' => $data->middleName,
                 'email' => $data->email,
+                'phone' => $data->phone,
                 'password' => $data->password,
             ]);
 

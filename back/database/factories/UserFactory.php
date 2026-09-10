@@ -31,6 +31,9 @@ class UserFactory extends Factory
             // randomly present patronymic only makes assertions harder to read.
             'middle_name' => null,
             'email' => fake()->unique()->safeEmail(),
+            // Логин, и потому у каждого свой: номер уникален в базе, и два
+            // сотрудника из одной фабрики не должны спорить за один.
+            'phone' => '+79'.fake()->unique()->numerify('#########'),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),

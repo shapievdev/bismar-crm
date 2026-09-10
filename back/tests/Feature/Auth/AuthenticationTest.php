@@ -19,11 +19,60 @@ final class AuthenticationTest extends TestCase
         $user = User::factory()->create();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'password',
-        ])->assertOk()->assertJsonPath('data.email', $user->email);
+        ])->assertOk()->assertJsonPath('data.phone', $user->phone);
 
         $this->assertAuthenticatedAs($user);
+    }
+
+    /**
+     * Номер набирают как придётся — через восьмёрку, со скобками, с дефисами, —
+     * и это один и тот же человек. Приведение стоит до проверки, иначе вход
+     * зависел бы от того, как сегодня набрали.
+     */
+    public function test_a_phone_is_accepted_however_it_was_typed(): void
+    {
+        $user = User::factory()->create(['phone' => '+79990009977']);
+
+        $this->postJson(route('auth.login'), [
+            'phone' => '8 (999) 000-99-77',
+            'password' => 'password',
+        ])->assertOk();
+
+        $this->assertAuthenticatedAs($user);
+    }
+
+    /**
+     * Почта осталась способом связи, но перестала быть логином: вход по ней не
+     * должен ни срабатывать, ни проходить проверку молча.
+     */
+    public function test_an_email_is_no_longer_a_login(): void
+    {
+        $user = User::factory()->create();
+
+        $this->postJson(route('auth.login'), [
+            'email' => $user->email,
+            'password' => 'password',
+        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
+
+        $this->assertGuest();
+    }
+
+    /**
+     * Сотрудник, заведённый без номера, войти не может — и именно поэтому номер
+     * теперь обязателен везде, где человека заводят.
+     */
+    public function test_an_account_without_a_phone_cannot_be_signed_into(): void
+    {
+        User::factory()->create(['phone' => null]);
+
+        $this->postJson(route('auth.login'), [
+            'phone' => '+79990009977',
+            'password' => 'password',
+        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
+
+        $this->assertGuest();
     }
 
     public function test_a_user_cannot_log_in_with_an_invalid_password(): void
@@ -31,9 +80,9 @@ final class AuthenticationTest extends TestCase
         $user = User::factory()->create();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'wrong-password',
-        ])->assertUnprocessable()->assertJsonValidationErrors('email');
+        ])->assertUnprocessable()->assertJsonValidationErrors('phone');
 
         $this->assertGuest();
     }
@@ -44,20 +93,20 @@ final class AuthenticationTest extends TestCase
 
         foreach (range(1, 5) as $ignored) {
             $this->postJson(route('auth.login'), [
-                'email' => $user->email,
+                'phone' => $user->phone,
                 'password' => 'wrong-password',
             ])->assertUnprocessable();
         }
 
         $response = $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'password',
         ]);
 
         $response->assertUnprocessable();
         $this->assertStringContainsString(
             'Too many login attempts',
-            $response->json('errors.email.0'),
+            $response->json('errors.phone.0'),
         );
         $this->assertGuest();
     }
@@ -95,7 +144,7 @@ final class AuthenticationTest extends TestCase
         $user = User::factory()->create();
 
         $this->postJson(route('auth.login'), [
-            'email' => $user->email,
+            'phone' => $user->phone,
             'password' => 'password',
         ])->assertOk();
 

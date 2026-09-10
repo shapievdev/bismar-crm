@@ -11,13 +11,12 @@ use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final readonly class AttemptLogin
 {
     /**
-     * Failed attempts allowed per email + IP pair before the login is locked out.
+     * Failed attempts allowed per phone + IP pair before the login is locked out.
      */
     private const MAX_ATTEMPTS = 5;
 
@@ -30,15 +29,18 @@ final readonly class AttemptLogin
      */
     public function handle(LoginData $data, string $ip): void
     {
-        $throttleKey = $this->throttleKey($data->email, $ip);
+        $throttleKey = $this->throttleKey($data->phone, $ip);
 
-        $this->ensureIsNotRateLimited($throttleKey, $data->email);
+        $this->ensureIsNotRateLimited($throttleKey);
 
         if (! $this->guard()->attempt($data->credentials(), $data->remember)) {
             RateLimiter::hit($throttleKey, self::DECAY_SECONDS);
 
+            // Ошибка вешается на номер: неизвестный номер и неверный пароль
+            // неотличимы намеренно — иначе форма входа перебором рассказывала
+            // бы, кто в компании работает.
             throw ValidationException::withMessages([
-                'email' => __('auth.failed'),
+                'phone' => __('auth.failed'),
             ]);
         }
 
@@ -71,7 +73,7 @@ final readonly class AttemptLogin
         $this->guard()->logout();
 
         throw ValidationException::withMessages([
-            'email' => 'Доступ к платформе закрыт: вы больше не числитесь сотрудником.',
+            'phone' => 'Доступ к платформе закрыт: вы больше не числитесь сотрудником.',
         ]);
     }
 
@@ -90,7 +92,7 @@ final readonly class AttemptLogin
     /**
      * @throws ValidationException
      */
-    private function ensureIsNotRateLimited(string $throttleKey, string $email): void
+    private function ensureIsNotRateLimited(string $throttleKey): void
     {
         if (! RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
             return;
@@ -99,7 +101,7 @@ final readonly class AttemptLogin
         event(new Lockout(request()));
 
         throw ValidationException::withMessages([
-            'email' => __('auth.throttle', [
+            'phone' => __('auth.throttle', [
                 'seconds' => $seconds = RateLimiter::availableIn($throttleKey),
                 'minutes' => (int) ceil($seconds / 60),
             ]),
@@ -107,11 +109,14 @@ final readonly class AttemptLogin
     }
 
     /**
-     * Rate limiting is scoped to the email + IP pair so one attacker cannot
+     * Rate limiting is scoped to the phone + IP pair so one attacker cannot
      * lock a legitimate user out of their own account.
+     *
+     * Номер к этому месту уже приведён к хранимому виду (см. LoginRequest), так
+     * что «8 999…» и «+7 999…» считаются одной и той же попыткой, а не двумя.
      */
-    private function throttleKey(string $email, string $ip): string
+    private function throttleKey(string $phone, string $ip): string
     {
-        return Str::transliterate(Str::lower($email).'|'.$ip);
+        return $phone.'|'.$ip;
     }
 }

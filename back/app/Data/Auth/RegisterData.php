@@ -11,11 +11,12 @@ final readonly class RegisterData
         public string $firstName,
         public ?string $middleName,
         public string $email,
+        public string $phone,
         public string $password,
     ) {}
 
     /**
-     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, password: string}  $validated
+     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone: string, password: string}  $validated
      */
     public static function fromArray(array $validated): self
     {
@@ -24,6 +25,7 @@ final readonly class RegisterData
             firstName: $validated['first_name'],
             middleName: $validated['middle_name'] ?? null,
             email: $validated['email'],
+            phone: $validated['phone'],
             password: $validated['password'],
         );
     }
