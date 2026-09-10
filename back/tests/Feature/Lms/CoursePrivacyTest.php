@@ -18,9 +18,10 @@ use Tests\TestCase;
 /**
  * Курс, закрытый от компании.
  *
- * Приватность здесь настоящая: её не отменяет ни право редактировать курсы, ни
- * должность администратора. Открыт приватный курс автору, тем, кого он туда
- * добавил, и суперадминистратору — больше никому.
+ * Права редактировать курсы для приватного курса мало: открыт он автору, тем,
+ * кого он туда добавил, и руководству — администратору наравне с
+ * суперадминистратором. Круг допущенных при этом остаётся за автором: должность
+ * даёт прочитать закрытое, а не распоряжаться им.
  */
 final class CoursePrivacyTest extends TestCase
 {
@@ -43,7 +44,7 @@ final class CoursePrivacyTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.title', 'Общий курс');
 
-        foreach ([$author, $member, $this->superAdministrator()] as $allowed) {
+        foreach ([$author, $member, $this->administrator(), $this->superAdministrator()] as $allowed) {
             $titles = $this->actingAs($allowed)
                 ->getJson(route('lms.courses.index'))
                 ->assertOk()
@@ -94,13 +95,13 @@ final class CoursePrivacyTest extends TestCase
     }
 
     /**
-     * Приватность, которую отменяет должность, приватностью не является.
+     * Приватность закрывает курс от компании, а не от руководства.
      *
-     * Администратор проходит любую проверку прав через Gate::before — но
-     * проверки о конкретном курсе из этого пропуска исключены, иначе закрыть
-     * курс от руководства было бы нельзя.
+     * Администратор читает и правит закрытый курс наравне с допущенными: он
+     * отвечает за базу знаний целиком, и материал, которого он не видит, ему
+     * нечем ни проверить, ни починить.
      */
-    public function test_an_administrator_does_not_reach_a_private_course(): void
+    public function test_an_administrator_reaches_a_private_course(): void
     {
         $course = $this->privateCourseOf($this->author(), 'Закрытая методика');
         $lesson = $this->lessonIn($course);
@@ -110,15 +111,49 @@ final class CoursePrivacyTest extends TestCase
         $this->actingAs($administrator)
             ->getJson(route('lms.courses.index'))
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Закрытая методика');
 
         $this->actingAs($administrator)
             ->getJson(route('lms.courses.show', $course))
-            ->assertNotFound();
+            ->assertOk()
+            ->assertJsonPath('data.is_private', true);
 
         $this->actingAs($administrator)
             ->putJson(route('lms.lessons.update', $lesson), ['title' => 'Переписанный урок'])
-            ->assertNotFound();
+            ->assertOk();
+    }
+
+    /**
+     * Читать закрытое и распоряжаться им — разные вещи.
+     *
+     * Курс администратору открыт, но круг допущенных завёл под себя автор, и
+     * ни впустить туда постороннего, ни снять приватность администратор не
+     * может: панель доступа ему даже не показывают.
+     */
+    public function test_an_administrator_does_not_decide_who_gets_into_a_private_course(): void
+    {
+        $course = $this->privateCourseOf($this->author());
+        $administrator = $this->administrator();
+
+        $this->actingAs($administrator)
+            ->getJson(route('lms.courses.show', $course))
+            ->assertOk()
+            ->assertJsonPath('data.can_manage_access', false);
+
+        $this->actingAs($administrator)
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$this->learner()->id]])
+            ->assertForbidden();
+
+        $this->actingAs($administrator)
+            ->putJson(route('lms.courses.update', $course), [
+                'title' => $course->title,
+                'category_id' => $course->category_id,
+                'status' => $course->status->value,
+                'visibility' => CourseVisibility::Public->value,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('visibility');
     }
 
     public function test_a_superadministrator_reaches_every_private_course(): void
@@ -167,9 +202,11 @@ final class CoursePrivacyTest extends TestCase
             ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id]])
             ->assertForbidden();
 
+        // Администратор курс читает, но круг допущенных не его: отказ здесь
+        // «нельзя», а не «нет такого курса».
         $this->actingAs($this->administrator())
             ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id]])
-            ->assertNotFound();
+            ->assertForbidden();
 
         $this->actingAs($author)
             ->putJson(route('lms.courses.access.update', $course), ['members' => [$editor->id, $newcomer->id]])
@@ -332,10 +369,12 @@ final class CoursePrivacyTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.courses_count', 1);
 
-        $this->actingAs($this->superAdministrator())
-            ->getJson(route('lms.categories.index'))
-            ->assertOk()
-            ->assertJsonPath('data.0.courses_count', 2);
+        foreach ([$this->administrator(), $this->superAdministrator()] as $reader) {
+            $this->actingAs($reader)
+                ->getJson(route('lms.categories.index'))
+                ->assertOk()
+                ->assertJsonPath('data.0.courses_count', 2);
+        }
     }
 
     /* ---------- helpers ---------- */

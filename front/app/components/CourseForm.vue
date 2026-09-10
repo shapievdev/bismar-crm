@@ -51,7 +51,7 @@ const statusOptions = computed<SelectOption<CourseStatus>[]>(() =>
  */
 const visibilityOptions: SelectOption<CourseVisibility>[] = [
   { value: 'public', label: 'Открытый', hint: 'Виден всем, кто может читать базу знаний' },
-  { value: 'private', label: 'Приватный', hint: 'Виден автору и тем, кого он добавил' },
+  { value: 'private', label: 'Приватный', hint: 'Виден автору, тем, кого он добавил, и администраторам' },
 ]
 </script>
 

@@ -49,10 +49,15 @@ class CoursePolicy
      * Решает тот, кто курс завёл: приватность заводят под свой круг людей, и
      * расширять его за автора не вправе даже другой редактор, которого в этот
      * круг впустили. Суперадминистратор — исключение, как и везде.
+     *
+     * Администратор приватный курс читает и правит, но круга допущенных не
+     * меняет и приватности не снимает: видеть закрытое и распоряжаться им —
+     * разные вещи. Ради одного этого отказа для курсов и снят пропуск
+     * Gate::before, см. AppServiceProvider.
      */
     public function manageAccess(User $user, Course $course): bool
     {
         return $course->author_id === $user->getKey()
-            || CourseAccess::of($user)->seesEverything();
+            || CourseAccess::of($user)->decidesWhoGetsIn();
     }
 }

@@ -146,23 +146,27 @@ final class ConsultantPrivacyTest extends TestCase
             ->assertJsonPath('data.sources.0.lesson_id', $lesson->id);
     }
 
-    /** Администратор к чужому закрытому курсу не допущен и здесь. */
-    public function test_an_administrator_gets_nothing_from_a_private_course(): void
+    /**
+     * Администратору закрытый курс открыт — значит открыт и консультанту.
+     *
+     * Иначе вышло бы худшее из двух: курс он читает глазами, а спросить о нём
+     * не может, и консультант отвечает ему «в базе ничего нет» о материале,
+     * который лежит у него на экране.
+     */
+    public function test_an_administrator_may_ask_about_a_private_course(): void
     {
-        $this->privateLesson(
+        $lesson = $this->privateLesson(
             $this->author(),
             'Закрытая методика',
             'Когда клиент говорит «дорого», предложите рассрочку по закрытому регламенту.',
         );
 
-        $transport = $this->fakeModel(FakeAnthropicTransport::replying('Не должно быть вызвано.'));
+        $this->fakeModel(FakeAnthropicTransport::replying('Предложите рассрочку [источник 1].'));
 
         $this->actingAs($this->administrator())
             ->postJson(route('lms.ask'), ['question' => 'Что делать, если клиент говорит дорого?'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'В базе знаний об этом ничего нет.');
-
-        $this->assertFalse($transport->wasCalled());
+            ->assertJsonPath('data.sources.0.lesson_id', $lesson->id);
     }
 
     /**

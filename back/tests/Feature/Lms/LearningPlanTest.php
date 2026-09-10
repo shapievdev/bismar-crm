@@ -228,27 +228,53 @@ final class LearningPlanTest extends TestCase
     /* ---------- Права и видимость ---------- */
 
     /**
-     * Назначить можно только то, что видишь сам, — иначе чужой закрытый
-     * материал попадал бы в план по угаданному номеру.
+     * Назначить можно только то, что видишь сам, — иначе материал попадал бы в
+     * план по угаданному номеру.
+     *
+     * План ведёт администратор, а закрытый материал ему открыт (см.
+     * CourseAccess), поэтому «не вижу» здесь означает не приватность, а чужой
+     * раздел: документ, присланный справочником, в своём разделе не найдётся.
      */
     public function test_material_the_trainer_cannot_see_is_refused(): void
     {
         $learner = $this->learner();
-        $secretCourse = Course::factory()->published()->closed()->create();
-        $secretRegulation = Regulation::factory()->published()->closed()->create();
+        $document = Regulation::factory()->published()->create();
         $trainer = $this->trainer();
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($secretCourse)]))
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                ['type' => 'handbook', 'id' => $document->id],
+            ]))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('items');
 
         $this->actingAs($trainer)
-            ->putJson(route('lms.plans.update', $learner), $this->plan([$this->step($secretRegulation)]))
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                ['type' => 'course', 'id' => 999999],
+            ]))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('items');
 
         $this->assertSame(0, $learner->planItems()->count());
+    }
+
+    /**
+     * Закрытый материал администратор назначает наравне с открытым: он его
+     * видит, а сотрудника в него впустят отдельно — экран об этом
+     * предупреждает (см. test_the_material_list_marks_what_the_learner_cannot_see).
+     */
+    public function test_closed_material_is_assignable_by_an_administrator(): void
+    {
+        $learner = $this->learner();
+        $closedCourse = Course::factory()->published()->closed()->create();
+        $closedRegulation = Regulation::factory()->published()->closed()->create();
+
+        $this->actingAs($this->trainer())
+            ->putJson(route('lms.plans.update', $learner), $this->plan([
+                $this->step($closedCourse), $this->step($closedRegulation),
+            ]))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
     }
 
     /**
@@ -480,16 +506,30 @@ final class LearningPlanTest extends TestCase
         $this->assertSame('Касса', $offered['Кассовая дисциплина']['category']);
     }
 
-    /** Чужой закрытый курс не всплывает в списке даже названием. */
-    public function test_the_material_list_hides_what_the_trainer_cannot_see(): void
+    /**
+     * Список материалов показывает ровно то, что открыто спрашивающему.
+     *
+     * Право «вести обучение» шире должности: его отмечают и тому, кто не
+     * администратор, — и закрытый курс не всплывает у него даже названием.
+     * Администратору он открыт, и в списке он есть.
+     */
+    public function test_the_material_list_shows_a_closed_course_only_to_those_it_is_open_to(): void
     {
         Course::factory()->published()->closed()->create(['title' => 'Закрытый курс']);
 
-        $response = $this->actingAs($this->trainer())
+        $seenByObserver = $this->actingAs($this->observer())
             ->getJson(route('lms.plans.material', $this->learner()))
-            ->assertOk();
+            ->assertOk()
+            ->json('data');
 
-        $this->assertNotContains('Закрытый курс', array_column($response->json('data'), 'title'));
+        $this->assertNotContains('Закрытый курс', array_column($seenByObserver, 'title'));
+
+        $seenByTrainer = $this->actingAs($this->trainer())
+            ->getJson(route('lms.plans.material', $this->learner()))
+            ->assertOk()
+            ->json('data');
+
+        $this->assertContains('Закрытый курс', array_column($seenByTrainer, 'title'));
     }
 
     /**

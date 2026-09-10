@@ -504,7 +504,13 @@ function moveQuestion(document: RegulationLink, delta: number) {
             </label>
           </div>
 
-          <div class="field">
+          <!--
+            Закрыть материал или открыть — решение авторское, как и список
+            допущенных: сервер такую правку от постороннего редактора не примет
+            (см. SaveRegulationRequest), и показывать переключатель, который
+            ответит ошибкой, незачем. Что сейчас выбрано, видно в шапке.
+          -->
+          <div v-if="regulation.can_manage_access" class="field">
             <span class="field-label">Доступ</span>
             <label class="choice">
               <input v-model="form.visibility" type="radio" value="public">
@@ -512,7 +518,7 @@ function moveQuestion(document: RegulationLink, delta: number) {
             </label>
             <label class="choice">
               <input v-model="form.visibility" type="radio" value="private">
-              Только автору и допущенным
+              Автору, допущенным и администраторам
             </label>
           </div>
         </div>

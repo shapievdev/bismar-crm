@@ -141,20 +141,23 @@ final class RegulationTest extends TestCase
     }
 
     /**
-     * Приватность, которую отменяет должность, приватностью не является:
-     * администратор закрытого правила не видит, а суперадминистратор видит.
+     * Закрытость отгораживает правило от компании, а не от руководства:
+     * администратор читает его наравне с суперадминистратором, но кого туда
+     * пускать, по-прежнему решает автор.
      */
-    public function test_an_administrator_does_not_bypass_a_closed_regulation(): void
+    public function test_an_administrator_reads_a_closed_regulation(): void
     {
         $closed = Regulation::factory()->published()->closed()->create();
 
-        $this->actingAs($this->administrator())
-            ->getJson(route('lms.documents.show', $closed))
-            ->assertForbidden();
+        foreach ([$this->administrator(), $this->superAdministrator()] as $reader) {
+            $this->actingAs($reader)
+                ->getJson(route('lms.documents.show', $closed))
+                ->assertOk();
+        }
 
-        $this->actingAs($this->superAdministrator())
-            ->getJson(route('lms.documents.show', $closed))
-            ->assertOk();
+        $this->actingAs($this->administrator())
+            ->putJson(route('lms.documents.access.update', $closed), ['members' => [$this->learner()->id]])
+            ->assertForbidden();
     }
 
     /* ---------- Правка ---------- */
@@ -478,6 +481,56 @@ final class RegulationTest extends TestCase
         $this->actingAs($this->author())
             ->putJson(route('lms.documents.access.update', $regulation), ['members' => []])
             ->assertForbidden();
+    }
+
+    /**
+     * Открыть закрытый материал — то же решение, что «кого сюда пускать».
+     *
+     * Иначе список допущенных стерёгся бы напрасно: впущенный редактор снимал
+     * бы закрытость одним сохранением формы и открывал материал всей компании.
+     * То же правило, что и у курсов, — см. StoreCourseRequest.
+     */
+    public function test_opening_a_closed_regulation_is_the_authors_decision(): void
+    {
+        $author = $this->author();
+        $closed = Regulation::factory()->published()->closed()->create([
+            'author_id' => $author->id,
+            'title' => 'Закрытая инструкция',
+        ]);
+
+        $editor = $this->author();
+        $closed->members()->attach($editor);
+
+        $saved = fn (string $visibility, string $title): array => $this->payload([
+            'title' => $title,
+            'visibility' => $visibility,
+            'category_id' => $closed->category_id,
+        ]);
+
+        foreach ([$editor, $this->administrator()] as $stranger) {
+            $this->actingAs($stranger)
+                ->putJson(route('lms.documents.update', $closed), $saved('public', $closed->title))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('visibility');
+        }
+
+        // Править материал допущенный редактор при этом не разучился: поле
+        // приходит в каждом сохранении, и неизменённое ему не мешает.
+        $this->actingAs($editor)
+            ->putJson(route('lms.documents.update', $closed), $saved('private', 'Закрытая инструкция по кассе'))
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Закрытая инструкция по кассе')
+            ->assertJsonPath('data.is_private', true);
+
+        $this->actingAs($author)
+            ->putJson(route('lms.documents.update', $closed), $saved('public', 'Закрытая инструкция по кассе'))
+            ->assertOk()
+            ->assertJsonPath('data.is_private', false);
+
+        // Открыли — видно всем.
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.show', $closed))
+            ->assertOk();
     }
 
     public function test_an_editor_appoints_who_answers_for_a_regulation(): void

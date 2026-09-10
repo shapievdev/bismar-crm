@@ -122,7 +122,7 @@ async function save() {
         </label>
         <label class="choice">
           <input v-model="form.visibility" type="radio" value="private">
-          Только допущенным — назовёте их в редакторе
+          Допущенным и администраторам — допущенных назовёте в редакторе
         </label>
       </div>
 
