@@ -79,8 +79,8 @@ final readonly class EmbedLessonAnswers
                     }
 
                     $answer->forceFill([
-                        'question_embedding' => Vector::pack($question),
-                        'answer_embedding' => Vector::pack($reply),
+                        'question_embedding' => Vector::literal($question),
+                        'answer_embedding' => Vector::literal($reply),
                         'embedding_model' => $model,
                     ])->save();
 

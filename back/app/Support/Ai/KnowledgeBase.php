@@ -8,14 +8,11 @@ use App\Enums\AnswerSource;
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
-use App\Models\TranscriptSegment;
 use App\Support\Lms\CourseAccess;
 use App\Support\Lms\RegulationAccess;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * What the consultant is allowed to read.
@@ -72,8 +69,6 @@ final readonly class KnowledgeBase
         return RussianText::document('transcript_segments.heading', 'transcript_segments.content');
     }
 
-    public function __construct(private Embedder $embedder) {}
-
     /**
      * Сколько фрагментов отбирают слова, прежде чем их пересортирует смысл.
      *
@@ -83,6 +78,17 @@ final readonly class KnowledgeBase
      * в приложении.
      */
     private const CANDIDATES = 120;
+
+    /**
+     * Смягчение при слиянии двух выдач: К в 1/(К + место).
+     *
+     * Число из работы, которой приём описан (Cormack и др., 2009). Чем оно
+     * больше, тем меньше разница между первым местом и десятым, — и тем сильнее
+     * согласие двух выдач весит против уверенности одной. Шестьдесят —
+     * проверенная временем середина: первое место весит вдвое против сорок
+     * первого, а не вдесятеро против десятого.
+     */
+    private const FUSION_SMOOTHING = 60;
 
     /**
      * How far below the best match a lesson may score and still be sent.
@@ -171,51 +177,69 @@ final readonly class KnowledgeBase
     }
 
     /**
-     * Lessons matching a question, most relevant first.
+     * Куски материалов, отвечающие на вопрос, — самые подходящие первыми.
      *
-     * Ranked by Postgres full-text search under the `russian` configuration,
-     * which stems — so "возражения клиентов" finds a lesson written about
-     * "работе с возражением".
+     * Ищут двое, независимо друг от друга и по всему корпусу.
      *
-     * Отдаёт больше, чем уйдёт в ответ: за лучшими фрагментами идут следующие
-     * по счёту — те, что раньше просто не помещались в бюджет и терялись. Ими
-     * не отвечают, их предлагают посмотреть.
+     * Слова — полнотекстовым поиском Postgres под конфигурацией `russian`,
+     * которая стеммит: «возражения клиентов» находит урок про «работу с
+     * возражением». Слова точны там, где вопрос и материал названы одинаково,
+     * и слепы там, где по-разному.
+     *
+     * Смысл — расстоянием между векторами, по HNSW-индексу. Он находит
+     * «Матрицу подбора по помещениям» по вопросу «как подобрать краску», где
+     * общих лемм нет вовсе, и промахивается на точных названиях и числах,
+     * которые вектор усредняет.
+     *
+     * Раньше смысл не искал, а лишь пересортировывал сто двадцать кусков,
+     * отобранных словами. На нынешней базе в эти сто двадцать попадала пятая
+     * часть всего корпуса, и разница была незаметна; на базе в сто раз большей
+     * туда попадал бы верхний процент, и всё, что словами не совпало, стало бы
+     * недостижимым. Поиск не должен слабеть от того, что базу наполняют.
+     *
+     * Две выдачи сводятся в одну по взаимному рангу — см. fused().
+     *
+     * Отдаёт больше, чем уйдёт в ответ: за лучшими кусками идут следующие по
+     * счёту — те, что раньше просто не помещались в бюджет и терялись. Ими не
+     * отвечают, их предлагают посмотреть.
      */
-    public function search(string $question, int $limit, int $relatedLimit, int $excerptChars, CourseAccess $access): Retrieved
+    public function search(Asked $asked, int $limit, int $relatedLimit, int $excerptChars, CourseAccess $access): Retrieved
     {
-        $question = trim($question);
         $relatedLimit = max($relatedLimit, 0);
+        $keep = $limit + $relatedLimit;
 
         // Документы закрыты своим правилом, но читателем — тем же самым: корпус
         // у консультанта общий, и собирать его по двум разным людям нельзя.
         $documents = RegulationAccess::of($access->reader());
 
-        $words = $this->subjectWords($question, $access, $documents);
+        // Спрашивается у самого вопроса, а не у настроек: вектор мог и не
+        // посчитаться, и тогда искать смыслом нечем.
+        $semantic = $asked->isSemantic();
 
-        if ($words === []) {
-            return new Retrieved;
-        }
+        $words = $this->subjectWords($asked->text, $access, $documents);
 
-        // Слова отбирают кандидатов, смысл их пересортировывает. Отбор нарочно
-        // широкий: словесный поиск не связывает «как подобрать краску» с
-        // «Матрицей подбора по помещениям» — общих лемм у них нет вовсе, —
-        // зато он дёшево отсекает всё, что вообще не про краску, и оставляет
-        // столько, сколько не жалко сравнить по вектору.
-        $semantic = $this->embedder->isAvailable();
-
-        $candidates = $this->matching(
+        $byWords = $words === [] ? [] : $this->matchedByWords(
             $words,
-            $semantic ? self::CANDIDATES : $limit + $relatedLimit,
-            $excerptChars,
+            $semantic ? self::CANDIDATES : $keep,
             $access,
             $documents,
             // Порог отсекает найденное по одному расхожему слову — он нужен,
-            // пока слова решают всё. Когда сортировать будет смысл, он только
-            // выбрасывает материал, который словами и не мог совпасть.
+            // пока слова решают всё. Когда рядом ищет смысл, слабое совпадение
+            // и так остаётся внизу, а выбрасывать его значит терять то немногое,
+            // что словами всё-таки нашлось.
             applyFloor: ! $semantic,
         );
 
-        $ranked = $this->reranked($question, $candidates, $limit + $relatedLimit);
+        $byMeaning = $semantic
+            ? $this->nearestByMeaning($asked, self::CANDIDATES, $access, $documents)
+            : [];
+
+        $ranked = $this->excerpts(
+            array_slice($this->fused($byWords, $byMeaning), 0, $keep),
+            $excerptChars,
+            $access,
+            $documents,
+        );
 
         return new Retrieved(
             array_slice($ranked, 0, $limit),
@@ -314,58 +338,80 @@ final readonly class KnowledgeBase
     }
 
     /**
-     * Пересортировывает кандидатов по смысловой близости к вопросу.
+     * Куски, ближайшие к вопросу по смыслу, — расстояние считает база.
      *
-     * Если эмбеддинги не настроены или сервис недоступен — возвращает то, что
-     * нашли слова. Консультант при этом работает хуже, но работает: молчать
-     * из-за отказа вспомогательного сервиса он не должен.
+     * Порог обязателен, и он здесь единственный. Ближайшие восемь кусков есть
+     * всегда, даже когда спрашивают про то, чего в базе нет вовсе: у слов есть
+     * хотя бы «ни одно слово не совпало», а у вектора такого исхода нет — он
+     * измеряет расстояние, а не совпадение. Без порога консультант потерял бы
+     * два исхода из трёх: и честное «ничего нет», и совет посмотреть близкое.
      *
-     * @param  list<Excerpt>  $candidates
-     * @return list<Excerpt>
+     * Отсечка стоит поверх обхода индекса, а не в его условии: индекс ищет
+     * ближайших, и просить его о ближайших ближе чем — значит мешать ему
+     * работать. Дешевле взять сколько просили и отбросить далёкое.
+     *
+     * @return list<int> номера кусков, ближайший первым
      */
-    private function reranked(string $question, array $candidates, int $limit): array
+    private function nearestByMeaning(Asked $asked, int $limit, CourseAccess $access, RegulationAccess $documents): array
     {
-        if ($candidates === [] || ! $this->embedder->isAvailable()) {
-            return array_slice($candidates, 0, $limit);
+        $vector = Vector::literal($asked->vector);
+
+        $rows = DB::select(sprintf(<<<'SQL'
+            SELECT id FROM (
+                SELECT
+                    transcript_segments.id,
+                    transcript_segments.embedding <=> ?::vector AS distance
+                FROM %1$s
+                  AND transcript_segments.embedding IS NOT NULL
+                ORDER BY transcript_segments.embedding <=> ?::vector
+                LIMIT ?
+            ) AS nearest
+            WHERE 1 - distance >= ?
+            ORDER BY distance
+        SQL, $this->publishedMaterial($access, $documents)), [
+            $vector,
+            ...$this->visibleBindings($access, $documents),
+            $vector,
+            $limit,
+            (float) config('ai.passages_floor'),
+        ]);
+
+        return array_map(static fn (object $row): int => (int) $row->id, $rows);
+    }
+
+    /**
+     * Сводит две выдачи в одну по взаимному рангу (reciprocal rank fusion).
+     *
+     * Каждый кусок получает по 1/(K + место) от каждой выдачи, где он нашёлся,
+     * и они складываются. Сравниваются при этом места, а не оценки, — и в этом
+     * весь смысл: ts_rank и косинусное расстояние живут на разных шкалах,
+     * несопоставимых ни между собой, ни от вопроса к вопросу. Место
+     * сопоставимо всегда.
+     *
+     * Найденное обоими поднимается выше найденного одним — что и требуется:
+     * совпало и по словам, и по смыслу значит «про это самое».
+     *
+     * K = 60 — число из работы, которой приём описан; оно смягчает разницу
+     * между первым и вторым местом, чтобы согласие двух выдач весило больше,
+     * чем уверенность одной.
+     *
+     * @param  list<int>  $byWords
+     * @param  list<int>  $byMeaning
+     * @return list<int>
+     */
+    private function fused(array $byWords, array $byMeaning): array
+    {
+        $scores = [];
+
+        foreach ([$byWords, $byMeaning] as $ranking) {
+            foreach ($ranking as $place => $id) {
+                $scores[$id] = ($scores[$id] ?? 0.0) + 1 / (self::FUSION_SMOOTHING + $place + 1);
+            }
         }
 
-        try {
-            $asked = Vector::unpack(Vector::pack($this->embedder->embed([$question])[0] ?? []));
-        } catch (Throwable $exception) {
-            Log::warning('Смысловой поиск недоступен, отвечаем по словам.', ['exception' => $exception]);
+        arsort($scores);
 
-            return array_slice($candidates, 0, $limit);
-        }
-
-        if ($asked === []) {
-            return array_slice($candidates, 0, $limit);
-        }
-
-        $vectors = TranscriptSegment::query()
-            ->whereIn('id', array_map(static fn (Excerpt $e): int => $e->segment(), $candidates))
-            ->pluck('embedding', 'id');
-
-        $scored = [];
-
-        foreach ($candidates as $position => $candidate) {
-            $vector = Vector::unpack($vectors[$candidate->segment()] ?? null);
-
-            // Фрагмент без вектора не выбрасывается: он попадает в конец, но
-            // остаётся доступным, пока пересчёт не дошёл до него.
-            $scored[] = [
-                'excerpt' => $candidate,
-                'score' => $vector === [] ? -1.0 : Vector::similarity($asked, $vector),
-                'position' => $position,
-            ];
-        }
-
-        usort($scored, static fn (array $a, array $b): int => $b['score'] <=> $a['score']
-            ?: $a['position'] <=> $b['position']);
-
-        return array_map(
-            static fn (array $row): Excerpt => $row['excerpt'],
-            array_slice($scored, 0, $limit),
-        );
+        return array_map(intval(...), array_keys($scores));
     }
 
     /**
@@ -494,13 +540,14 @@ final readonly class KnowledgeBase
     }
 
     /**
+     * Куски, совпавшие с вопросом словами, — самые весомые первыми.
+     *
      * @param  list<array{lexeme: string, weight: float}>  $words
-     * @return list<Excerpt>
+     * @return list<int> номера кусков
      */
-    private function matching(
+    private function matchedByWords(
         array $words,
         int $limit,
-        int $excerptChars,
         CourseAccess $access,
         RegulationAccess $documents,
         bool $applyFloor = true,
@@ -511,51 +558,23 @@ final readonly class KnowledgeBase
         $rows = DB::select(sprintf(<<<'SQL'
             WITH ranked AS (
                 SELECT
-                    lessons.id,
-                    transcript_segments.id AS segment_id,
-                    lessons.title AS lesson_title,
-                    transcript_segments.content,
-                    courses.title AS course_title,
-                    courses.slug AS course_slug,
-                    -- Документ вместо урока: у куска заполнено одно из двух.
-                    regulations.id AS document_id,
-                    regulations.title AS document_title,
-                    regulations.slug AS document_slug,
-                    regulations.kind AS document_kind,
-                    -- Место, откуда взят кусок: секунда записи, лист документа,
-                    -- абзац статьи. Ради него расшифровки и заведены — ссылка
-                    -- на урок целиком означала бы «ищите сами».
-                    transcript_segments.starts_at_seconds,
-                    transcript_segments.page,
-                    transcripts.source_kind,
-                    -- Абзац помнит кусок: расшифровка статьи одна на урок, и
-                    -- сказать, к какому месту относится найденное, может только
-                    -- он. У расшифровки поле остаётся ради загруженных вручную.
-                    coalesce(transcript_segments.source_block_id, transcripts.source_block_id) AS source_block_id,
-                    attachments.name AS attachment_name,
+                    transcript_segments.id,
                     ts_rank(%1$s, to_tsquery('simple', ?)) AS rank,
                     (
                         SELECT coalesce(sum(asked.weight), 0)
                         FROM unnest(?::text[], ?::float8[]) AS asked(lexeme, weight)
                         WHERE asked.lexeme = ANY (tsvector_to_array(%1$s))
                     ) AS score
-                FROM transcript_segments
-                JOIN lesson_transcripts AS transcripts ON transcripts.id = transcript_segments.transcript_id
-                LEFT JOIN lesson_attachments AS attachments ON attachments.id = transcripts.source_attachment_id
-                LEFT JOIN lessons ON lessons.id = transcript_segments.lesson_id
-                LEFT JOIN course_modules ON course_modules.id = lessons.module_id
-                LEFT JOIN courses ON courses.id = course_modules.course_id
-                LEFT JOIN regulations ON regulations.id = transcript_segments.regulation_id
-                %3$s
+                FROM %3$s
                   AND %1$s @@ to_tsquery('simple', ?)
             )
-            SELECT * FROM ranked
+            SELECT id FROM ranked
             -- A third of what the best match scored. A passage below that
             -- shares only the ordinary words of the question, not its subject.
             WHERE score >= (SELECT max(score) FROM ranked) * %2$s
             ORDER BY score DESC, rank DESC, id
             LIMIT ?
-        SQL, self::document(), $applyFloor ? self::WEAK_MATCH_SHARE : '0', $this->visible($access, $documents)),
+        SQL, self::document(), $applyFloor ? self::WEAK_MATCH_SHARE : '0', $this->publishedMaterial($access, $documents)),
             // Positional, and order-sensitive: PDO will not take one named
             // placeholder for the several places the same value appears in.
             [
@@ -571,10 +590,80 @@ final readonly class KnowledgeBase
             ],
         );
 
-        return array_map(
-            fn (object $row): Excerpt => $this->excerpt($row, $excerptChars),
-            $rows,
-        );
+        return array_map(static fn (object $row): int => (int) $row->id, $rows);
+    }
+
+    /**
+     * Отобранные куски целиком — с текстом, названием материала и местом.
+     *
+     * Отдельным запросом, а не вместе с отбором: обе выдачи отбирают по сотне
+     * кандидатов, а до ответа доходит десяток, и вычитывать текст сотни кусков
+     * ради того, чтобы выбросить девять десятых, незачем.
+     *
+     * Условие видимости повторяется и здесь, хотя номера пришли из запросов, где
+     * оно уже стояло. Это не лишняя осторожность, а граница: пока она в самом
+     * запросе, никакой будущий способ отбора не сможет протащить сюда закрытый
+     * материал, забыв её применить.
+     *
+     * @param  list<int>  $ids
+     * @return list<Excerpt> в том же порядке, в каком пришли номера
+     */
+    private function excerpts(array $ids, int $excerptChars, CourseAccess $access, RegulationAccess $documents): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = DB::select(sprintf(<<<'SQL'
+            SELECT
+                lessons.id AS lesson_id,
+                transcript_segments.id AS segment_id,
+                lessons.title AS lesson_title,
+                transcript_segments.content,
+                courses.title AS course_title,
+                courses.slug AS course_slug,
+                -- Документ вместо урока: у куска заполнено одно из двух.
+                regulations.id AS document_id,
+                regulations.title AS document_title,
+                regulations.slug AS document_slug,
+                regulations.kind AS document_kind,
+                -- Место, откуда взят кусок: секунда записи, лист документа,
+                -- абзац статьи. Ради него расшифровки и заведены — ссылка
+                -- на урок целиком означала бы «ищите сами».
+                transcript_segments.starts_at_seconds,
+                transcript_segments.page,
+                transcripts.source_kind,
+                -- Абзац помнит кусок: расшифровка статьи одна на урок, и
+                -- сказать, к какому месту относится найденное, может только
+                -- он. У расшифровки поле остаётся ради загруженных вручную.
+                coalesce(transcript_segments.source_block_id, transcripts.source_block_id) AS source_block_id,
+                attachments.name AS attachment_name
+            FROM transcript_segments
+            JOIN lesson_transcripts AS transcripts ON transcripts.id = transcript_segments.transcript_id
+            LEFT JOIN lesson_attachments AS attachments ON attachments.id = transcripts.source_attachment_id
+            LEFT JOIN lessons ON lessons.id = transcript_segments.lesson_id
+            LEFT JOIN course_modules ON course_modules.id = lessons.module_id
+            LEFT JOIN courses ON courses.id = course_modules.course_id
+            LEFT JOIN regulations ON regulations.id = transcript_segments.regulation_id
+            %1$s
+              AND transcript_segments.id = ANY (?::bigint[])
+        SQL, $this->visible($access, $documents)), [
+            ...$this->visibleBindings($access, $documents),
+            '{'.implode(',', $ids).'}',
+        ]);
+
+        $found = [];
+
+        foreach ($rows as $row) {
+            $found[(int) $row->segment_id] = $this->excerpt($row, $excerptChars);
+        }
+
+        // Порядок задают номера, а не база: он сложен слиянием двух выдач и в
+        // SQL не выражается.
+        return array_values(array_filter(array_map(
+            static fn (int $id): ?Excerpt => $found[$id] ?? null,
+            $ids,
+        )));
     }
 
     /**
@@ -608,7 +697,7 @@ final readonly class KnowledgeBase
         }
 
         return new LessonExcerpt(
-            lessonId: (int) $row->id,
+            lessonId: (int) $row->lesson_id,
             segmentId: (int) $row->segment_id,
             lessonTitle: (string) $row->lesson_title,
             courseTitle: (string) $row->course_title,

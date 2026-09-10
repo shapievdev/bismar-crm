@@ -8,10 +8,12 @@ use Anthropic\Client;
 use App\Enums\AnswerPath;
 use App\Enums\CourseVisibility;
 use App\Models\User;
+use App\Support\Ai\Asked;
 use App\Support\Ai\Citation;
 use App\Support\Ai\Conversation;
 use App\Support\Ai\CourseExpert;
 use App\Support\Ai\CuratedAnswers;
+use App\Support\Ai\Embedder;
 use App\Support\Ai\KnowledgeBase;
 use App\Support\Ai\ModelSettings;
 use App\Support\Ai\Retrieved;
@@ -22,10 +24,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * Answers a question using the company's own course material and nothing else.
  *
- * Ищет в два захода. Сперва по таблицам уроков — там, где автор сам написал,
- * какой вопрос разбирается и каков ответ; такой ответ выверен человеком и
- * потому всегда важнее того, что удалось выхватить из текста. И только если
- * в таблицах ничего нет — по нарезке текста, как было до них.
+ * Ищет двумя способами по одному и тому же материалу. По таблицам уроков — там,
+ * где автор сам написал, какой вопрос разбирается и каков ответ, — и по нарезке
+ * текста. Найденное складывается в один список источников: строки таблиц идут
+ * впереди как выверенные человеком, но текст урока из-за них не пропадает.
+ *
+ * Один случай остаётся коротким замыканием: вопрос совпал со строкой почти
+ * слово в слово. Тогда ответ автора отдаётся как есть, и искать по тексту
+ * незачем — добавить к выверенной формулировке нечего.
  *
  * Найденное делится на то, чем отвечают, и то, что предлагают рядом. Прежде
  * второго не существовало: не дотянувшее до порога поиск выбрасывал, и на
@@ -58,6 +64,7 @@ final readonly class AnswerFromKnowledgeBase
         private CuratedAnswers $curated,
         private RestateQuestion $restate,
         private ModelSettings $settings,
+        private Embedder $embedder,
     ) {}
 
     public function handle(string $question, User $reader): Answer
@@ -71,7 +78,11 @@ final readonly class AnswerFromKnowledgeBase
         // его собственные слова.
         $conversation = Conversation::of($reader, (int) config('ai.conversation_turns'));
         $restated = $this->restate->handle($question, $conversation);
-        $asked = $restated ?? $question;
+
+        // Вектор вопроса считается здесь и уходит в оба поиска. Прежде за ним
+        // ходили и таблицы, и пересортировка фрагментов, каждый сам за себя, —
+        // два круга по сети за одним и тем же числом.
+        $asked = Asked::of($this->embedder, $restated ?? $question);
 
         $curated = $this->curated->search(
             $asked,
@@ -85,7 +96,7 @@ final readonly class AnswerFromKnowledgeBase
         // быстрее, и бесплатно, и переврать выверенную формулировку тут нечему.
         // Поиск по тексту при этом не запускается: платить за него нечем — он
         // ничего не добавит к ответу, а близкое уже нашлось по дороге.
-        if ($curated->exact !== [] && $this->curated->isVerbatim($curated->exact)) {
+        if ($curated->exact !== [] && $this->curated->isVerbatim($curated->exact, $asked)) {
             $best = $curated->exact[0];
 
             return new Answer(
@@ -109,22 +120,26 @@ final readonly class AnswerFromKnowledgeBase
             $access,
         );
 
-        // Отвечают таблицы, если им есть чем; текст урока при этом не пропадает,
-        // а становится тем, что читателю предложат посмотреть. Прежде он в этом
-        // случае не искался вовсе, и разбор той же темы в самом уроке оставался
-        // сотруднику неизвестен.
+        // Таблицы и расшифровки — два поиска по одному материалу, а не главный и
+        // запасной: найденное ими складывается в один список источников, строки
+        // таблиц впереди как выверенные автором.
+        //
+        // Прежде строка таблицы вытесняла текст урока в «смотрите также», и
+        // модель отвечала одной короткой строкой, имея под рукой разбор той же
+        // темы в самом уроке. Ответ выходил верным и пустым — «нету конкретики»
+        // в отзывах журнала сказано ровно об этом.
         $answersFromTables = $curated->exact !== [];
 
-        $found = $answersFromTables
-            ? $curated->plusRelated($passages->all(), $relatedLimit)
-            : (new Retrieved($passages->exact, $curated->related))
-                ->plusRelated($passages->related, $relatedLimit);
+        $found = (new Retrieved(
+            [...$curated->exact, ...$passages->exact],
+            $curated->related,
+        ))->plusRelated($passages->related, $relatedLimit);
 
         // Последнее средство: урок, о котором известно одно название. Обычный
         // поиск идёт по расшифровкам и не видит слова, живущего в имени курса,
         // — как не видит и урока, который ещё не расшифрован вовсе.
         if ($found->isEmpty()) {
-            $found = $found->plusRelated($this->knowledge->nearby($asked, $relatedLimit, $access), $relatedLimit);
+            $found = $found->plusRelated($this->knowledge->nearby($asked->text, $relatedLimit, $access), $relatedLimit);
         }
 
         if ($found->isEmpty()) {

@@ -9,7 +9,6 @@ use App\Enums\CourseStatus;
 use App\Models\LessonAttachment;
 use App\Support\Lms\CourseAccess;
 use Illuminate\Database\Query\Builder;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -44,8 +43,6 @@ final readonly class CuratedAnswers
         'lesson_answers.source_seconds',
         'lesson_answers.source_page',
         'lesson_answers.source_block_id',
-        'lesson_answers.question_embedding',
-        'lesson_answers.answer_embedding',
         'lessons.id as lesson_id',
         'lessons.title as lesson_title',
         'courses.title as course_title',
@@ -57,11 +54,6 @@ final readonly class CuratedAnswers
         'attachments.mime_type as attachment_mime',
     ];
 
-    /** Сколько строк читается за раз при полном проходе. */
-    private const CHUNK = 500;
-
-    public function __construct(private Embedder $embedder) {}
-
     /**
      * Строки, отвечающие на вопрос, — лучшая первой, а за ними близкие.
      *
@@ -69,19 +61,17 @@ final readonly class CuratedAnswers
      * строка про соседний случай, разбор смежной темы. Отвечать по ним нельзя,
      * а промолчать о них — значит скрыть от сотрудника то, что база знает.
      */
-    public function search(string $question, int $limit, int $relatedLimit, CourseAccess $access): Retrieved
+    public function search(Asked $asked, int $limit, int $relatedLimit, CourseAccess $access): Retrieved
     {
-        $question = trim($question);
-
-        if ($question === '' || $limit < 1) {
+        if ($asked->text === '' || $limit < 1) {
             return new Retrieved;
         }
 
         $relatedLimit = max($relatedLimit, 0);
 
-        return $this->embedder->isAvailable()
-            ? $this->byMeaning($question, $limit, $relatedLimit, $access)
-            : $this->byWords($question, $limit, $relatedLimit, $access);
+        return $asked->isSemantic()
+            ? $this->byMeaning($asked, $limit, $relatedLimit, $access)
+            : $this->byWords($asked->text, $limit, $relatedLimit, $access);
     }
 
     /**
@@ -97,13 +87,15 @@ final readonly class CuratedAnswers
      *
      * @param  list<CuratedAnswer>  $matches
      */
-    public function isVerbatim(array $matches): bool
+    public function isVerbatim(array $matches, Asked $asked): bool
     {
         $best = $matches[0] ?? null;
 
         // Словесный поиск даёт ts_rank, а не близость: сравнивать его с порогом
-        // нельзя — шкалы разные. Дословная выдача — только по смыслу.
-        if ($best === null || ! $this->embedder->isAvailable()) {
+        // нельзя — шкалы разные. Дословная выдача — только по смыслу, и
+        // спрашивать об этом надо у самого вопроса: настроенная модель
+        // эмбеддингов не обещает, что вектор в этот раз посчитан.
+        if ($best === null || ! $asked->isSemantic()) {
             return false;
         }
 
@@ -118,79 +110,37 @@ final readonly class CuratedAnswers
     }
 
     /**
-     * Смысловой поиск: полный проход по всем строкам базы.
+     * Смысловой поиск: ближайшие к вопросу строки, найденные самой базой.
      *
-     * Не сужение полнотекстовым поиском, как у фрагментов, а именно полный
-     * проход. Строк по построению немного — единицы на урок против десятков
-     * фрагментов, — а словесный отбор здесь как раз терял бы то, ради чего
-     * заведены векторы: вопрос «как подобрать краску» не делит ни одной леммы
-     * с «Матрицей подбора по помещениям».
+     * Прежде здесь шёл полный проход — на каждый вопрос вычитывались все
+     * опубликованные строки с обоими векторами, и близость считалась в PHP.
+     * Работало, пока строк были сотни; на двадцати тысячах это сто мегабайт по
+     * сети и сорок тысяч скалярных произведений за один вопрос сотрудника.
+     * Теперь расстояние считает Postgres и берёт для этого HNSW-индекс.
      *
-     * Читается частями и хранится только лучшее, поэтому память не растёт с
-     * размером базы. Время — растёт: за ai.answers_scan_ceiling строк проход
-     * перестаёт быть дешёвым, и базе нужен pgvector, которого в ней пока нет.
+     * Векторов у строки два, и индексов, соответственно, тоже два. Отсюда две
+     * ветки поиска вместо одной: индекс строится по колонке, и «ближайшие по
+     * любому из двух» одним обращением не выражается. Лучшее из двух расстояний
+     * берётся уже над их объединением.
      *
-     * Проход один на оба порога. Широкий отбирает всё, что вообще про эту тему,
-     * узкий — то, чем можно отвечать; второй раз идти по базе ради близкого было
+     * Почему лучшее, а не среднее: вопрос сотрудника бывает сформулирован и
+     * словами вопроса строки («как подобрать краску»), и словами её ответа
+     * («сохнет четыре часа»). Среднее наказывало бы за то, что совпало одно, —
+     * хотя этого ровно и достаточно.
+     *
+     * Отбор один на оба порога. Широкий отбирает всё, что вообще про эту тему,
+     * узкий — то, чем можно отвечать; второй раз идти в базу ради близкого было
      * бы вдвое дороже ровно за те же строки.
      */
-    private function byMeaning(string $question, int $limit, int $relatedLimit, CourseAccess $access): Retrieved
+    private function byMeaning(Asked $question, int $limit, int $relatedLimit, CourseAccess $access): Retrieved
     {
-        try {
-            $asked = Vector::unpack(Vector::pack($this->embedder->embed([$question])[0] ?? []));
-        } catch (Throwable $exception) {
-            Log::warning('Смысловой поиск по таблицам недоступен, ищем по словам.', ['exception' => $exception]);
-
-            return $this->byWords($question, $limit, $relatedLimit, $access);
-        }
-
-        if ($asked === []) {
-            return $this->byWords($question, $limit, $relatedLimit, $access);
-        }
-
         $floor = min(
             (float) config('ai.answers_floor'),
             (float) config('ai.answers_related_floor'),
         );
 
         $keep = $limit + $relatedLimit;
-        $best = [];
-        $seen = 0;
-
-        $this->rows($access)
-            ->orderBy('lesson_answers.id')
-            ->chunk(self::CHUNK, function (Collection $rows) use ($asked, $floor, $keep, &$best, &$seen): void {
-                foreach ($rows as $row) {
-                    $seen++;
-
-                    // Лучший из двух векторов, а не средний: вопрос сотрудника
-                    // бывает сформулирован и словами вопроса строки («как
-                    // подобрать краску»), и словами её ответа («сохнет четыре
-                    // часа»). Среднее наказывало бы за то, что совпало одно, —
-                    // хотя этого ровно и достаточно.
-                    //
-                    // У строки, которой очередь ещё не посчитала векторы,
-                    // близость выходит нулевой, и до ответа она не доходит.
-                    // Окно это — секунды после сохранения, см. Jobs\EmbedLesson.
-                    $score = max(
-                        Vector::similarity($asked, Vector::unpack($row->question_embedding)),
-                        Vector::similarity($asked, Vector::unpack($row->answer_embedding)),
-                    );
-
-                    if ($score < $floor) {
-                        continue;
-                    }
-
-                    $best[] = $this->hydrate($row, $score);
-                }
-
-                // Обрезается на каждом куске, иначе чтение частями экономит
-                // только чтение, а не память.
-                usort($best, static fn (CuratedAnswer $a, CuratedAnswer $b): int => $b->score <=> $a->score);
-                $best = array_slice($best, 0, $keep);
-            });
-
-        $this->warnIfOversized($seen);
+        $best = $this->nearest($question, $keep, $floor, $access);
 
         $confident = array_values(array_filter(
             $best,
@@ -208,6 +158,84 @@ final readonly class CuratedAnswers
         ));
 
         return new Retrieved($exact, array_slice($related, 0, $relatedLimit));
+    }
+
+    /**
+     * Ближайшие к вопросу строки — по каждому из двух векторов и лучшее из них.
+     *
+     * @return list<CuratedAnswer>
+     */
+    private function nearest(Asked $question, int $keep, float $floor, CourseAccess $access): array
+    {
+        $vector = Vector::literal($question->vector);
+
+        // Сколько строк просить у каждого индекса. С запасом, потому что
+        // видимость проверяется поверх обхода индекса и часть найденного
+        // отсеется как закрытая от спрашивающего. Когда базы станет столько,
+        // что запаса перестанет хватать, поднимают hnsw.ef_search — число здесь
+        // растить бессмысленно, оно лишь просит у индекса больше того же.
+        $perLeg = $keep * 4;
+
+        $visible = sprintf(
+            'courses.status = ? AND courses.deleted_at IS NULL%s',
+            $access->sqlCondition(),
+        );
+
+        $legs = [];
+        $bindings = [];
+
+        // По ветке на вектор: индекс строится по колонке, и «ближайшие по
+        // любому из двух» одним обращением не выражается.
+        foreach (['question_embedding', 'answer_embedding'] as $column) {
+            $legs[] = sprintf(<<<'SQL'
+                (
+                    SELECT lesson_answers.id, lesson_answers.%1$s <=> ?::vector AS distance
+                    FROM lesson_answers
+                    JOIN lessons ON lessons.id = lesson_answers.lesson_id
+                    JOIN course_modules ON course_modules.id = lessons.module_id
+                    JOIN courses ON courses.id = course_modules.course_id
+                    WHERE %2$s AND lesson_answers.%1$s IS NOT NULL
+                    ORDER BY lesson_answers.%1$s <=> ?::vector
+                    LIMIT ?
+                )
+            SQL, $column, $visible);
+
+            $bindings = [
+                ...$bindings,
+                $vector,
+                CourseStatus::Published->value,
+                ...$access->sqlBindings(),
+                $vector,
+                $perLeg,
+            ];
+        }
+
+        $rows = DB::select(sprintf(<<<'SQL'
+            WITH nearest AS (
+                SELECT id, min(distance) AS distance
+                FROM (%1$s) AS found
+                GROUP BY id
+            )
+            SELECT %2$s, 1 - nearest.distance AS score
+            FROM nearest
+            JOIN lesson_answers ON lesson_answers.id = nearest.id
+            JOIN lessons ON lessons.id = lesson_answers.lesson_id
+            JOIN course_modules ON course_modules.id = lessons.module_id
+            JOIN courses ON courses.id = course_modules.course_id
+            LEFT JOIN lesson_attachments AS attachments
+                ON attachments.id = lesson_answers.source_attachment_id
+            WHERE 1 - nearest.distance >= ?
+            ORDER BY score DESC, lesson_answers.id
+            LIMIT ?
+        SQL,
+            implode(' UNION ALL ', $legs),
+            implode(', ', self::COLUMNS),
+        ), [...$bindings, $floor, $keep]);
+
+        return array_map(
+            fn (object $row): CuratedAnswer => $this->hydrate($row, (float) $row->score),
+            $rows,
+        );
     }
 
     /**
@@ -243,8 +271,14 @@ final readonly class CuratedAnswers
      * находит хуже, но находит. Молчать из-за отказа вспомогательного сервиса
      * он не должен.
      *
-     * Близкое здесь — просто строки, уступившие по ts_rank: сравнить их с
-     * порогом нельзя, шкала у ранга своя и от вопроса к вопросу разная.
+     * Отсечки по величине здесь нет — шкала у ts_rank своя и от вопроса к
+     * вопросу разная, — но отрыв от лучшей строки применяется тот же, что и в
+     * смысловом поиске: доля от лучшего в этой же выдаче от шкалы не зависит.
+     * Без неё запасной путь отдавал моделью всё, что разделило с вопросом хоть
+     * одно слово: на «расскажи про водяные насосы» — восемь строк, из которых по
+     * делу была одна, а прочие семь заслоняли собой текст самого урока.
+     *
+     * Близкое здесь — то, что этот отрыв не прошло.
      */
     private function byWords(string $question, int $limit, int $relatedLimit, CourseAccess $access): Retrieved
     {
@@ -266,10 +300,11 @@ final readonly class CuratedAnswers
 
         $matches = $rows->map(fn (object $row): CuratedAnswer => $this->hydrate($row, (float) $row->rank))->all();
 
-        return new Retrieved(
-            array_slice($matches, 0, $limit),
-            array_slice($matches, $limit),
-        );
+        // Строки идут по убыванию ранга, поэтому прошедшие отрыв — это начало
+        // списка, а всё, что за ними, и есть близкое.
+        $exact = $this->closeToTheBest(array_slice($matches, 0, $limit));
+
+        return new Retrieved($exact, array_slice($matches, count($exact), $relatedLimit));
     }
 
     /**
@@ -369,18 +404,6 @@ final readonly class CuratedAnswers
             Log::warning('Ссылка на файл источника не подписана.', ['exception' => $exception]);
 
             return null;
-        }
-    }
-
-    private function warnIfOversized(int $rows): void
-    {
-        $ceiling = (int) config('ai.answers_scan_ceiling');
-
-        if ($rows > $ceiling) {
-            Log::warning('Строк в таблицах уроков больше, чем рассчитан полный проход.', [
-                'rows' => $rows,
-                'ceiling' => $ceiling,
-            ]);
         }
     }
 }

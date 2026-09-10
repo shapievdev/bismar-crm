@@ -74,7 +74,7 @@ final readonly class EmbedTranscriptSegments
                     $segment = $segments->values()->get($index);
 
                     $segment?->forceFill([
-                        'embedding' => Vector::pack($vector),
+                        'embedding' => Vector::literal($vector),
                         'embedding_model' => $model,
                     ])->save();
 

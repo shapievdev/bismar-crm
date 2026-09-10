@@ -106,11 +106,11 @@ final readonly class AnswerSimilarity
             return null;
         }
 
-        // Векторы нормируются при упаковке, поэтому косинус здесь — скалярное
-        // произведение; отрицательная близость для оценки равна нулю.
+        // Оба вектора приводятся к единичной длине, поэтому косинус здесь —
+        // скалярное произведение; отрицательная близость для оценки равна нулю.
         return max(0.0, Vector::similarity(
-            Vector::unpack(Vector::pack($vectors[0])),
-            Vector::unpack(Vector::pack($vectors[1])),
+            Vector::normalised($vectors[0]),
+            Vector::normalised($vectors[1]),
         ));
     }
 

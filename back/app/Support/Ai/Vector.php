@@ -5,35 +5,50 @@ declare(strict_types=1);
 namespace App\Support\Ai;
 
 /**
- * Упаковка и сравнение векторов.
+ * Нормирование векторов и сравнение их между собой.
  *
- * Вектор хранится как base64 от последовательности float32 — вдвое-втрое
- * компактнее JSON и разбирается одним вызовом. Все векторы нормируются при
- * записи, поэтому косинус вырождается в скалярное произведение: делить на
- * длины при каждом сравнении не нужно.
+ * В базе вектор лежит типом `vector` расширения pgvector, и близость там считает
+ * сама база — по индексу, не читая всё подряд. Приложению остаётся две вещи:
+ * привести вектор к единичной длине перед записью и уметь сравнить два вектора,
+ * которых в базе нет вовсе.
+ *
+ * Нормирование важнее, чем кажется. От него зависит, что косинус вырождается в
+ * скалярное произведение, а расстояния по косинусу, по скалярному произведению и
+ * евклидово упорядочивают одинаково: пороги в config/ai.php выражены в косинусе,
+ * и индекс, построенный по любой из этих мер, даёт тот же порядок. Записать
+ * ненормированный вектор — значит тихо развести шкалу порогов со шкалой индекса.
  */
 final readonly class Vector
 {
     /**
+     * Вектор в записи, которую понимает pgvector: `[0.1,-0.2,…]`.
+     *
+     * Нормируется здесь же, а не доверяется зовущему: колонка не умеет
+     * потребовать единичной длины, и единственное место, где это можно
+     * гарантировать, — то, через которое вектор проходит по дороге в базу.
+     *
      * @param  list<float>  $values
      */
-    public static function pack(array $values): string
+    public static function literal(array $values): string
     {
-        return base64_encode(pack('g*', ...self::normalise($values)));
+        return '['.implode(',', self::normalised($values)).']';
     }
 
     /**
+     * Тот же вектор единичной длины — для сравнений, минующих базу.
+     *
+     * @param  list<float>  $values
      * @return list<float>
      */
-    public static function unpack(?string $packed): array
+    public static function normalised(array $values): array
     {
-        if ($packed === null || $packed === '') {
-            return [];
+        $length = sqrt(array_sum(array_map(static fn (float $v): float => $v * $v, $values)));
+
+        if ($length <= 0.0) {
+            return $values;
         }
 
-        $binary = base64_decode($packed, strict: true);
-
-        return $binary === false ? [] : array_values(unpack('g*', $binary) ?: []);
+        return array_map(static fn (float $v): float => $v / $length, $values);
     }
 
     /**
@@ -57,20 +72,5 @@ final readonly class Vector
         }
 
         return $sum;
-    }
-
-    /**
-     * @param  list<float>  $values
-     * @return list<float>
-     */
-    private static function normalise(array $values): array
-    {
-        $length = sqrt(array_sum(array_map(static fn (float $v): float => $v * $v, $values)));
-
-        if ($length <= 0.0) {
-            return $values;
-        }
-
-        return array_map(static fn (float $v): float => $v / $length, $values);
     }
 }

@@ -26,19 +26,20 @@ use Tests\TestCase;
 /**
  * Консультант отвечает прежде всего по таблицам уроков.
  *
- * Строка таблицы написана человеком и им же выверена, поэтому она всегда важнее
- * того, что удалось выхватить из текста поиском. Нарезка текста остаётся
- * запасным путём — для уроков, которые ещё не размечены.
+ * Строка таблицы написана человеком и им же выверена, поэтому в списке
+ * источников она идёт первой. Но не единственной: текст урока уходит модели
+ * вместе с ней — выверенная строка отвечает точно и коротко, а подробности,
+ * которых в ней нет, лежат в самом уроке.
  */
 final class CuratedAnswersTest extends TestCase
 {
     use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     /**
-     * Ради чего всё и затевалось: выверенный автором ответ выигрывает у абзаца,
-     * случайно совпавшего с вопросом теми же словами.
+     * Ради чего всё и затевалось: выверенный автором ответ идёт первым, впереди
+     * абзаца, случайно совпавшего с вопросом теми же словами.
      */
-    public function test_a_curated_row_is_preferred_over_the_lesson_text(): void
+    public function test_a_curated_row_leads_the_sources(): void
     {
         $lesson = $this->publishedLesson(
             'Покраска стен',
@@ -58,10 +59,44 @@ final class CuratedAnswersTest extends TestCase
 
         $sent = (string) $transport->payload()['messages'][0]['content'];
 
+        $this->assertStringContainsString('[источник 1] ', $sent);
         $this->assertStringContainsString('Вопрос: Сколько сохнет второй слой краски?', $sent);
-        $this->assertStringNotContainsString('точного срока в тексте нет', $sent);
+        $this->assertLessThan(
+            mb_strpos($sent, 'точного срока в тексте нет'),
+            mb_strpos($sent, 'Вопрос: Сколько сохнет второй слой краски?'),
+            'Строка таблицы обязана идти впереди текста урока.',
+        );
 
         $this->assertSame(AnswerPath::Curated, ConsultantQuestion::query()->sole()->answered_from);
+    }
+
+    /**
+     * Текст урока не пропадает из-за того, что таблице нашлось что сказать.
+     *
+     * Прежде строку таблицы отдавали модели одну, а найденные куски урока
+     * уходили в «смотрите также». Ответ выходил верным и пустым: в строке —
+     * срок, в уроке — при какой температуре и почему, и второго сотрудник не
+     * получал. «Нету конкретики» в отзывах журнала сказано ровно об этом.
+     */
+    public function test_the_lesson_text_is_sent_alongside_the_curated_row(): void
+    {
+        $lesson = $this->publishedLesson(
+            'Покраска стен',
+            'Здесь много общих слов про краску и сушку, но точного срока в тексте нет.',
+        );
+
+        $this->rowOn($lesson, 'Сколько сохнет второй слой краски?', 'Не менее 4 часов при 20 °C.');
+
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying('Четыре часа [источник 1][источник 2].'));
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.ask'), ['question' => 'Сколько сохнет второй слой краски?'])
+            ->assertOk();
+
+        $sent = (string) $transport->payload()['messages'][0]['content'];
+
+        $this->assertStringContainsString('точного срока в тексте нет', $sent);
+        $this->assertStringContainsString('ФРАГМЕНТЫ МАТЕРИАЛОВ', $sent);
     }
 
     /**
@@ -227,6 +262,73 @@ final class CuratedAnswersTest extends TestCase
                 $this->assertSame('Мямаев Хасбулла', $text, 'В вектор строки попали заголовки.');
             }
         }
+    }
+
+    /**
+     * Вопрос превращается в вектор один раз за ответ.
+     *
+     * Векторы нужны обоим поискам — и по таблицам, и для пересортировки
+     * фрагментов, — и прежде каждый считал свой, отправляя один и тот же текст
+     * на сторону дважды. Выдачи это не меняло, но сотрудник ждал два круга по
+     * сети вместо одного, а на медленном прокси круг — это секунды.
+     */
+    public function test_the_question_is_embedded_once_per_answer(): void
+    {
+        $this->withEmbeddings();
+
+        $lesson = $this->publishedLesson('Покраска стен', 'Второй слой краски сохнет долго.');
+        $this->rowOn($lesson, 'Сколько сохнет второй слой краски?', 'Не менее 4 часов при 20 °C.');
+        $this->indexRows();
+
+        $this->fakeModel(FakeAnthropicTransport::replying('Четыре часа [источник 1].'));
+
+        $asked = 'А краска второго слоя сохнет сколько по времени?';
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.ask'), ['question' => $asked])
+            ->assertOk();
+
+        $times = 0;
+
+        Http::assertSent(function (Request $request) use ($asked, &$times): bool {
+            if (str_contains($request->url(), '/v1/embeddings')
+                && in_array($asked, $request->data()['input'], strict: true)) {
+                $times++;
+            }
+
+            return true;
+        });
+
+        $this->assertSame(1, $times, 'Вопрос ушёл в службу эмбеддингов больше одного раза.');
+    }
+
+    /**
+     * Запасной, словесный путь не выдаёт за ответ всё, что разделило с вопросом
+     * одно слово.
+     *
+     * Сюда попадают, когда служба эмбеддингов молчит, — а молчит она незаметно.
+     * Порога по величине здесь нет и быть не может: шкала у ts_rank своя. Зато
+     * отрыв от лучшей строки от шкалы не зависит, и он же применяется в
+     * смысловом поиске. Без него на «сколько сохнет второй слой краски» уходили
+     * все строки, где встретилось слово «слой».
+     */
+    public function test_the_word_fallback_drops_rows_far_behind_the_best(): void
+    {
+        $lesson = $this->publishedLesson('Покраска стен', 'Текст урока.');
+
+        $this->rowOn($lesson, 'Сколько сохнет второй слой краски?', 'Не менее 4 часов при 20 °C.');
+        $this->rowOn($lesson, 'Какой слой наносить первым?', 'Первым наносят грунт.');
+
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying('Четыре часа [источник 1].'));
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.ask'), ['question' => 'Сколько сохнет второй слой краски?'])
+            ->assertOk();
+
+        $sent = (string) $transport->payload()['messages'][0]['content'];
+
+        $this->assertStringContainsString('Не менее 4 часов при 20 °C.', $sent);
+        $this->assertStringNotContainsString('Первым наносят грунт.', $sent);
     }
 
     /* ---------- helpers ---------- */
