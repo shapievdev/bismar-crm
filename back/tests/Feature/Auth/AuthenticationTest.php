@@ -159,4 +159,26 @@ final class AuthenticationTest extends TestCase
 
         $this->getJson(route('auth.user'))->assertUnauthorized();
     }
+
+    /**
+     * Записаться самому нельзя: учётную запись заводит администратор.
+     *
+     * Проверка живёт здесь, потому что маршрута больше нет вовсе, а не потому,
+     * что он кому-то отказывает: адрес был публичным, и вернуться он может
+     * только вместе с решением его вернуть. Обращение к нему — прежним телом
+     * запроса, чтобы забытый на фронте вызов не выглядел «ошибкой в данных».
+     */
+    public function test_nobody_may_register_themselves(): void
+    {
+        $this->postJson('/api/auth/register', [
+            'last_name' => 'Петров',
+            'first_name' => 'Пётр',
+            'email' => 'petrov@bismar.test',
+            'phone' => '+79990009900',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ])->assertNotFound();
+
+        $this->assertDatabaseMissing('users', ['email' => 'petrov@bismar.test']);
+    }
 }

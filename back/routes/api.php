@@ -14,7 +14,6 @@ use App\Http\Controllers\Api\Analytics\ProductController as AnalyticsProductCont
 use App\Http\Controllers\Api\Analytics\SalesController as AnalyticsSalesController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
-use App\Http\Controllers\Api\Auth\RegisteredUserController;
 use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
 use App\Http\Controllers\Api\Chat\MaterialCardController;
@@ -66,8 +65,13 @@ use App\Support\Analytics\ProductReport;
 use App\Support\Analytics\SalesReport;
 use Illuminate\Support\Facades\Route;
 
+/*
+ * Записаться самому нельзя: учётную запись заводит администратор (см.
+ * UserController::store). Платформа внутренняя, и человек в ней — сотрудник, а
+ * не посетитель: пускать в неё всякого, кто нашёл адрес, значило бы открыть
+ * ему базу знаний компании ещё до того, как кто-нибудь узнал его имя.
+ */
 Route::prefix('auth')->as('auth.')->group(function (): void {
-    Route::post('register', [RegisteredUserController::class, 'store'])->name('register');
     Route::post('login', [AuthenticatedSessionController::class, 'store'])->name('login');
 
     Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {

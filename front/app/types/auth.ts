@@ -96,17 +96,6 @@ export interface LoginCredentials {
   remember?: boolean
 }
 
-export interface RegisterCredentials {
-  last_name: string
-  first_name: string
-  middle_name: string
-  email: string
-  /** Тот самый номер, которым потом входят. */
-  phone: string | null
-  password: string
-  password_confirmation: string
-}
-
 /** Laravel wraps API resources in a `data` envelope. */
 export interface ResourceResponse<T> {
   data: T

@@ -1,7 +1,6 @@
 import type { FetchError } from 'ofetch'
 import type {
   LoginCredentials,
-  RegisterCredentials,
   ResourceResponse,
   User,
   ValidationErrorResponse,
@@ -80,17 +79,6 @@ export function useAuth() {
 
   async function login(credentials: LoginCredentials): Promise<User> {
     const { data } = await $api<ResourceResponse<User>>('/api/auth/login', {
-      method: 'POST',
-      body: credentials,
-    }).catch(toValidationError)
-
-    user.value = data
-
-    return data
-  }
-
-  async function register(credentials: RegisterCredentials): Promise<User> {
-    const { data } = await $api<ResourceResponse<User>>('/api/auth/register', {
       method: 'POST',
       body: credentials,
     }).catch(toValidationError)
@@ -185,7 +173,6 @@ export function useAuth() {
     isAdmin,
     fetchUser,
     login,
-    register,
     logout,
     updateProfile,
     changePassword,

@@ -1,5 +1,5 @@
 /**
- * Keeps already-authenticated users away from the login and register pages.
+ * Keeps already-authenticated users away from the login page.
  */
 export default defineNuxtRouteMiddleware(() => {
   const { isAuthenticated } = useAuth()
