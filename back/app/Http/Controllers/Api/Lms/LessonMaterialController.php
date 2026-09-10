@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\AttachLessonMaterials;
+use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\UpdateLessonMaterialsRequest;
+use App\Http\Resources\Lms\LessonMaterialResource;
 use App\Http\Resources\Lms\RegulationLinkResource;
 use App\Models\Lesson;
 use App\Models\Regulation;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -19,9 +22,9 @@ use Illuminate\Support\Facades\Gate;
 /**
  * Документы и справочники, приложенные к уроку.
  *
- * Ведёт список тот, кто правит курс, — как и всё остальное в уроке. Читателю
- * своего адреса не нужно: материалы едут вместе с уроком и показываются под
- * статьёй.
+ * Ведёт список тот, кто правит курс, — как и всё остальное в уроке. Названия
+ * едут вместе с уроком, а вот за статьёй читатель приходит сюда сам: она
+ * забирается по раскрытию материала, и до тех пор её не пересылают вовсе.
  *
  * Всюду, где материал приходит номером или уезжает названием, он пропускается
  * через доступ спрашивающего: закрытый материал выдаёт себя одним заголовком
@@ -86,6 +89,49 @@ final class LessonMaterialController extends Controller
             ->get();
 
         return RegulationLinkResource::collection($found);
+    }
+
+    /**
+     * Статья приложенного материала — читателю урока, по раскрытию.
+     *
+     * Отдельным запросом, а не вместе с уроком: приложить можно двадцать
+     * регламентов, а прочитан будет один, и остальные девятнадцать статей
+     * ехали бы в каждый урок впустую.
+     *
+     * Отбор здесь тот же, каким урок отбирает названия (см. LearningController):
+     * материал должен быть приложен именно к этому уроку, открыт этому
+     * человеку и — если он не правит курсы — опубликован. Иначе статью
+     * закрытого правила можно было бы вычитать, зная его адрес и любой урок.
+     *
+     * Отказ — 404, а не 403: «нет доступа» и «нет такого» отвечают одинаково,
+     * иначе перебор адресов рассказывал бы, какие правила в компании есть.
+     */
+    public function article(Request $request, Lesson $lesson, Regulation $regulation): LessonMaterialResource
+    {
+        $course = $lesson->owningCourse();
+
+        abort_if($course === null || Gate::denies('view', $course), 404);
+
+        /** @var User $reader */
+        $reader = $request->user();
+
+        $material = $lesson->materials()
+            ->whereKey($regulation->getKey())
+            // Файлы едут вместе со статьёй: картинки и видео внутри неё
+            // хранятся номерами вложений, и без них она пришла бы с дырами.
+            ->with('category', 'attachments')
+            ->visibleTo($reader)
+            ->when(
+                $reader->cannot(Permission::UpdateCourses->value),
+                fn (Builder $query) => $query->published(),
+            )
+            ->first();
+
+        abort_if($material === null, 404);
+
+        $material->setAttribute('sends_content', true);
+
+        return LessonMaterialResource::make($material);
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Models\CourseModule;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
 use App\Support\Ai\Embedder;
+use App\Support\Ai\Vector;
 use App\Support\Lms\BlockIdentifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -94,8 +95,8 @@ final class LessonAnswersTest extends TestCase
         ]);
 
         $row->forceFill([
-            'question_embedding' => 'вектор-вопроса',
-            'answer_embedding' => 'вектор-ответа',
+            'question_embedding' => $this->someVector(1.0),
+            'answer_embedding' => $this->someVector(-1.0),
             'embedding_model' => 'какая-то-модель',
         ])->save();
 
@@ -108,7 +109,7 @@ final class LessonAnswersTest extends TestCase
             ]]])
             ->assertOk();
 
-        $this->assertSame('вектор-вопроса', $row->refresh()->question_embedding);
+        $this->assertSame($this->someVector(1.0), $row->refresh()->question_embedding);
         $this->assertSame(755, $row->source_seconds);
     }
 
@@ -123,7 +124,10 @@ final class LessonAnswersTest extends TestCase
             'source_kind' => AnswerSource::Text,
         ]);
 
-        $row->forceFill(['question_embedding' => 'вектор', 'answer_embedding' => 'вектор'])->save();
+        $row->forceFill([
+            'question_embedding' => $this->someVector(1.0),
+            'answer_embedding' => $this->someVector(1.0),
+        ])->save();
 
         $this->actingAs($this->author())
             ->putJson(route('lms.answers.save', $lesson), ['answers' => [[
@@ -408,6 +412,19 @@ final class LessonAnswersTest extends TestCase
     }
 
     /* ---------- helpers ---------- */
+
+    /**
+     * Какой-нибудь вектор нужной размерности — чтобы отличить «остался» от
+     * «сброшен».
+     *
+     * Заглушкой из букв не обойтись: колонка типизирована расширением, и
+     * произвольную строку в неё не записать. Направление задаётся первым числом,
+     * так что два вызова с разными знаками дают разные векторы.
+     */
+    private function someVector(float $direction): string
+    {
+        return Vector::literal(array_pad([$direction], Embedder::DIMENSIONS, 0.0));
+    }
 
     /**
      * Включает смысловой поиск на управляемых векторах.

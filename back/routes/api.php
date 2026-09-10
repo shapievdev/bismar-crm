@@ -258,6 +258,16 @@ Route::middleware([
     });
     Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');
     Route::get('lessons/{lesson}', [LearningController::class, 'showLesson'])->middleware($view)->name('lessons.show');
+
+    // Статья приложенного к уроку материала — читателю, по раскрытию.
+    //
+    // Хвост «article» здесь не для красоты: без него путь стал бы
+    // `materials/{regulation}`, а под тем же префиксом ниже стоит
+    // `materials/candidates` — и подстановка, объявленная раньше, забрала бы
+    // слово «candidates» себе.
+    Route::get('lessons/{lesson}/materials/{regulation}/article', [LessonMaterialController::class, 'article'])
+        ->middleware($view)
+        ->name('lessons.material');
     Route::post('lessons/{lesson}/complete', [LearningController::class, 'completeLesson'])->middleware($view)->name('lessons.complete');
     Route::post('lessons/{lesson}/quiz/submit', [LearningController::class, 'submitQuiz'])->middleware($view)->name('quiz.submit');
 

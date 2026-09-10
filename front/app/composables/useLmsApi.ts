@@ -18,6 +18,7 @@ import type {
   LessonAnswer,
   LessonAnswerPayload,
   LessonAttachment,
+  LessonMaterial,
   LessonTranscript,
   LessonPayload,
   LessonSummary,
@@ -286,6 +287,18 @@ export function useLmsApi() {
         method: 'PUT',
         body: { documents },
       }),
+
+    /**
+     * Статья приложенного материала — по раскрытию, а не вместе с уроком.
+     *
+     * Приложить можно двадцать регламентов, а прочитан будет один: остальные
+     * девятнадцать статей ехали бы в каждый урок впустую.
+     */
+    fetchLessonMaterialArticle: (
+      lessonId: number | string,
+      slug: string,
+    ): Promise<ResourceResponse<LessonMaterial>> =>
+      $api<ResourceResponse<LessonMaterial>>(`/api/lms/lessons/${lessonId}/materials/${slug}/article`),
 
     searchLessonMaterialCandidates: (
       lessonId: number | string,

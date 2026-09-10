@@ -144,6 +144,131 @@ final class LessonMaterialsTest extends TestCase
             ->assertJsonPath('data.materials.0.title', 'Готовое');
     }
 
+    /**
+     * Приложенный материал читают в самом уроке, а не по ссылке: статья
+     * забирается отдельным запросом, по раскрытию (решение пользователя
+     * 2026-09-10).
+     */
+    public function test_the_reader_gets_the_whole_article_on_demand(): void
+    {
+        $author = $this->author();
+        $course = Course::factory()->withLessons(1)->create(['author_id' => $author->getKey()]);
+        $lesson = $this->lessonOf($course);
+        $document = $this->documentWithArticle();
+
+        $this->actingAs($author)
+            ->putJson(route('lms.materials.update', $lesson), ['documents' => [$document->getKey()]])
+            ->assertOk();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.material', [$lesson, $document]))
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Кассовая дисциплина')
+            // По тексту, а не по всей записи целиком: jsonb хранит ключи в
+            // своём порядке и возвращает их не тем, каким их записали.
+            ->assertJsonPath('data.content_json.content.0.content.0.text', 'Пересчёт кассы в конце смены.')
+            // Адрес остаётся: материал самостоятельный, и на его страницу
+            // по-прежнему уходят — за отметкой и проверкой.
+            ->assertJsonPath('data.path', $document->path());
+    }
+
+    /**
+     * Сам урок везёт только названия: приложить можно двадцать регламентов, а
+     * прочитан будет один.
+     */
+    public function test_the_lesson_itself_carries_no_articles(): void
+    {
+        $author = $this->author();
+        $course = Course::factory()->withLessons(1)->create(['author_id' => $author->getKey()]);
+        $lesson = $this->lessonOf($course);
+        $document = $this->documentWithArticle();
+
+        $this->actingAs($author)
+            ->putJson(route('lms.materials.update', $lesson), ['documents' => [$document->getKey()]])
+            ->assertOk();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertOk()
+            ->assertJsonPath('data.materials.0.title', 'Кассовая дисциплина')
+            ->assertJsonMissingPath('data.materials.0.content_json');
+    }
+
+    /**
+     * Статья едет только туда, где её читают: в списке приложенного у
+     * редактора она весила бы больше всего урока.
+     */
+    public function test_the_editors_list_stays_light(): void
+    {
+        $author = $this->author();
+        $course = Course::factory()->withLessons(1)->create(['author_id' => $author->getKey()]);
+        $lesson = $this->lessonOf($course);
+        $document = $this->documentWithArticle();
+
+        $this->actingAs($author)
+            ->putJson(route('lms.materials.update', $lesson), ['documents' => [$document->getKey()]])
+            ->assertOk();
+
+        $this->actingAs($author)
+            ->getJson(route('lms.materials.index', $lesson))
+            ->assertOk()
+            ->assertJsonMissingPath('data.0.content_json');
+    }
+
+    /**
+     * Статью отдают только за приложенный материал: иначе, зная любой урок и
+     * адрес правила, можно было бы вычитать правило, к уроку не приложенное.
+     */
+    public function test_an_article_of_a_material_that_is_not_attached_is_refused(): void
+    {
+        $course = Course::factory()->withLessons(1)->create();
+        $lesson = $this->lessonOf($course);
+        $stranger = $this->documentWithArticle();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.material', [$lesson, $stranger]))
+            ->assertNotFound();
+    }
+
+    /**
+     * Черновик читателю не отдают и статьёй: до сих пор он выпадал из списка,
+     * но список — не единственная дверь.
+     */
+    public function test_a_draft_article_is_refused_to_the_reader(): void
+    {
+        $author = $this->author();
+        $course = Course::factory()->withLessons(1)->create(['author_id' => $author->getKey()]);
+        $lesson = $this->lessonOf($course);
+        $draft = Regulation::factory()->create(['title' => 'Ещё пишется']);
+
+        $this->actingAs($author)
+            ->putJson(route('lms.materials.update', $lesson), ['documents' => [$draft->getKey()]])
+            ->assertOk();
+
+        // Редактору черновик открыт — он его и приложил.
+        $this->actingAs($author)
+            ->getJson(route('lms.lessons.material', [$lesson, $draft]))
+            ->assertOk();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.material', [$lesson, $draft]))
+            ->assertNotFound();
+    }
+
+    private function documentWithArticle(): Regulation
+    {
+        return Regulation::factory()->published()->create([
+            'title' => 'Кассовая дисциплина',
+            'content_json' => [
+                'type' => 'doc',
+                'content' => [[
+                    'type' => 'paragraph',
+                    'content' => [['type' => 'text', 'text' => 'Пересчёт кассы в конце смены.']],
+                ]],
+            ],
+        ]);
+    }
+
     /** Подсказка предлагает оба раздела и не предлагает уже приложенное. */
     public function test_candidates_come_from_both_sections(): void
     {

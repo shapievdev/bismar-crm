@@ -347,22 +347,23 @@ function formatSize(bytes: number): string {
         </ClientOnly>
       </div>
 
-      <!-- Куда идти дочитать: правила и справки, приложенные к уроку. Сразу
-           после статьи, потому что читаются они вместе с ней — урок объясняет,
-           как делать, а документ говорит, как положено. Раздел у строки свой, и
-           адрес к ней собран на сервере. -->
+      <!-- Правила и справки, приложенные к уроку, — целиком, сразу после
+           статьи: читаются они вместе с ней, урок объясняет, как делать, а
+           документ говорит, как положено. Раскрываются по нажатию, и статья
+           забирается тогда же: приложить можно двадцать, а прочитан будет
+           один. -->
       <section v-if="lesson.materials?.length" class="block">
         <h2 class="block__title">
           Что почитать к уроку
         </h2>
-        <ul class="materials">
-          <li v-for="item in lesson.materials" :key="item.id">
-            <NuxtLink :to="item.path" class="materials__link">
-              {{ item.title }}
-              <span v-if="!item.is_published" class="badge badge--warning">Черновик</span>
-            </NuxtLink>
-          </li>
-        </ul>
+        <div class="materials">
+          <LessonMaterialArticle
+            v-for="item in lesson.materials"
+            :key="item.id"
+            :lesson-id="lesson.id"
+            :material="item"
+          />
+        </div>
       </section>
 
       <section v-if="lesson.attachments?.length" class="block">
@@ -809,34 +810,18 @@ function formatSize(bytes: number): string {
 }
 
 /*
- * Приложенные документы — строки с волосяной линией между ними, как «частые
- * вопросы» у документа: их читают взглядом сверху вниз, а рамка вокруг каждой
- * превратила бы четыре ссылки в четыре карточки.
+ * Приложенные документы — карточками одна под другой: каждая держит внутри
+ * целую статью, и волосяной линии, которой хватало списку ссылок, здесь мало —
+ * чужой текст сливался бы со следующим.
+ *
+ * Ширина не урезана до колонки статьи: внутри бывают таблицы и картинки, и им
+ * нужно столько же места, сколько на собственной странице документа.
  */
 .materials {
   display: flex;
   flex-direction: column;
-  margin: 0.6rem 0 0;
-  padding: 0;
-  list-style: none;
-  max-width: 34rem;
-}
-
-.materials li + li {
-  border-top: 1px solid var(--color-border);
-}
-
-.materials__link {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0;
-  color: inherit;
-  text-decoration: none;
-}
-
-.materials__link:hover {
-  color: var(--color-accent);
+  gap: 0.75rem;
+  margin-top: 0.6rem;
 }
 
 .file {

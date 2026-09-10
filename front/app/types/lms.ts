@@ -5,7 +5,7 @@ export type CourseStatus = 'draft' | 'published' | 'archived'
 /**
  * Кому курс виден вообще — вопрос отдельный от того, готов ли он.
  *
- * Приватный курс открыт автору, тем, кого он добавил, и суперадминистратору;
+ * Приватный курс открыт автору, тем, кого он добавил, и администраторам;
  * для остальных его нет ни в каталоге, ни у консультанта.
  */
 export type CourseVisibility = 'public' | 'private'
@@ -58,10 +58,11 @@ export interface LessonSummary {
   content_json?: Record<string, unknown> | null
   attachments?: LessonAttachment[]
   /**
-   * Документы и справочники, приложенные к уроку: их читают под статьёй и по
-   * ним уходят дальше — в свой раздел или в чужой.
+   * Документы и справочники, приложенные к уроку: их читают под статьёй
+   * целиком, не покидая урока, и по ним уходят дальше — в свой раздел или в
+   * чужой.
    */
-  materials?: RegulationLink[]
+  materials?: LessonMaterial[]
   answers?: LessonAnswer[]
   quiz?: Quiz | null
   is_completed?: boolean
@@ -83,6 +84,8 @@ export interface Category {
   slug: string
   description: string | null
   position: number
+  /** Важная категория — та, которую в списке выделяют цветом. */
+  is_important: boolean
   parent_id: number | null
   children?: Category[]
   courses_count?: number
@@ -93,6 +96,11 @@ export interface CategoryPayload {
   description: string | null
   parent_id?: number | null
   position?: number
+  /**
+   * Не присланная отметка остаётся как была: перестановка в списке шлёт
+   * только порядок и о ней ничего не знает.
+   */
+  is_important?: boolean
 }
 
 export interface LessonLink {
@@ -306,6 +314,8 @@ export interface RegulationCategory {
   slug: string
   description: string | null
   position: number
+  /** Важная категория — та, которую в списке выделяют цветом. */
+  is_important: boolean
   parent_id: number | null
   children?: RegulationCategory[]
   regulations_count?: number
@@ -338,6 +348,21 @@ export interface RegulationLink {
   is_private: boolean
   /** Где сосед лежит — только чтобы различить два похожих названия. */
   category?: string | null
+}
+
+/**
+ * Документ или справочник, приложенный к уроку, — целиком, а не ссылкой.
+ *
+ * От соседа «рядом по теме» отличается тем, что его читают, не покидая урока:
+ * статья разворачивается прямо там. Поэтому здесь есть `content_json` и файлы,
+ * которыми она набрана, — без них картинки внутри статьи остались бы пустыми
+ * местами. Статья приходит только читателю урока: в списке приложенного у
+ * редактора она не нужна.
+ */
+export interface LessonMaterial extends RegulationLink {
+  summary?: string | null
+  content_json?: JSONContent | null
+  attachments?: LessonAttachment[]
 }
 
 /**
