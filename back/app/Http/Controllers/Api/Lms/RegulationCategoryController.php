@@ -52,6 +52,7 @@ final class RegulationCategoryController extends Controller
             'description' => $request->validated('description'),
             'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', RegulationCategory::query()->ofKind($kind)->count()),
+            'is_important' => $request->boolean('is_important'),
         ]);
 
         return RegulationCategoryResource::make($category)
@@ -69,6 +70,9 @@ final class RegulationCategoryController extends Controller
             'description' => $request->validated('description'),
             'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', $category->position),
+            // Не присланная отметка — «не трогать»: порядок в списке меняют
+            // отдельным запросом, и он о ней ничего не знает.
+            'is_important' => $request->boolean('is_important', $category->is_important),
         ]);
 
         return RegulationCategoryResource::make($category);

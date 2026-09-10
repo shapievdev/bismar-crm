@@ -27,6 +27,15 @@ final class CategoryFactory extends Factory
             'slug' => Str::slug($name).'-'.Str::lower(Str::random(4)),
             'description' => fake()->optional()->sentence(),
             'position' => fake()->numberBetween(0, 10),
+            'is_important' => false,
         ];
+    }
+
+    /**
+     * @return $this
+     */
+    public function important(): self
+    {
+        return $this->state(fn (): array => ['is_important' => true]);
     }
 }

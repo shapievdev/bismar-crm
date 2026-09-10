@@ -20,6 +20,7 @@ final class StoreCategoryRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:1000'],
             'position' => ['sometimes', 'integer', 'min:0', 'max:9999'],
+            'is_important' => ['sometimes', 'boolean'],
             'parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')],
         ];
     }

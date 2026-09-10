@@ -21,6 +21,7 @@ final class StoreRegulationCategoryRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:1000'],
             'position' => ['sometimes', 'integer', 'min:0', 'max:9999'],
+            'is_important' => ['sometimes', 'boolean'],
             // Родитель — только из своего дерева: ветка справочников под
             // категорией документов недостижима из обоих разделов.
             'parent_id' => ['nullable', 'integer', Rule::exists('regulation_categories', 'id')

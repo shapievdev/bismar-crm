@@ -135,6 +135,15 @@ const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
 const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
 
 /**
+ * Важные — своей сеткой, остальные — своей: причины те же, что в каталоге
+ * курсов (pages/lms/index.vue).
+ */
+const tileGroups = computed(() => [
+  { key: 'important', nodes: sections.value.filter(node => node.is_important) },
+  { key: 'ordinary', nodes: sections.value.filter(node => !node.is_important) },
+].filter(group => group.nodes.length > 0))
+
+/**
  * Всё, что лежит под категорией, вместе с ней самой.
  *
  * Выбор категории показывает и вложенное в неё, поэтому плитка обязана обещать
@@ -239,15 +248,21 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </template>
     </nav>
 
-    <div v-if="sections.length" class="tiles">
+    <div v-for="group in tileGroups" :key="group.key" class="tiles">
       <button
-        v-for="node in sections"
+        v-for="node in group.nodes"
         :key="node.slug"
         type="button"
         class="card card--raised tile"
+        :class="{ 'tile--important': node.is_important }"
         @click="category = node.slug"
       >
         <span class="tile__name">{{ node.name }}</span>
+
+        <!-- Глазу хватает цвета и отдельной сетки, а голосу — нет: подпись
+             остаётся только для чтения с экрана, иначе важность держалась бы
+             на одном цвете. -->
+        <span v-if="node.is_important" class="visually-hidden">— важная категория</span>
 
         <span v-if="node.description" class="tile__description">{{ node.description }}</span>
 
@@ -298,7 +313,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
                за документ, потом уже как он называется. -->
           <div class="document__badges">
             <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
-            <span v-if="item.is_private" class="badge" title="Виден только допущенным">Закрыт</span>
+            <span v-if="item.is_private" class="badge" title="Виден допущенным и администраторам">Закрыт</span>
             <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
             <span v-if="item.category" class="badge">{{ item.category.name }}</span>
           </div>
@@ -425,6 +440,17 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .tile__name {
   font-size: 1rem;
   font-weight: 550;
+}
+
+/* Обводкой внутрь, а не тенью: тень у плитки занята наведением. */
+.tile--important {
+  background: var(--color-danger-soft);
+  outline: 1px solid var(--color-danger);
+  outline-offset: -1px;
+}
+
+.tile--important .tile__name {
+  color: var(--color-danger);
 }
 
 .tile__description {

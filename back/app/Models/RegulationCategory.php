@@ -22,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * 2026-08-27): в тех ищут, чему научиться, в этих — по какому правилу
  * работать, и один список на двоих читался бы как свалка.
  */
-#[Fillable(['parent_id', 'name', 'slug', 'description', 'position', 'kind'])]
+#[Fillable(['parent_id', 'name', 'slug', 'description', 'position', 'kind', 'is_important'])]
 class RegulationCategory extends Model
 {
     /** @use HasFactory<RegulationCategoryFactory> */
@@ -37,6 +37,7 @@ class RegulationCategory extends Model
     {
         return [
             'kind' => MaterialKind::class,
+            'is_important' => 'boolean',
         ];
     }
 
@@ -148,11 +149,15 @@ class RegulationCategory extends Model
     }
 
     /**
+     * Важные впереди, остальные за ними, и внутри каждой группы — выставленный
+     * вручную порядок. Причины те же, что у учебных категорий, — см.
+     * Category::scopeOrdered().
+     *
      * @param  Builder<$this>  $query
      */
     public function scopeOrdered(Builder $query): void
     {
-        $query->orderBy('position')->orderBy('name');
+        $query->orderByDesc('is_important')->orderBy('position')->orderBy('name');
     }
 
     /**

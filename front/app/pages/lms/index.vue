@@ -172,6 +172,21 @@ const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
 const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
 
 /**
+ * Важные — своей сеткой, остальные — своей.
+ *
+ * Одной сеткой на всех важная категория оказывалась бы в одной строке с
+ * обычными, и выделение читалось бы как случайная раскраска соседа, а не как
+ * «сначала вот это». Группами — читается сразу, ещё до цвета.
+ *
+ * Пустая группа не рисуется вовсе: пока важных нет, каталог выглядит ровно
+ * так же, как выглядел.
+ */
+const tileGroups = computed(() => [
+  { key: 'important', nodes: sections.value.filter(node => node.is_important) },
+  { key: 'ordinary', nodes: sections.value.filter(node => !node.is_important) },
+].filter(group => group.nodes.length > 0))
+
+/**
  * Everything under a category, itself included.
  *
  * Choosing a category lists its nested material too, so the tile has to
@@ -280,15 +295,21 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </template>
     </nav>
 
-    <div v-if="sections.length" class="tiles">
+    <div v-for="group in tileGroups" :key="group.key" class="tiles">
       <button
-        v-for="node in sections"
+        v-for="node in group.nodes"
         :key="node.slug"
         type="button"
         class="card card--raised tile"
+        :class="{ 'tile--important': node.is_important }"
         @click="category = node.slug"
       >
         <span class="tile__name">{{ node.name }}</span>
+
+        <!-- Глазу хватает цвета и отдельной сетки, а голосу — нет: подпись
+             остаётся только для чтения с экрана, иначе важность держалась бы
+             на одном цвете. -->
+        <span v-if="node.is_important" class="visually-hidden">— важная категория</span>
 
         <span v-if="node.description" class="tile__description">{{ node.description }}</span>
 
@@ -471,6 +492,17 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .tile__name {
   font-size: 1rem;
   font-weight: 550;
+}
+
+/* Обводкой внутрь, а не тенью: тень у плитки занята наведением. */
+.tile--important {
+  background: var(--color-danger-soft);
+  outline: 1px solid var(--color-danger);
+  outline-offset: -1px;
+}
+
+.tile--important .tile__name {
+  color: var(--color-danger);
 }
 
 .tile__description {

@@ -25,6 +25,7 @@ final class CategoryResource extends JsonResource
             'slug' => $this->slug,
             'description' => $this->description,
             'position' => $this->position,
+            'is_important' => $this->is_important,
             'parent_id' => $this->parent_id,
             // `descendants` is the recursive eager load and `children` the
             // shallow one; either fills the same key, so the client always

@@ -637,6 +637,25 @@ a {
   color: var(--color-warning);
 }
 
+.badge--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+/* Сказанное голосу, но не глазу: то, что на экране передано цветом или
+   расположением, а вслух прозвучать всё равно должно. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------- Forms ---------- */
 
 .input,

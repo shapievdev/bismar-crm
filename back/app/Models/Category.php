@@ -17,11 +17,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Top level of the knowledge base: categories group the material.
  */
-#[Fillable(['parent_id', 'name', 'slug', 'description', 'position'])]
+#[Fillable(['parent_id', 'name', 'slug', 'description', 'position', 'is_important'])]
 class Category extends Model
 {
     /** @use HasFactory<CategoryFactory> */
     use HasFactory;
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'is_important' => 'boolean',
+        ];
+    }
 
     public function getRouteKeyName(): string
     {
@@ -121,11 +131,21 @@ class Category extends Model
     }
 
     /**
+     * Важные впереди, остальные за ними, и внутри каждой группы — выставленный
+     * вручную порядок.
+     *
+     * Отметка «важная» и есть требование «показать первым», иначе её пришлось
+     * бы дублировать перестановкой стрелками — и раскрашенная категория стояла
+     * бы посреди списка, споря сама с собой.
+     *
+     * Порядок здесь один на всех: каталог, список правки и вложенные ветки
+     * читают его отсюда, и разойтись им негде.
+     *
      * @param  Builder<$this>  $query
      */
     public function scopeOrdered(Builder $query): void
     {
-        $query->orderBy('position')->orderBy('name');
+        $query->orderByDesc('is_important')->orderBy('position')->orderBy('name');
     }
 
     /**

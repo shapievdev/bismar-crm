@@ -25,6 +25,7 @@ final class RegulationCategoryResource extends JsonResource
             'slug' => $this->slug,
             'description' => $this->description,
             'position' => $this->position,
+            'is_important' => $this->is_important,
             'parent_id' => $this->parent_id,
             // `descendants` — рекурсивная подгрузка, `children` — поверхностная;
             // обе заполняют один и тот же ключ, поэтому клиент всегда видит

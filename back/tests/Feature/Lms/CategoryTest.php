@@ -130,4 +130,100 @@ final class CategoryTest extends TestCase
             ->postJson(route('lms.categories.store'), ['name' => 'Своя'])
             ->assertForbidden();
     }
+
+    public function test_a_category_can_be_marked_important(): void
+    {
+        $category = Category::factory()->create();
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.categories.update', $category), [
+                'name' => $category->name,
+                'is_important' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_important', true);
+
+        $this->assertTrue($category->refresh()->is_important);
+    }
+
+    /** По умолчанию важных категорий нет: отметку ставит человек. */
+    public function test_a_new_category_is_not_important(): void
+    {
+        $this->actingAs($this->author())
+            ->postJson(route('lms.categories.store'), ['name' => 'Обычная'])
+            ->assertCreated()
+            ->assertJsonPath('data.is_important', false);
+    }
+
+    /**
+     * Перестановка в списке шлёт только порядок, и отметка не должна слетать от
+     * того, что кто-то подвинул категорию стрелкой.
+     */
+    public function test_reordering_a_category_leaves_its_mark_alone(): void
+    {
+        $category = Category::factory()->important()->create(['position' => 0]);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.categories.update', $category), [
+                'name' => $category->name,
+                'position' => 3,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_important', true);
+
+        $this->assertTrue($category->refresh()->is_important);
+    }
+
+    /**
+     * Важные идут первыми — в этом и смысл отметки. Внутри каждой группы
+     * остаётся порядок, выставленный вручную.
+     */
+    public function test_important_categories_come_first(): void
+    {
+        Category::factory()->create(['name' => 'Онбординг', 'position' => 0]);
+        Category::factory()->create(['name' => 'Регламенты', 'position' => 1]);
+        Category::factory()->important()->create(['name' => 'Охрана труда', 'position' => 2]);
+        Category::factory()->important()->create(['name' => 'Продажи', 'position' => 3]);
+
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.categories.index'))
+            ->assertOk();
+
+        $this->assertSame(
+            ['Охрана труда', 'Продажи', 'Онбординг', 'Регламенты'],
+            array_column($response->json('data'), 'name'),
+        );
+    }
+
+    /** Порядок один и тот же на любой глубине, а не только у корней. */
+    public function test_important_children_come_first_too(): void
+    {
+        $root = Category::factory()->create(['name' => 'Продажи']);
+        Category::factory()->create(['name' => 'Возражения', 'parent_id' => $root->id, 'position' => 0]);
+        Category::factory()->important()->create([
+            'name' => 'Кассовая дисциплина',
+            'parent_id' => $root->id,
+            'position' => 1,
+        ]);
+
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.categories.index'))
+            ->assertOk();
+
+        $this->assertSame(
+            ['Кассовая дисциплина', 'Возражения'],
+            array_column($response->json('data.0.children'), 'name'),
+        );
+    }
+
+    /** Отметку видит и читатель: цветом её выделяют в каталоге, а не в правке. */
+    public function test_the_mark_reaches_the_catalogue(): void
+    {
+        Category::factory()->important()->create(['name' => 'Охрана труда']);
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.categories.index'))
+            ->assertOk()
+            ->assertJsonPath('data.0.is_important', true);
+    }
 }

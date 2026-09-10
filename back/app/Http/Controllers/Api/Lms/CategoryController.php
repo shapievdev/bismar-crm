@@ -23,7 +23,7 @@ final class CategoryController extends Controller
         $categories = Category::query()
             ->roots()
             ->with('descendants')
-            ->withVisibleCourseCounts()
+        ->withVisibleCourseCounts()
             ->ordered()
             ->get();
 
@@ -38,6 +38,7 @@ final class CategoryController extends Controller
             'description' => $request->validated('description'),
             'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', Category::query()->count()),
+            'is_important' => $request->boolean('is_important'),
         ]);
 
         return CategoryResource::make($category)
@@ -53,6 +54,9 @@ final class CategoryController extends Controller
             'description' => $request->validated('description'),
             'parent_id' => $request->validated('parent_id'),
             'position' => $request->validated('position', $category->position),
+            // Не присланная отметка — «не трогать»: порядок в списке меняют
+            // отдельным запросом, и он о ней ничего не знает.
+            'is_important' => $request->boolean('is_important', $category->is_important),
         ]);
 
         return CategoryResource::make($category);

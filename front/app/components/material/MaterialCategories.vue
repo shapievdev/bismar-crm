@@ -36,19 +36,33 @@ const flat = computed(() => {
   return rows
 })
 
-/** Siblings share a parent, so only they can be reordered against each other. */
-function siblingsOf(parentId: number | null): RegulationCategory[] {
+/**
+ * Siblings share a parent, so only they can be reordered against each other.
+ *
+ * И одну отметку: важные стоят впереди всех остальных, и стрелка, переносящая
+ * категорию через эту границу, ничего бы не сдвинула — порядок пересилил бы
+ * её. Границу переходят галочкой «важная», а не стрелкой.
+ */
+function siblingsOf(category: RegulationCategory): RegulationCategory[] {
   const rows = flat.value.map(row => row.category)
 
-  return rows.filter(item => item.parent_id === parentId)
+  return rows.filter(item =>
+    item.parent_id === category.parent_id
+    && item.is_important === category.is_important)
 }
 
 const editingSlug = ref<string | null>(null)
 const isCreating = ref(false)
-const draft = reactive<{ name: string, description: string, parent_id: number | null }>({
+const draft = reactive<{
+  name: string
+  description: string
+  parent_id: number | null
+  is_important: boolean
+}>({
   name: '',
   description: '',
   parent_id: null,
+  is_important: false,
 })
 const busy = ref(false)
 const actionError = ref<string | null>(null)
@@ -80,6 +94,7 @@ function startCreate() {
   draft.name = ''
   draft.description = ''
   draft.parent_id = null
+  draft.is_important = false
 }
 
 function startEdit(category: RegulationCategory) {
@@ -88,6 +103,7 @@ function startEdit(category: RegulationCategory) {
   draft.name = category.name
   draft.description = category.description ?? ''
   draft.parent_id = category.parent_id
+  draft.is_important = category.is_important
 }
 
 function save() {
@@ -95,6 +111,7 @@ function save() {
     name: draft.name,
     description: draft.description || null,
     parent_id: draft.parent_id,
+    is_important: draft.is_important,
   }
 
   return run(() => editingSlug.value
@@ -167,6 +184,11 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
         />
       </div>
 
+      <label class="choice">
+        <input v-model="draft.is_important" type="checkbox">
+        Важная категория
+      </label>
+
       <div class="editor__actions">
         <button type="submit" class="button-primary" :disabled="busy || !draft.name">
           Сохранить
@@ -200,6 +222,7 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
         v-for="row in flat"
         :key="row.category.slug"
         class="card row"
+        :class="{ 'row--important': row.category.is_important }"
         :style="{ marginLeft: `${row.depth * 1.5}rem` }"
       >
         <div class="row__body">
@@ -210,6 +233,12 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
           <span v-if="row.category.description" class="faint">{{ row.category.description }}</span>
         </div>
 
+        <!-- Словом, а не одним цветом: цвет не читают ни голосом, ни глазом,
+             который его не различает. -->
+        <span v-if="row.category.is_important" class="badge badge--danger">
+          Важная
+        </span>
+
         <span class="badge">
           {{ counted(row.category.regulations_count ?? 0, copy.counted) }}
         </span>
@@ -218,16 +247,16 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
           <button
             type="button"
             class="button-ghost button-sm"
-            :disabled="busy || siblingsOf(row.category.parent_id).indexOf(row.category) === 0"
-            @click="move(siblingsOf(row.category.parent_id), siblingsOf(row.category.parent_id).indexOf(row.category), -1)"
+            :disabled="busy || siblingsOf(row.category).indexOf(row.category) === 0"
+            @click="move(siblingsOf(row.category), siblingsOf(row.category).indexOf(row.category), -1)"
           >
             ↑
           </button>
           <button
             type="button"
             class="button-ghost button-sm"
-            :disabled="busy || siblingsOf(row.category.parent_id).indexOf(row.category) === siblingsOf(row.category.parent_id).length - 1"
-            @click="move(siblingsOf(row.category.parent_id), siblingsOf(row.category.parent_id).indexOf(row.category), 1)"
+            :disabled="busy || siblingsOf(row.category).indexOf(row.category) === siblingsOf(row.category).length - 1"
+            @click="move(siblingsOf(row.category), siblingsOf(row.category).indexOf(row.category), 1)"
           >
             ↓
           </button>
@@ -288,6 +317,14 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
   gap: 0.5rem;
 }
 
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
 .list {
   display: flex;
   flex-direction: column;
@@ -315,6 +352,19 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
 
 .row__name {
   font-weight: 550;
+}
+
+/* Важную категорию видно строкой целиком: в длинном дереве значок сбоку
+   теряется, а подложка с рамкой держит взгляд. Рамка обводкой внутрь, а не
+   настоящей: настоящая сдвинула бы строку на пиксель относительно соседних. */
+.row--important {
+  background: var(--color-danger-soft);
+  outline: 1px solid var(--color-danger);
+  outline-offset: -1px;
+}
+
+.row--important .row__name {
+  color: var(--color-danger);
 }
 
 .row__actions {

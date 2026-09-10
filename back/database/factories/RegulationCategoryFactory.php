@@ -28,6 +28,15 @@ final class RegulationCategoryFactory extends Factory
             'slug' => Str::slug($name).'-'.Str::lower(Str::random(4)),
             'description' => null,
             'position' => 0,
+            'is_important' => false,
         ];
+    }
+
+    /**
+     * @return $this
+     */
+    public function important(): self
+    {
+        return $this->state(fn (): array => ['is_important' => true]);
     }
 }
