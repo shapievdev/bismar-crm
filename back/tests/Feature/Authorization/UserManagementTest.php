@@ -46,6 +46,54 @@ final class UserManagementTest extends TestCase
     }
 
     /**
+     * Почта необязательна: входят по телефону, и адрес есть не у каждого.
+     *
+     * Заводятся сразу двое: без почты сотрудников бывает много, а уникальный
+     * индекс на столбце остался — пустая строка вместо NULL пустила бы только
+     * первого.
+     */
+    public function test_a_user_can_be_created_without_an_email(): void
+    {
+        $administrator = $this->administrator();
+
+        foreach (['+79990009977', '+79990009988'] as $index => $phone) {
+            $this->actingAs($administrator)
+                ->postJson(route('users.store'), [
+                    'last_name' => 'Лавлейс',
+                    'first_name' => 'Ада',
+                    'email' => '',
+                    'phone' => $phone,
+                    'password' => 'correct-horse-battery-staple',
+                ])
+                ->assertCreated()
+                ->assertJsonPath('data.email', null);
+
+            $this->assertNull(User::firstWhere('phone', $phone)?->email);
+        }
+    }
+
+    /**
+     * Стёртая почта — «адреса нет», а не «оставить прежний»: адрес мог
+     * смениться на никакой, и убрать его иначе было бы нечем.
+     */
+    public function test_an_administrator_can_clear_an_email(): void
+    {
+        $user = User::factory()->create(['email' => 'ada@bismar.test']);
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.update', $user), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => '',
+                'phone' => $user->phone,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.email', null);
+
+        $this->assertNull($user->refresh()->email);
+    }
+
+    /**
      * Карточку человека открывает тот же, кто читает список: это одно и то же
      * чтение, только об одном.
      */

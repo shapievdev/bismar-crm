@@ -19,7 +19,8 @@ export interface User {
   last_name: string | null
   first_name: string
   middle_name: string | null
-  email: string
+  /** Способ связи, а не логин: адрес есть не у каждого. */
+  email: string | null
   /** «+79990009977» — один вид на всю систему. Пусто, если не заполнен. */
   phone: string | null
   /** Должность. Необязательна: заполняют, когда есть что написать. */
@@ -51,7 +52,7 @@ export interface NewUserPayload {
   last_name: string
   first_name: string
   middle_name: string | null
-  email: string
+  email: string | null
   phone: string | null
   job_title: string | null
   password: string
@@ -61,7 +62,7 @@ export interface UserPayload {
   last_name: string
   first_name: string
   middle_name: string | null
-  email: string
+  email: string | null
   phone: string | null
   job_title: string | null
   /** Отправляется только когда администратор сбрасывает пароль. */

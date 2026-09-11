@@ -123,7 +123,7 @@ function openAccountForm() {
     last_name: person.last_name ?? '',
     first_name: person.first_name,
     middle_name: person.middle_name ?? '',
-    email: person.email,
+    email: person.email ?? '',
     // Хранится «+79990009977», а правится в том же виде, в каком набирается.
     phone: maskPhone(person.phone ?? ''),
     job_title: person.job_title ?? '',
@@ -149,7 +149,8 @@ async function saveAccount() {
       last_name: account.value.last_name,
       first_name: account.value.first_name,
       middle_name: account.value.middle_name || null,
-      email: account.value.email,
+      // Пустое поле значит «убрать»: почта необязательна, входят по телефону.
+      email: account.value.email || null,
       // Скобки и дефисы — дело показа: на сервер уходит одно число.
       phone: phoneForApi(account.value.phone),
       job_title: account.value.job_title || null,
@@ -471,7 +472,8 @@ function messageFrom(caught: unknown, fallback: string): string {
             <div class="facts__row">
               <dt>Почта</dt>
               <dd>
-                <a :href="`mailto:${member.email}`">{{ member.email }}</a>
+                <a v-if="member.email" :href="`mailto:${member.email}`">{{ member.email }}</a>
+                <span v-else class="muted">не указана</span>
               </dd>
             </div>
 

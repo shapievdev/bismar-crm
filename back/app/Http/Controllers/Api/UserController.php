@@ -84,7 +84,6 @@ final class UserController extends Controller
         $user->update(array_filter([
             'last_name' => $request->validated('last_name'),
             'first_name' => $request->validated('first_name'),
-            'email' => $request->validated('email'),
             // Телефон здесь, а не среди необязательных: с него входят, стереть
             // его нельзя, и пустым он до этого места не доходит.
             'phone' => $request->validated('phone'),
@@ -99,6 +98,9 @@ final class UserController extends Controller
         $user->update([
             'middle_name' => $request->validated('middle_name'),
             'job_title' => $request->validated('job_title'),
+            // Почта тоже среди них: она давно не логин, и стёртое поле значит
+            // «адреса нет», а не «оставить прежний».
+            'email' => $request->validated('email'),
         ]);
 
         return UserResource::make($user->refresh()->load('roles', 'permissions'));

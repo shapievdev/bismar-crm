@@ -604,7 +604,7 @@ final readonly class AnswerFromKnowledgeBase
             $experts[$row->user_id] = new CourseExpert(
                 userId: (int) $row->user_id,
                 name: $person->name,
-                email: (string) $row->email,
+                email: $row->email === null ? null : (string) $row->email,
                 avatarUrl: $person->avatarUrl(),
                 courseTitle: (string) $row->course_title,
                 courseSlug: (string) $row->course_slug,

@@ -13,7 +13,8 @@ export interface ChatPerson {
   name: string
   /** Имя с инициалами: «Давлет К. И.» — для заголовков и списка. */
   short_name: string
-  email: string
+  /** Способ связи, если он записан: почта необязательна. */
+  email: string | null
   avatar_url: string | null
   /** До какого места дочитал — есть, когда список участников загружен с ним. */
   last_read_at?: string | null

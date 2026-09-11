@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Profile;
 
 use App\Models\User;
+use App\Support\Email;
 use App\Support\Phone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -21,8 +22,10 @@ final class UpdateProfileRequest extends FormRequest
             'first_name' => ['required', 'string', 'max:255'],
             // Not everyone has one, so it is the only part that may be left out.
             'middle_name' => ['nullable', 'string', 'max:255'],
+            // Необязательна: логин — телефон, а почта лишь способ связи, и
+            // пустое поле значит «нет адреса».
             'email' => [
-                'required', 'string', 'email', 'max:255',
+                'nullable', 'string', 'email', 'max:255',
                 // Ignores the signed-in user, so saving without changing the
                 // address does not collide with their own record.
                 Rule::unique(User::class, 'email')->ignore($this->user()?->getKey()),
@@ -59,10 +62,14 @@ final class UpdateProfileRequest extends FormRequest
     }
 
     /**
-     * Номер приводится к хранимому виду до проверки — см. App\Support\Phone.
+     * Номер и почта приводятся к хранимому виду до проверки — см.
+     * App\Support\Phone и App\Support\Email.
      */
     protected function prepareForValidation(): void
     {
-        $this->merge(['phone' => Phone::normalize($this->input('phone'))]);
+        $this->merge([
+            'phone' => Phone::normalize($this->input('phone')),
+            'email' => Email::normalize($this->input('email')),
+        ]);
     }
 }

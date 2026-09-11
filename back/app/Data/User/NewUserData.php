@@ -10,7 +10,8 @@ final readonly class NewUserData
         public string $lastName,
         public string $firstName,
         public ?string $middleName,
-        public string $email,
+        /** Способ связи, а не логин: адрес есть не у каждого. */
+        public ?string $email,
         /** Логин: с него сотрудник входит, поэтому обязателен. */
         public string $phone,
         public ?string $jobTitle,
@@ -18,7 +19,7 @@ final readonly class NewUserData
     ) {}
 
     /**
-     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone: string, job_title?: string|null, password: string}  $validated
+     * @param  array{last_name: string, first_name: string, middle_name?: string|null, email?: string|null, phone: string, job_title?: string|null, password: string}  $validated
      */
     public static function fromArray(array $validated): self
     {
@@ -26,7 +27,7 @@ final readonly class NewUserData
             lastName: $validated['last_name'],
             firstName: $validated['first_name'],
             middleName: $validated['middle_name'] ?? null,
-            email: $validated['email'],
+            email: $validated['email'] ?? null,
             phone: $validated['phone'],
             jobTitle: $validated['job_title'] ?? null,
             password: $validated['password'],

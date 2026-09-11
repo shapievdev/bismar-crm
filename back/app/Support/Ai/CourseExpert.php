@@ -17,7 +17,8 @@ final readonly class CourseExpert
     public function __construct(
         public int $userId,
         public string $name,
-        public string $email,
+        /** Способ связи, если он записан: почта есть не у каждого. */
+        public ?string $email,
         public ?string $avatarUrl,
         public string $courseTitle,
         public string $courseSlug,

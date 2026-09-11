@@ -37,7 +37,8 @@ async function save() {
       last_name: draft.value.last_name,
       first_name: draft.value.first_name,
       middle_name: draft.value.middle_name || null,
-      email: draft.value.email,
+      // Пустое поле — «почты нет»: входят по телефону, а адрес есть не у всех.
+      email: draft.value.email || null,
       // Скобки и дефисы — дело показа: на сервер уходит одно число.
       phone: phoneForApi(draft.value.phone),
       job_title: draft.value.job_title || null,

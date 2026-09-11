@@ -8,7 +8,8 @@ export type NewsAudienceKind = 'everyone' | 'selected'
 export interface NewsPerson {
   id: number
   name: string
-  email: string
+  /** Способ связи, если он записан: почта необязательна. */
+  email: string | null
   avatar_url: string | null
   /** Есть только у тех, кто отметился. */
   acknowledged_at?: string

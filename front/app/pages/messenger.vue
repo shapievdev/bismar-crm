@@ -1602,7 +1602,7 @@ const typingLabel = computed(() => {
               <UserAvatar :name="person.name" :src="person.avatar_url" :size="30" />
               <span class="sheet__person">
                 <span>{{ person.name }}</span>
-                <span class="faint">{{ person.email }}</span>
+                <span v-if="person.email" class="faint">{{ person.email }}</span>
               </span>
               <span v-if="isChosen(person)" class="sheet__tick">✓</span>
             </button>

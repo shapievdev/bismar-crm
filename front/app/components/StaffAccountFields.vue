@@ -21,7 +21,7 @@ const draft = defineModel<StaffAccountDraft>({ required: true })
     <FormField id="last_name" v-model="draft.last_name" label="Фамилия" autocomplete="off" :errors="errors.last_name" />
     <FormField id="first_name" v-model="draft.first_name" label="Имя" autocomplete="off" :errors="errors.first_name" />
     <FormField id="middle_name" v-model="draft.middle_name" label="Отчество — если есть" autocomplete="off" :errors="errors.middle_name" />
-    <FormField id="email" v-model="draft.email" label="Email" type="email" autocomplete="off" :errors="errors.email" />
+    <FormField id="email" v-model="draft.email" label="Email — если есть" type="email" autocomplete="off" :errors="errors.email" />
 
     <FormField
       id="phone"

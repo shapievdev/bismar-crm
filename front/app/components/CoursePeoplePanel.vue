@@ -127,7 +127,7 @@ const inputId = useId()
         <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
         <span class="people__name">
           {{ person.name }}
-          <span class="people__email">{{ person.email }}</span>
+          <span v-if="person.email" class="people__email">{{ person.email }}</span>
         </span>
         <button type="button" class="people__remove" :disabled="isSaving" @click="emit('remove', person)">
           Убрать
@@ -159,7 +159,7 @@ const inputId = useId()
             <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
             <span class="people__name">
               {{ person.name }}
-              <span class="people__email">{{ person.email }}</span>
+              <span v-if="person.email" class="people__email">{{ person.email }}</span>
             </span>
           </button>
         </li>

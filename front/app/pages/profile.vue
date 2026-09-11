@@ -66,7 +66,8 @@ async function save() {
       first_name: form.first_name,
       // An empty box means "no patronymic", not an empty string.
       middle_name: form.middle_name || null,
-      email: form.email,
+      // Пустое поле значит «нет адреса»: логин — телефон, а не почта.
+      email: form.email || null,
       // Скобки и дефисы — дело показа: на сервер уходит одно число.
       phone: phoneForApi(form.phone),
       job_title: form.job_title || null,
@@ -513,7 +514,9 @@ const groups = computed(() => [
         </div>
 
         <div class="field">
-          <label class="field-label" for="email">Email</label>
+          <label class="field-label" for="email">
+            Email <span class="field-optional">— если есть</span>
+          </label>
           <input id="email" v-model.trim="form.email" type="email" class="input" autocomplete="email">
           <p v-if="errors.email?.length" class="field-error">
             {{ errors.email[0] }}

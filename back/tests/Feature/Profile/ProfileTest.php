@@ -194,6 +194,27 @@ final class ProfileTest extends TestCase
             ->assertOk();
     }
 
+    /**
+     * Свою почту человек может и убрать: входит он по телефону, и незачем
+     * держать в записи адрес, которым он не пользуется.
+     */
+    public function test_a_profile_can_be_saved_without_an_email(): void
+    {
+        $user = User::factory()->create(['email' => 'ada@bismar.test']);
+
+        $this->actingAs($user)
+            ->putJson(route('profile.update'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'email' => '',
+                'phone' => $user->phone,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.email', null);
+
+        $this->assertNull($user->refresh()->email);
+    }
+
     public function test_an_email_taken_by_someone_else_is_refused(): void
     {
         $user = User::factory()->create();

@@ -96,7 +96,8 @@ export function useAuth() {
     last_name: string
     first_name: string
     middle_name: string | null
-    email: string
+    /** Почта или ничего: логин — телефон, а адрес есть не у каждого. */
+    email: string | null
     /** «+79990009977» или ничего: своё поле, и человек ведёт его сам. */
     phone: string | null
     job_title: string | null

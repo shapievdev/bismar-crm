@@ -6,6 +6,7 @@ namespace App\Http\Requests\User;
 
 use App\Data\User\NewUserData;
 use App\Models\User;
+use App\Support\Email;
 use App\Support\Phone;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -23,7 +24,9 @@ final class StoreUserRequest extends FormRequest
             'first_name' => ['required', 'string', 'max:255'],
             // Not everyone has one, so it is the only part that may be left out.
             'middle_name' => ['nullable', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
+            // Почта необязательна: входят по телефону, а адрес есть не у
+            // каждого. Записанный — по-прежнему указывает на одного человека.
+            'email' => ['nullable', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
 
             // Телефон обязателен и уникален: с него сотрудник входит, и запись
             // без номера была бы учётной записью, в которую нельзя попасть.
@@ -56,15 +59,21 @@ final class StoreUserRequest extends FormRequest
     /**
      * Номер приводится к хранимому виду до проверки: пришедшие «8 (999)…» и
      * «+7 999 …» — один и тот же номер, и правилу достаётся уже он.
+     *
+     * Пустая почта приводится к «нет почты»: пустую строку правило `email`
+     * забракует, хотя человек всего лишь ничего не написал.
      */
     protected function prepareForValidation(): void
     {
-        $this->merge(['phone' => Phone::normalize($this->input('phone'))]);
+        $this->merge([
+            'phone' => Phone::normalize($this->input('phone')),
+            'email' => Email::normalize($this->input('email')),
+        ]);
     }
 
     public function toData(): NewUserData
     {
-        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email: string, phone: string, job_title?: string|null, password: string} $validated */
+        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email?: string|null, phone: string, job_title?: string|null, password: string} $validated */
         $validated = $this->validated();
 
         return NewUserData::fromArray($validated);

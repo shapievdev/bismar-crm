@@ -522,7 +522,7 @@ function dropLink(found: LinkedMaterialResult) {
               <UserAvatar :name="person.name" :src="person.avatar_url" :size="26" />
               <span class="found__body">
                 <span>{{ person.name }}</span>
-                <span class="faint">{{ person.email }}</span>
+                <span v-if="person.email" class="faint">{{ person.email }}</span>
               </span>
             </button>
           </li>

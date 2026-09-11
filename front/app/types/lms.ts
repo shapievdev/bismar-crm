@@ -593,7 +593,8 @@ export interface CoursePayload {
 export interface CoursePerson {
   id: number
   name: string
-  email: string
+  /** Способ связи, если он записан: почта необязательна. */
+  email: string | null
   avatar_url: string | null
   /** Когда открыли доступ. У найденного поиском — нет. */
   granted_at?: string | null
@@ -729,7 +730,8 @@ export interface ConsultantResolution {
 export interface ConsultantExpert {
   user_id: number
   name: string
-  email: string
+  /** Способ связи, если он записан: почта необязательна. */
+  email: string | null
   avatar_url: string | null
   course_title: string
   course_slug: string
