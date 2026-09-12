@@ -7,6 +7,7 @@ import type {
   UserPayload,
 } from '~/types/auth'
 import type { PaginatedResponse } from '~/types/lms'
+import { toValidationError } from '~/composables/useAuth'
 
 /** Чего просят у списка сотрудников: страницу и строку поиска. */
 export interface StaffQuery {
@@ -38,15 +39,25 @@ export function useAdminApi() {
     fetchStaffMember: (id: number): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${id}`),
 
+    /*
+     * Отправляющие форму разбирают отказ по полям — как и везде, где форму
+     * отправляют. Без `.catch(toValidationError)` ответ 422 доезжал до экрана
+     * обычной ошибкой сети: занятый номер, слабый пароль и неверно набранный
+     * телефон выглядели одинаково — «не удалось завести сотрудника», и человеку
+     * оставалось гадать, что именно не так.
+     */
     createUser: (body: NewUserPayload): Promise<ResourceResponse<User>> =>
-      $api<ResourceResponse<User>>('/api/users', { method: 'POST', body }),
+      $api<ResourceResponse<User>>('/api/users', { method: 'POST', body })
+        .catch(toValidationError),
 
     updateUser: (user: User, body: UserPayload): Promise<ResourceResponse<User>> =>
-      $api<ResourceResponse<User>>(`/api/users/${user.id}`, { method: 'PUT', body }),
+      $api<ResourceResponse<User>>(`/api/users/${user.id}`, { method: 'PUT', body })
+        .catch(toValidationError),
 
     /** Standing and permissions, saved together — they are one decision. */
     updateAccess: (user: User, body: AccessPayload): Promise<ResourceResponse<User>> =>
-      $api<ResourceResponse<User>>(`/api/users/${user.id}/access`, { method: 'PUT', body }),
+      $api<ResourceResponse<User>>(`/api/users/${user.id}/access`, { method: 'PUT', body })
+        .catch(toValidationError),
 
     /** Увольнение: запись остаётся, платформа для человека закрывается. */
     dismissUser: (user: User): Promise<ResourceResponse<User>> =>

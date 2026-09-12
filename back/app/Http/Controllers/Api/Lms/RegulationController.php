@@ -6,15 +6,16 @@ namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\SaveRegulation;
 use App\Enums\MaterialKind;
-use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveRegulationRequest;
 use App\Http\Resources\Lms\RegulationResource;
+use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationCategory;
 use App\Models\User;
 use App\Support\Lms\CatalogSearch;
+use App\Support\Lms\MaterialVersions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
@@ -33,7 +34,10 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class RegulationController extends Controller
 {
-    public function __construct(private readonly CatalogSearch $search) {}
+    public function __construct(
+        private readonly CatalogSearch $search,
+        private readonly MaterialVersions $versions,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -62,8 +66,10 @@ final class RegulationController extends Controller
                 fn (Builder $query) => $query->whereIn('category_id', $this->branchIdsFor((string) $request->query('category'))),
             )
             ->when(
-                // Черновики от читателей скрыты.
-                $reader->cannot(Permission::UpdateCourses->value),
+                // Черновики от читателей скрыты. Право спрашивается у раздела,
+                // в котором мы находимся: правящий справочники не редактор
+                // документов и черновиков правил не видит.
+                $reader->cannot(MaterialKind::of($request)->updatePermission()->value),
                 fn (Builder $query) => $query->published(),
                 fn (Builder $query) => $query->when(
                     $request->filled('status'),
@@ -99,27 +105,20 @@ final class RegulationController extends Controller
         );
 
         // Соседи — «рядом по теме». Отбираются под того, кто спрашивает: чужой
-        // закрытый документ и неопубликованный черновик из блока выпадают,
-        // иначе ссылка вела бы читателя в отказ, а название закрытого правила
-        // выдавало бы его не хуже страницы.
+        // закрытый документ, черновик и целый раздел, который этому человеку
+        // не открыт, из блока выпадают — иначе ссылка вела бы читателя в отказ,
+        // а название закрытого правила выдавало бы его не хуже страницы.
         $regulation->load(['related' => fn (BelongsToMany $query) => $query
             ->with('category')
-            ->visibleTo($reader)
-            ->when(
-                $reader->cannot(Permission::UpdateCourses->value),
-                fn (Builder $query) => $query->published(),
-            )]);
+            ->readableBy($reader)]);
 
         // «Частые вопросы» — тем же отбором и по той же причине. Раздел здесь
         // не при чём: к правилу прикалывают и справочник, и строка ведёт туда,
-        // где лежит ответ.
+        // где лежит ответ, — потому и отбор обязан спрашивать права обоих
+        // разделов, а не того, в котором мы стоим.
         $regulation->load(['questions' => fn (BelongsToMany $query) => $query
             ->with('category')
-            ->visibleTo($reader)
-            ->when(
-                $reader->cannot(Permission::UpdateCourses->value),
-                fn (Builder $query) => $query->published(),
-            )]);
+            ->readableBy($reader)]);
 
         if ($reader->can('update', $regulation)) {
             $regulation->loadCount('acknowledgements', 'members');
@@ -127,20 +126,27 @@ final class RegulationController extends Controller
 
         $regulation->setAttribute('sends_content', true);
 
+        // Версии и та из них, что открывается этому человеку первой.
+        $this->attachVersions($regulation, $reader, $request->query('version'));
+
         return RegulationResource::make($this->attachOwnState($regulation, $reader));
     }
 
     public function store(SaveRegulationRequest $request, SaveRegulation $saveRegulation): JsonResponse
     {
-        Gate::authorize('create', Regulation::class);
+        // Вид берётся из раздела, а не из присланного: заводя справочник,
+        // клиент не выбирает, чем он окажется, — он уже в разделе справочников.
+        // Им же спрашивается и право: заводить документы и заводить справочники
+        // — разные решения.
+        $kind = MaterialKind::of($request);
+
+        Gate::authorize('create', [Regulation::class, $kind]);
 
         /** @var User $author */
         $author = $request->user();
 
-        // Вид берётся из раздела, а не из присланного: заводя справочник,
-        // клиент не выбирает, чем он окажется, — он уже в разделе справочников.
         $regulation = $saveRegulation->handle(
-            [...$request->toAttributes(), 'kind' => MaterialKind::of($request)],
+            [...$request->toAttributes(), 'kind' => $kind],
             $author,
         );
 
@@ -193,10 +199,33 @@ final class RegulationController extends Controller
     {
         $acknowledgement = $regulation->acknowledgements()->where('user_id', $reader->getKey())->first();
 
-        // Свои прошлые попытки — чтобы экран показал историю и разбор. Десяти
-        // довольно: дальше это уже не история, а архив.
-        $attempts = $regulation->quiz === null ? [] : $regulation->quiz
-            ->attempts()
+        return $regulation
+            ->setAttribute('own_attempts', $this->ownAttempts($regulation->quiz, $reader))
+            ->setAttribute('is_acknowledged', $acknowledgement !== null)
+            ->setAttribute('acknowledged_at', $acknowledgement?->acknowledged_at?->toIso8601String())
+
+            // По какой версии отметились. Пометка, а не вторая отметка: версия
+            // у человека одна, и ознакомиться с документом значит прочитать
+            // свою версию, а не все.
+            ->setAttribute('acknowledged_version_id', $acknowledgement?->version_id);
+    }
+
+    /**
+     * Свои прошлые попытки — чтобы экран показал историю и разбор.
+     *
+     * Десяти довольно: дальше это уже не история, а архив. Один способ на
+     * проверку документа и на проверку версии: устройство у них общее, и
+     * второй такой же разбор разошёлся бы с первым на первой же правке.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function ownAttempts(?Quiz $quiz, User $reader): array
+    {
+        if ($quiz === null) {
+            return [];
+        }
+
+        return $quiz->attempts()
             ->where('user_id', $reader->getKey())
             ->with('reviewer:id,last_name,first_name,middle_name')
             ->latest('completed_at')
@@ -215,11 +244,50 @@ final class RegulationController extends Controller
                 'reviewed_at' => $attempt->reviewed_at?->toIso8601String(),
                 'reviewed_by' => $attempt->reviewer?->name,
             ])->all();
+    }
 
-        return $regulation
-            ->setAttribute('own_attempts', $attempts)
-            ->setAttribute('is_acknowledged', $acknowledgement !== null)
-            ->setAttribute('acknowledged_at', $acknowledgement?->acknowledged_at?->toIso8601String());
+    /**
+     * Версии документа и та из них, что открывается этому человеку первой.
+     *
+     * Переключатель приходит названиями, а тело — только у открытой: пять
+     * версий весили бы пятью статьями, а читают за раз одну. Какую именно
+     * открыть, можно попросить прямо (`?version=`) — так работает сам
+     * переключатель и так же приходят по ссылке из ответа консультанта.
+     */
+    private function attachVersions(Regulation $regulation, User $reader, ?string $asked): void
+    {
+        $available = $this->versions->visibleTo($regulation, $reader);
+        $mine = $this->versions->mineAmong($available, $reader);
+
+        // Для кого версия написана — только тому, кто документ ведёт. Читателю
+        // список групп ни о чём не говорит: ему важно, какая версия его.
+        $forEditor = $reader->can('update', $regulation);
+
+        foreach ($available as $version) {
+            $version->setAttribute('is_mine', $mine?->getKey() === $version->getKey());
+
+            if (! $forEditor) {
+                $version->unsetRelation('groups');
+            }
+        }
+
+        $regulation->setAttribute('available_versions', $available);
+
+        // Общую просят пустой строкой: «открой мне не мою версию, а исходную».
+        // Отличить это от «не просили ничего» иначе нечем.
+        // Строка берётся из того же списка, а не спрашивается заново: на ней
+        // уже стоит признак «моя», и двойник ушёл бы на экран без него.
+        $shown = $asked === null ? $mine : $available->firstWhere('id', (int) $asked);
+
+        if ($shown === null) {
+            return;
+        }
+
+        $shown->load(['attachments', 'quiz.questions.options', 'quiz.examiner:id,last_name,first_name,middle_name']);
+        $shown->setAttribute('sends_content', true);
+        $shown->setAttribute('own_attempts', $this->ownAttempts($shown->quiz, $reader));
+
+        $regulation->setAttribute('shown_version', $shown);
     }
 
     /**

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Lms;
 
-use App\Enums\Permission;
 use App\Models\Quiz;
 use App\Models\QuizQuestion;
 use Illuminate\Http\Request;
@@ -22,8 +21,11 @@ final class QuizResource extends JsonResource
     {
         // Which option is correct is the answer key. Sending it to a learner
         // sitting the test would make the test meaningless, so it is exposed
-        // only to those who may edit the course.
-        $revealAnswers = $request->user()?->can(Permission::UpdateCourses->value) ?? false;
+        // only to those who may edit the material the quiz hangs off — see
+        // Quiz::isEditableBy: у курсов, документов и справочников права свои.
+        $reader = $request->user();
+
+        $revealAnswers = $reader !== null && $this->resource->isEditableBy($reader);
 
         return [
             'id' => $this->id,

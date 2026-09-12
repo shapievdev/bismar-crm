@@ -1,4 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
+import type { Group } from '~/types/structure'
 
 export type CourseStatus = 'draft' | 'published' | 'archived'
 
@@ -410,6 +411,59 @@ export interface Regulation {
   is_acknowledged: boolean
   acknowledged_at: string | null
   acknowledged_count?: number
+  /** По какой версии отметились. Null — по общей. */
+  acknowledged_version_id?: number | null
+
+  /**
+   * Версии, которые этот человек вправе открыть, — переключатель наверху
+   * страницы. Общей среди них нет: она сам документ, и экран ставит её первой
+   * строкой сам.
+   */
+  versions?: MaterialVersionSummary[]
+
+  /**
+   * Версия, которая открывается первой: та, чьи группы совпали с группами
+   * читателя. Нет такой — читается общая, и поля не будет вовсе.
+   *
+   * Статья, файлы и проверка выше остаются общей версией всегда: по ним
+   * работает редактор.
+   */
+  version?: MaterialVersion
+}
+
+/* ---------- Версии документа и справочника (2026-09-12) ---------- */
+
+/**
+ * Версия в переключателе: как она названа и чья она.
+ *
+ * Тела здесь нет: пять версий весили бы пятью статьями, а читают за раз одну.
+ */
+export interface MaterialVersionSummary {
+  id: number
+  name: string
+  /** Закрытая видна только своим группам — и пересказывать её не стоит. */
+  is_private: boolean
+  position: number
+  /** Эта ли версия предназначена читателю. */
+  is_mine: boolean
+  /** Для кого версия написана — приходит только тому, кто документ ведёт. */
+  groups?: { id: number, name: string }[]
+}
+
+/** Версия целиком: своё тело вместо общего — статья, файлы и проверка. */
+export interface MaterialVersion extends MaterialVersionSummary {
+  content_json?: JSONContent | null
+  attachments?: LessonAttachment[]
+  quiz?: Quiz | null
+  own_attempts?: QuizAttempt[]
+}
+
+/** Что присылают, заводя и правя версию. */
+export interface MaterialVersionPayload {
+  name: string
+  is_private: boolean
+  groups: number[]
+  content_json?: JSONContent | null
 }
 
 /** Итог отправленной проверки — у документа он же и есть ознакомление. */
@@ -839,6 +893,116 @@ export interface LessonTranscript {
   characters: number
   segments_count: number
   updated_at: string | null
+}
+
+/**
+ * Кого пустили в закрытый материал — поимённо и группами (2026-09-12).
+ *
+ * Два списка одним ответом: порознь их не спрашивают, на экране это одна
+ * панель. Тем же видом отвечает и подсказка поиска — набравший слово не
+ * выбирает заранее, кого он ищет.
+ */
+export interface MaterialAccess {
+  people: CoursePerson[]
+  groups: Group[]
+}
+
+/* ---------- Как материал проходят ---------- */
+
+/**
+ * Чем кончился тест у одного человека.
+ *
+ * Балл — с лучшей попытки: пересдача затем и существует, чтобы засчитать
+ * лучшую. Null — ни одной попытки; ноль читался бы провалом.
+ */
+export interface ProgressQuizResult {
+  id: number
+  title: string
+  /** Аттестацию читает человек, и «сдал» у неё появляется не сразу. */
+  is_attestation: boolean
+  awaits_review: boolean
+  attempts: number
+  best_score: number | null
+  passed: boolean
+  last_at: string | null
+}
+
+/** Общая часть строки о человеке — во всех трёх отчётах одна. */
+export interface ProgressPerson {
+  id: number
+  name: string
+  job_title: string | null
+  avatar_url: string | null
+  /** Назначено планом или взято самим: у первого спрашивают, почему не сделано. */
+  in_plan: boolean
+}
+
+export type ProgressStatus = 'not_started' | 'in_progress' | 'completed'
+
+/** Строка отчёта по курсу: как далеко человек ушёл. */
+export interface CourseProgressPerson extends ProgressPerson {
+  is_enrolled: boolean
+  status: ProgressStatus
+  progress: number
+  lessons_done: number
+  lessons: number
+  quizzes_passed: number
+  quizzes: number
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface CourseProgress {
+  summary: {
+    people: number
+    not_started: number
+    in_progress: number
+    completed: number
+    average_progress: number
+    lessons: number
+    quizzes: number
+  }
+  people: CourseProgressPerson[]
+}
+
+/** Один урок курса глазами отчёта по человеку. */
+export interface LearnerLessonProgress {
+  id: number
+  title: string
+  module: string
+  is_done: boolean
+  done_at: string | null
+  quiz: ProgressQuizResult | null
+}
+
+export interface LearnerProgress {
+  learner: Omit<ProgressPerson, 'in_plan'>
+  lessons: LearnerLessonProgress[]
+}
+
+/**
+ * Строка отчёта по уроку и по документу.
+ *
+ * У обоих прогресс — одно событие: урок закрыт, документ прочитан. Поэтому и
+ * признак один, а как его назвать, решает экран.
+ */
+export interface MaterialProgressPerson extends ProgressPerson {
+  is_done: boolean
+  done_at: string | null
+  quiz: ProgressQuizResult | null
+  /** По какой версии человек ознакомился. Null — по общей. */
+  version?: string | null
+}
+
+export interface MaterialProgress {
+  summary: {
+    people: number
+    done: number
+    /** Только там, где есть тест или проверка. */
+    attempted?: number
+    passed?: number
+  }
+  people: MaterialProgressPerson[]
 }
 
 /** Laravel's paginated collection envelope. */

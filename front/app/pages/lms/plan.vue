@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PlannableKind } from '~/types/lms'
 
-definePageMeta({ middleware: 'auth', permission: 'courses.view' })
+definePageMeta({ middleware: 'auth', permission: ['courses.view', 'documents.view', 'handbooks.view'] })
 useHead({ title: 'Мой план' })
 
 const { myPlan } = useLmsApi()

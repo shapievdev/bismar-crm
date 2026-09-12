@@ -384,7 +384,7 @@ final readonly class AnswerFromKnowledgeBase
         $blocks = [
             [
                 'type' => 'text',
-                'text' => $rules."\n\nМАТЕРИАЛЫ БАЗЫ ЗНАНИЙ:\n".$this->knowledge->publicCatalogue(),
+                'text' => $rules."\n\nМАТЕРИАЛЫ БАЗЫ ЗНАНИЙ:\n".$this->knowledge->publicCatalogue($access),
                 'cacheControl' => ['type' => 'ephemeral'],
             ],
         ];

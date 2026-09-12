@@ -11,8 +11,12 @@ import type {
   Course,
   CoursePayload,
   CoursePerson,
+  CourseProgress,
   Enrollment,
+  LearnerProgress,
   LearningPlanItem,
+  MaterialAccess,
+  MaterialProgress,
   PlannableItem,
   PlannableKind,
   LessonAnswer,
@@ -73,23 +77,28 @@ export function useLmsApi() {
     deleteCourse: (slug: string) =>
       $api(`/api/lms/courses/${slug}`, { method: 'DELETE' }),
 
-    /** Кто допущен к приватному курсу, помимо автора. */
-    fetchCourseAccess: (slug: string): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`/api/lms/courses/${slug}/access`),
+    /** Кто допущен к приватному курсу, помимо автора: люди и группы. */
+    fetchCourseAccess: (slug: string): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`/api/lms/courses/${slug}/access`),
 
     /**
-     * Задаёт список целиком: экран показывает его весь, и «сохранить» здесь
-     * означает «пусть будет вот так».
+     * Задаёт оба списка целиком: экран показывает их все, и «сохранить» здесь
+     * означает «пусть будет вот так». Группы едут рядом с людьми, а не своим
+     * запросом: это одно решение, и половинчатым оно не бывает.
      */
-    updateCourseAccess: (slug: string, members: number[]): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`/api/lms/courses/${slug}/access`, {
+    updateCourseAccess: (
+      slug: string,
+      members: number[],
+      groups: number[],
+    ): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`/api/lms/courses/${slug}/access`, {
         method: 'PUT',
-        body: { members },
+        body: { members, groups },
       }),
 
     /** Кого ещё можно добавить — поиском: сотрудников тысячи, нужен один. */
-    searchAccessCandidates: (slug: string, search: string): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`/api/lms/courses/${slug}/access/candidates`, {
+    searchAccessCandidates: (slug: string, search: string): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`/api/lms/courses/${slug}/access/candidates`, {
         query: { search },
       }),
 
@@ -203,13 +212,32 @@ export function useLmsApi() {
     searchExaminers: (search = ''): Promise<ResourceResponse<CoursePerson[]>> =>
       $api<ResourceResponse<CoursePerson[]>>('/api/lms/attestations/candidates', { query: { search } }),
 
-    /** Автору: какой вопрос заваливают и что выбирают вместо верного. */
+    /* ---------- Как материал проходят: администратору ---------- */
+
+    /** Кто проходит курс и как далеко ушёл. */
+    fetchCourseProgress: (slug: string): Promise<ResourceResponse<CourseProgress>> =>
+      $api<ResourceResponse<CourseProgress>>(`/api/lms/courses/${slug}/progress`),
+
+    /**
+     * Один человек по урокам курса — то, что раскрывается у строки.
+     *
+     * Своим адресом: программа, помноженная на штат, в общий ответ не
+     * помещается, а раскрывают за раз одну строку.
+     */
+    fetchLearnerProgress: (slug: string, learnerId: number): Promise<ResourceResponse<LearnerProgress>> =>
+      $api<ResourceResponse<LearnerProgress>>(`/api/lms/courses/${slug}/progress/${learnerId}`),
+
+    /** Кто закрыл урок и чем кончился его тест. */
+    fetchLessonProgress: (lessonId: number | string): Promise<ResourceResponse<MaterialProgress>> =>
+      $api<ResourceResponse<MaterialProgress>>(`/api/lms/lessons/${lessonId}/progress`),
+
+    /** Какой вопрос заваливают и что выбирают вместо верного. */
     fetchQuizStatistics: (lessonId: number | string): Promise<ResourceResponse<QuizStatistics>> =>
       $api<ResourceResponse<QuizStatistics>>(`/api/lms/lessons/${lessonId}/quiz/statistics`),
 
     /**
-     * Автору: разбор попытки сотрудника. Адрес при уроке, а не при попытке, —
-     * право смотреть чужие ответы даёт материал.
+     * Разбор попытки сотрудника. Адрес при уроке, а не при попытке: попытка
+     * сама по себе не знает, чей материал она проверяет.
      */
     fetchLessonAttempt: (
       lessonId: number | string,

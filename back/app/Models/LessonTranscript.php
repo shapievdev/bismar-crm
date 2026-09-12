@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'lesson_id',
     'regulation_id',
+    'version_id',
     'source_kind',
     'source_attachment_id',
     'source_block_id',
@@ -46,6 +47,16 @@ class LessonTranscript extends Model implements PartOfCourse
     public function regulation(): BelongsTo
     {
         return $this->belongsTo(Regulation::class);
+    }
+
+    /**
+     * Версия документа, из текста которой выведена расшифровка. Null — общая.
+     *
+     * @return BelongsTo<RegulationVersion, $this>
+     */
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(RegulationVersion::class, 'version_id');
     }
 
     /**

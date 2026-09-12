@@ -53,7 +53,7 @@ const form = reactive({
 // Адреса вложенных картинок и видео живут час, а новость — годы: документ
 // хранит номера, и адрес подставляется на пути к редактору. Написанное при
 // этом переживает перечитывание записи — см. useArticleDocument.
-const { document, isDirty: hasArticleEdits, adoptSaved } = useArticleDocument(news, value => ({
+const { document, isDirty: hasArticleEdits } = useArticleDocument(news, value => ({
   content: value.content_json ?? null,
   attachments: value.attachments ?? [],
 }))
@@ -137,13 +137,11 @@ function sameIds(one: { id: number }[], other: { id: number }[]): boolean {
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
-const savedAt = ref<string | null>(null)
 
 async function save() {
   isSaving.value = true
   errors.value = {}
   generalError.value = null
-  savedAt.value = null
 
   const sent = withoutResolvedMedia(document.value)
 
@@ -162,9 +160,13 @@ async function save() {
       links: links.value.map(link => ({ type: link.kind, id: link.id })),
     })
 
-    savedAt.value = new Date().toLocaleTimeString('ru-RU')
-    await refresh()
-    adoptSaved(sent)
+    // Сохранили — значит правка закончена, и дальше новость смотрят глазами
+    // читателя. Перечитывать страницу правки и подхватывать имена блоков
+    // незачем: это держало в порядке экран, который мы сейчас покидаем.
+    //
+    // Адрес не меняется от переименования: `slug` у новости ставится один раз
+    // при заведении — см. SaveNews.
+    await router.push(`/news/${slug.value}`)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -650,7 +652,6 @@ function dropLink(found: LinkedMaterialResult) {
       <!-- Кнопка одна на всю страницу: без этой строчки автор не отличает
            сохранённое от набранного. -->
       <span v-if="isDirty" class="faint">Есть несохранённые правки</span>
-      <span v-else-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
       <button type="button" class="button-ghost actions__remove" @click="remove">
         Удалить новость
       </button>

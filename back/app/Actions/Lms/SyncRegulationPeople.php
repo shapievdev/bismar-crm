@@ -6,6 +6,7 @@ namespace App\Actions\Lms;
 
 use App\Models\Regulation;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
 
@@ -25,19 +26,31 @@ final readonly class SyncRegulationPeople
 {
     /**
      * @param  list<int>  $userIds
+     * @param  list<int>  $groupIds  группы, впущенные целиком (2026-09-12)
      */
-    public function admit(Regulation $regulation, array $userIds, User $actor): Regulation
+    public function admit(Regulation $regulation, array $userIds, array $groupIds, User $actor): Regulation
     {
-        // Автор в списке не состоит: его доступ следует из авторства, и строка
-        // о нём означала бы, что доступ можно снять, — а его нельзя.
-        return $this->sync(
-            $regulation,
-            $regulation->members(),
-            array_values(array_diff($this->clean($userIds), [$regulation->author_id])),
-            'granted_by_id',
-            $actor,
-            'members',
-        );
+        DB::transaction(function () use ($regulation, $userIds, $groupIds, $actor): void {
+            // Автор в списке не состоит: его доступ следует из авторства, и
+            // строка о нём означала бы, что доступ можно снять, — а его нельзя.
+            $this->apply(
+                $regulation->members(),
+                array_values(array_diff($this->clean($userIds), [$regulation->author_id])),
+                'users.id',
+                'granted_by_id',
+                $actor,
+            );
+
+            $this->apply(
+                $regulation->memberGroups(),
+                $this->clean($groupIds),
+                'groups.id',
+                'granted_by_id',
+                $actor,
+            );
+        });
+
+        return $regulation->load('members', 'memberGroups');
     }
 
     /**
@@ -69,20 +82,39 @@ final readonly class SyncRegulationPeople
         string $reload,
     ): Regulation {
         DB::transaction(function () use ($relation, $wanted, $byColumn, $actor): void {
-            $current = $relation->pluck('users.id')->map(intval(...))->all();
-
-            $relation->detach(array_values(array_diff($current, $wanted)));
-
-            $added = array_values(array_diff($wanted, $current));
-
-            if ($added !== []) {
-                // Пропущенным через attach, а не sync: sync переписал бы «кто
-                // это сделал» у тех, кого добавили до этого.
-                $relation->attach($added, [$byColumn => $actor->getKey()]);
-            }
+            $this->apply($relation, $wanted, 'users.id', $byColumn, $actor);
         });
 
         return $regulation->load($reload);
+    }
+
+    /**
+     * Привести список к присланному.
+     *
+     * Один способ на людей и на группы: правило у них общее — лишних убрать,
+     * новых добавить, уже добавленных не трогать.
+     *
+     * @param  BelongsToMany<Model, Regulation>  $relation
+     * @param  list<int>  $wanted
+     */
+    private function apply(
+        BelongsToMany $relation,
+        array $wanted,
+        string $key,
+        string $byColumn,
+        User $actor,
+    ): void {
+        $current = $relation->pluck($key)->map(intval(...))->all();
+
+        $relation->detach(array_values(array_diff($current, $wanted)));
+
+        $added = array_values(array_diff($wanted, $current));
+
+        if ($added !== []) {
+            // Пропущенным через attach, а не sync: sync переписал бы «кто
+            // это сделал» у тех, кого добавили до этого.
+            $relation->attach($added, [$byColumn => $actor->getKey()]);
+        }
     }
 
     /**

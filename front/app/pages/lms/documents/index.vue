@@ -5,7 +5,7 @@
  * Экран общий со справочниками: устроены они одинаково, и различает их только
  * раздел (см. MaterialCatalogue и useMaterialSection).
  */
-definePageMeta({ middleware: 'auth', permission: 'courses.view' })
+definePageMeta({ middleware: 'auth', permission: 'documents.view' })
 </script>
 
 <template>

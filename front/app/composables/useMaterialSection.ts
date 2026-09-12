@@ -15,6 +15,8 @@ import type { MaterialSection } from '~/types/lms'
 export interface MaterialCopy {
   /** Раздел в адресах — и приложения, и API. */
   section: MaterialSection
+  /** Что человеку позволено в этом разделе. */
+  rights: MaterialRights
   /** Как материал зовётся в единственном числе там, где вид важнее раздела:
       в карточке над репликой мессенджера. */
   kind: 'document' | 'handbook'
@@ -46,9 +48,30 @@ export interface MaterialCopy {
   emptyCatalogue: string
 }
 
+/**
+ * Права раздела — по одному на действие.
+ *
+ * У документов и справочников они свои (2026-09-11): правила компании и
+ * справочник для зала ведут разные люди. Экраны у разделов общие, поэтому имя
+ * права приходит оттуда же, откуда и надписи, — иначе каждая кнопка спрашивала
+ * бы «а в каком мы разделе» сама.
+ */
+export interface MaterialRights {
+  view: string
+  create: string
+  update: string
+  delete: string
+}
+
 const COPY: Record<MaterialSection, MaterialCopy> = {
   documents: {
     section: 'documents',
+    rights: {
+      view: 'documents.view',
+      create: 'documents.create',
+      update: 'documents.update',
+      delete: 'documents.delete',
+    },
     kind: 'document',
     title: 'Документы',
     materialLabel: 'Документ',
@@ -75,6 +98,12 @@ const COPY: Record<MaterialSection, MaterialCopy> = {
   },
   handbooks: {
     section: 'handbooks',
+    rights: {
+      view: 'handbooks.view',
+      create: 'handbooks.create',
+      update: 'handbooks.update',
+      delete: 'handbooks.delete',
+    },
     kind: 'handbook',
     title: 'Справочники',
     materialLabel: 'Справочник',

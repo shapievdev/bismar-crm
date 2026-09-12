@@ -31,7 +31,12 @@ final class TableQuestionTest extends TestCase
 
     private function author(): User
     {
-        return $this->userWith(Permission::ViewCourses, Permission::UpdateCourses);
+        return $this->userWith(
+            Permission::ViewCourses,
+            Permission::UpdateCourses,
+            Permission::ViewDocuments,
+            Permission::UpdateDocuments,
+        );
     }
 
     /**
@@ -444,7 +449,7 @@ final class TableQuestionTest extends TestCase
         );
     }
 
-    public function test_the_author_sees_how_many_filled_the_table(): void
+    public function test_an_administrator_sees_how_many_filled_the_table(): void
     {
         [$document, $quiz] = $this->documentWithTable($this->weeks(weeks: 1));
         $question = $quiz->questions()->sole();
@@ -455,7 +460,7 @@ final class TableQuestionTest extends TestCase
             ])
             ->assertCreated();
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             // Тронул таблицу, но не дозаполнил: отвечавший один, зачтённых нет.

@@ -142,7 +142,10 @@ final class CoursePrivacyTest extends TestCase
             ->assertJsonPath('data.can_manage_access', false);
 
         $this->actingAs($administrator)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$this->learner()->id]])
+            ->putJson(route('lms.courses.access.update', $course), [
+                'members' => [$this->learner()->id],
+                'groups' => [],
+            ])
             ->assertForbidden();
 
         $this->actingAs($administrator)
@@ -199,17 +202,17 @@ final class CoursePrivacyTest extends TestCase
 
         // Впущенный редактор правит материал, но круг допущенных не меняет.
         $this->actingAs($editor)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id]])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => []])
             ->assertForbidden();
 
         // Администратор курс читает, но круг допущенных не его: отказ здесь
         // «нельзя», а не «нет такого курса».
         $this->actingAs($this->administrator())
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id]])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => []])
             ->assertForbidden();
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$editor->id, $newcomer->id]])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$editor->id, $newcomer->id], 'groups' => []])
             ->assertOk()
             ->assertJsonCount(2, 'data');
 
@@ -228,9 +231,9 @@ final class CoursePrivacyTest extends TestCase
         $course = $this->privateCourseOf($author);
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$author->id]])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$author->id], 'groups' => []])
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0, 'data.people');
 
         $this->actingAs($author)
             ->getJson(route('lms.courses.show', $course))
@@ -256,7 +259,7 @@ final class CoursePrivacyTest extends TestCase
             ->assertJsonCount(1, 'data');
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => []])
             ->assertOk();
 
         $this->actingAs($member)
@@ -340,7 +343,7 @@ final class CoursePrivacyTest extends TestCase
         $names = $this->actingAs($author)
             ->getJson(route('lms.courses.access.candidates', ['course' => $course, 'search' => 'петр']))
             ->assertOk()
-            ->json('data.*.name');
+            ->json('data.people.*.name');
 
         // Кириллица ищется наравне с латиницей: базы собраны с C-сортировкой,
         // где ILIKE сам по себе регистр русских букв не складывает.

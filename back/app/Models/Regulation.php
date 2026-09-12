@@ -146,6 +146,22 @@ class Regulation extends Model
     }
 
     /**
+     * Группы, которым открыт закрытый материал (2026-09-12).
+     *
+     * То же рассуждение, что и у курса (см. Course::memberGroups): списки
+     * складываются, состав группы читается живьём. Само правило — в
+     * RegulationAccess.
+     *
+     * @return BelongsToMany<Group, $this>
+     */
+    public function memberGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'regulation_member_groups')
+            ->withPivot('granted_by_id')
+            ->withTimestamps();
+    }
+
+    /**
      * Кому писать, если написанного не хватило.
      *
      * @return BelongsToMany<User, $this>
@@ -217,11 +233,44 @@ class Regulation extends Model
     }
 
     /**
+     * Файлы общей версии.
+     *
+     * Версии сюда не попадают намеренно (2026-09-12): у каждой свой бланк, и
+     * общий список означал бы, что розница видит расчёт офиса просто потому,
+     * что файл лежит при том же документе. Всё вместе — только для уборки,
+     * см. allAttachments().
+     *
      * @return HasMany<RegulationAttachment, $this>
      */
     public function attachments(): HasMany
     {
+        return $this->hasMany(RegulationAttachment::class)->whereNull('version_id')->orderBy('id');
+    }
+
+    /**
+     * Все файлы документа, включая версии, — для уборки за удалённым.
+     *
+     * Показывать их вместе нельзя, а стирать с диска нужно все: строки уйдут
+     * каскадом, а файлы остались бы лежать в хранилище навсегда.
+     *
+     * @return HasMany<RegulationAttachment, $this>
+     */
+    public function allAttachments(): HasMany
+    {
         return $this->hasMany(RegulationAttachment::class)->orderBy('id');
+    }
+
+    /**
+     * Версии — то же правило, написанное для своих людей (2026-09-12).
+     *
+     * Общей версии среди них нет: она — сам документ. Кому какая достаётся,
+     * решает App\Support\Lms\MaterialVersions.
+     *
+     * @return HasMany<RegulationVersion, $this>
+     */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(RegulationVersion::class)->ordered();
     }
 
     /**
@@ -267,6 +316,36 @@ class Regulation extends Model
     public function scopeVisibleTo(Builder $query, User $user): void
     {
         RegulationAccess::of($user)->applyTo($query);
+    }
+
+    /**
+     * Всё, что этот человек вправе открыть: и закрытость, и раздел, и
+     * состояние разом.
+     *
+     * Три условия ходят вместе всюду, где материалы двух разделов лежат
+     * вперемешку и отобрать их маршрутом нельзя, — соседи «рядом по теме»,
+     * частые вопросы, приложенное к уроку. Раньше они и были расписаны по
+     * местам тройкой строк, одинаковой до запятой; стоило правам разделиться,
+     * и каждое такое место пришлось бы править отдельно, а пропущенное
+     * показывало бы справочник тому, кому справочники закрыты.
+     *
+     * Читателю видно опубликованное в разделах, открытых ему на чтение;
+     * редактору — вдобавок черновики тех разделов, которые он правит. Ни одного
+     * открытого раздела — не видно ничего, и это честный ответ, а не пустой
+     * фильтр.
+     *
+     * @param  Builder<Regulation>  $query
+     */
+    public function scopeReadableBy(Builder $query, User $reader): void
+    {
+        $readable = MaterialKind::valuesOf(MaterialKind::viewableBy($reader));
+        $editable = MaterialKind::valuesOf(MaterialKind::editableBy($reader));
+
+        $query->visibleTo($reader)->where(function (Builder $query) use ($readable, $editable): void {
+            $query
+                ->where(fn (Builder $published) => $published->published()->whereIn('kind', $readable))
+                ->orWhereIn('kind', $editable);
+        });
     }
 
     /**

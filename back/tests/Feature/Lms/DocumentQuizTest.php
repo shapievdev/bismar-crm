@@ -30,7 +30,7 @@ final class DocumentQuizTest extends TestCase
     /** Тот, кто ведёт документы. */
     private function author(): User
     {
-        return $this->userWith(Permission::ViewCourses, Permission::UpdateCourses);
+        return $this->userWith(Permission::ViewDocuments, Permission::UpdateDocuments);
     }
 
     /**
@@ -257,7 +257,7 @@ final class DocumentQuizTest extends TestCase
      * Ведущему документ видно, кто проверку проходил, и что каждый отправил:
      * доля по вопросу говорит о тексте документа, а попытка — о человеке.
      */
-    public function test_the_author_reads_who_took_the_check_and_what_they_sent(): void
+    public function test_an_administrator_reads_who_took_the_check_and_what_they_sent(): void
     {
         [$document, $quiz] = $this->documentWithQuiz(1);
         $reader = $this->learner();
@@ -271,14 +271,14 @@ final class DocumentQuizTest extends TestCase
 
         $attempt = QuizAttempt::query()->sole();
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             ->assertJsonPath('data.people.0.id', $reader->getKey())
             ->assertJsonPath('data.people.0.passed', false)
             ->assertJsonPath('data.people.0.attempts.0.id', $attempt->getKey());
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.documents.quiz.attempt', [$document, $attempt]))
             ->assertOk()
             ->assertJsonPath('data.review.reveals_key', true)

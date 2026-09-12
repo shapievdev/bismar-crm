@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Permission;
 use App\Enums\QuizKind;
 use Database\Factories\QuizFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -66,6 +67,32 @@ class Quiz extends Model
     public function quizzable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Вправе ли этот человек править материал, при котором стоит тест, — а
+     * значит, видеть ключ к ответам.
+     *
+     * Спрашивается у владельца, а не у прав на курсы: тест при справочнике
+     * правит тот, кто ведёт справочники (решение пользователя 2026-09-11).
+     * Владелец подгружается по требованию — теста на странице один, и лишний
+     * запрос дешевле, чем показанный ключ.
+     */
+    public function isEditableBy(User $user): bool
+    {
+        $owner = $this->quizzable;
+
+        return match (true) {
+            $owner instanceof Regulation => $user->can($owner->kind->updatePermission()->value),
+            // Проверка при версии правится тем же правом, что и сам документ:
+            // версия — его часть, а не отдельный материал.
+            $owner instanceof RegulationVersion => $owner->loadMissing('regulation')->regulation !== null
+                && $user->can($owner->regulation->kind->updatePermission()->value),
+            $owner instanceof Lesson => $user->can(Permission::UpdateCourses->value),
+            // Владельца не нашли — значит материал удалён вместе с ним; ключ в
+            // таком случае не показывает никто.
+            default => false,
+        };
     }
 
     /**

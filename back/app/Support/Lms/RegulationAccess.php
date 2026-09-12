@@ -23,6 +23,9 @@ use Illuminate\Support\Facades\DB;
  * Правило живёт здесь, а не только в политике, которую Gate::before
  * администратору прощает.
  *
+ * Пустить можно и поимённо, и группой (2026-09-12): списки складываются, а
+ * состав группы читается на каждом обращении — см. admitted().
+ *
  * Отдельный класс, а не общий с курсами: у них разные таблицы допущенных, а
  * ветвление внутри по имени таблицы читалось бы хуже двух прямых правил.
  */
@@ -47,7 +50,26 @@ final class RegulationAccess
 
         // Отношением, а не перечнем всех закрытых регламентов: здесь спрашивают
         // про один, и читать ради этого весь список незачем.
-        return $regulation->members()->whereKey($this->reader->getKey())->exists();
+        if ($regulation->members()->whereKey($this->reader->getKey())->exists()) {
+            return true;
+        }
+
+        return $this->admittedByGroup((int) $regulation->getKey());
+    }
+
+    /**
+     * Впущен ли человек группой, в которой состоит (2026-09-12).
+     *
+     * Состав группы читается здесь же, а не замораживается при допуске: ушедший
+     * из группы теряет материал тем же вечером, пришедший — открывает.
+     */
+    private function admittedByGroup(int $regulation): bool
+    {
+        return DB::table('regulation_member_groups')
+            ->join('group_members', 'group_members.group_id', '=', 'regulation_member_groups.group_id')
+            ->where('regulation_member_groups.regulation_id', $regulation)
+            ->where('group_members.user_id', $this->reader->getKey())
+            ->exists();
     }
 
     /**
@@ -69,14 +91,40 @@ final class RegulationAccess
 
         $query->where(function (EloquentBuilder|QueryBuilder $query) use ($table, $reader): void {
             $query->where($table.'.visibility', CourseVisibility::Public->value)
-                ->orWhere($table.'.author_id', $reader)
-                ->orWhereExists(function (QueryBuilder $query) use ($table, $reader): void {
-                    $query->selectRaw('1')
-                        ->from('regulation_members')
-                        ->whereColumn('regulation_members.regulation_id', $table.'.id')
-                        ->where('regulation_members.user_id', $reader);
-                });
+                ->orWhere($table.'.author_id', $reader);
+
+            $this->admitted($query, $table.'.id');
         });
+    }
+
+    /**
+     * Допущен ли читатель — поимённо или группой (2026-09-12).
+     *
+     * Двумя EXISTS, дописанными через OR к уже начатому условию: оба способа
+     * складываются. Одним куском, чтобы список допущенных не разошёлся между
+     * каталогом и перечнем закрытых документов.
+     *
+     * @param  EloquentBuilder<Regulation>|QueryBuilder  $query
+     * @param  string  $regulationId  колонка с номером материала в объемлющем запросе
+     */
+    private function admitted(EloquentBuilder|QueryBuilder $query, string $regulationId): void
+    {
+        $reader = $this->reader->getKey();
+
+        $query
+            ->orWhereExists(function (QueryBuilder $query) use ($regulationId, $reader): void {
+                $query->selectRaw('1')
+                    ->from('regulation_members')
+                    ->whereColumn('regulation_members.regulation_id', $regulationId)
+                    ->where('regulation_members.user_id', $reader);
+            })
+            ->orWhereExists(function (QueryBuilder $query) use ($regulationId, $reader): void {
+                $query->selectRaw('1')
+                    ->from('regulation_member_groups')
+                    ->join('group_members', 'group_members.group_id', '=', 'regulation_member_groups.group_id')
+                    ->whereColumn('regulation_member_groups.regulation_id', $regulationId)
+                    ->where('group_members.user_id', $reader);
+            });
     }
 
     /**
@@ -98,6 +146,10 @@ final class RegulationAccess
              AND (%1$s.visibility = ? OR %1$s.author_id = ? OR EXISTS (
                 SELECT 1 FROM regulation_members
                 WHERE regulation_members.regulation_id = %1$s.id AND regulation_members.user_id = ?
+            ) OR EXISTS (
+                SELECT 1 FROM regulation_member_groups
+                JOIN group_members ON group_members.group_id = regulation_member_groups.group_id
+                WHERE regulation_member_groups.regulation_id = %1$s.id AND group_members.user_id = ?
             ))
         SQL, $table);
     }
@@ -113,7 +165,14 @@ final class RegulationAccess
             return [];
         }
 
-        return [CourseVisibility::Public->value, $this->reader->getKey(), $this->reader->getKey()];
+        // Читатель назван трижды: автором, допущенным поимённо и участником
+        // впущенной группы.
+        return [
+            CourseVisibility::Public->value,
+            $this->reader->getKey(),
+            $this->reader->getKey(),
+            $this->reader->getKey(),
+        ];
     }
 
     /**
@@ -135,13 +194,9 @@ final class RegulationAccess
 
         if (! $this->seesEverything()) {
             $query->where(function (QueryBuilder $query) use ($reader): void {
-                $query->where('author_id', $reader)
-                    ->orWhereExists(function (QueryBuilder $query) use ($reader): void {
-                        $query->selectRaw('1')
-                            ->from('regulation_members')
-                            ->whereColumn('regulation_members.regulation_id', 'regulations.id')
-                            ->where('regulation_members.user_id', $reader);
-                    });
+                $query->where('author_id', $reader);
+
+                $this->admitted($query, 'regulations.id');
             });
         }
 

@@ -7,12 +7,16 @@ namespace App\Http\Controllers\Api\Lms;
 use App\Actions\Lms\SyncRegulationPeople;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\UpdateCourseAccessRequest;
+use App\Http\Requests\Lms\UpdateMaterialAccessRequest;
+use App\Http\Resources\GroupResource;
 use App\Http\Resources\Lms\CoursePersonResource;
+use App\Models\Group;
 use App\Models\Regulation;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
@@ -22,8 +26,12 @@ use Illuminate\Support\Facades\Gate;
  *
  * Один контроллер на оба, в отличие от курсов, где под них два: разница только
  * в праве и в том, какое отношение править. Проверка присланного взята у
- * курсов как есть (UpdateCourseAccessRequest) — её правила о списке чисел, а не
- * о курсе.
+ * курсов как есть — её правила о списке чисел, а не о курсе.
+ *
+ * Списки при этом разной ширины: в допуск с 2026-09-12 входят и группы
+ * (UpdateMaterialAccessRequest), а ответственный называется поимённо
+ * (UpdateCourseAccessRequest) — это ответ на вопрос «к кому идти», и группа на
+ * него не отвечает.
  */
 final class RegulationPeopleController extends Controller
 {
@@ -32,42 +40,50 @@ final class RegulationPeopleController extends Controller
 
     /* ---------- Допущенные: право авторское ---------- */
 
-    public function members(Regulation $regulation): AnonymousResourceCollection
+    public function members(Regulation $regulation): JsonResponse
     {
         Gate::authorize('manageAccess', $regulation);
 
-        return CoursePersonResource::collection($this->byName($regulation->members()));
+        return $this->listing($regulation);
     }
 
     public function updateMembers(
-        UpdateCourseAccessRequest $request,
+        UpdateMaterialAccessRequest $request,
         Regulation $regulation,
         SyncRegulationPeople $people,
-    ): AnonymousResourceCollection {
+    ): JsonResponse {
         Gate::authorize('manageAccess', $regulation);
 
         /** @var User $actor */
         $actor = $request->user();
 
-        $people->admit($regulation, $request->members(), $actor);
+        $people->admit($regulation, $request->members(), $request->groups(), $actor);
 
-        return CoursePersonResource::collection($this->byName($regulation->refresh()->members()));
+        return $this->listing($regulation->refresh());
     }
 
     /**
      * Кого ещё можно пустить. Поиском, а не списком целиком: сотрудников тысячи,
      * а нужен из них один. Автор и уже допущенные не предлагаются.
+     *
+     * Группы ищутся тем же словом: набравший «продаж» видит разом отдел продаж
+     * группой и Продажникова поимённо, не выбирая заранее, кого он ищет.
      */
-    public function memberCandidates(Request $request, Regulation $regulation): AnonymousResourceCollection
+    public function memberCandidates(Request $request, Regulation $regulation): JsonResponse
     {
         Gate::authorize('manageAccess', $regulation);
 
-        return CoursePersonResource::collection($this->candidates(
-            $request,
-            $regulation,
-            'regulation_members',
-            excludeAuthor: true,
-        ));
+        $people = $this->candidates($request, $regulation, 'regulation_members', excludeAuthor: true);
+
+        $groups = Group::query()
+            ->whereNotIn('id', $regulation->memberGroups()->select('groups.id'))
+            ->matching(trim((string) $request->query('search')))
+            ->withCount('people')
+            ->ordered()
+            ->limit(self::CANDIDATES)
+            ->get();
+
+        return $this->both($people, $groups);
     }
 
     /* ---------- Ответственные: право редакторское ---------- */
@@ -104,6 +120,36 @@ final class RegulationPeopleController extends Controller
             'regulation_experts',
             excludeAuthor: false,
         ));
+    }
+
+    /**
+     * Допущенные — людьми и группами.
+     *
+     * Группы по названию, с учётом ICU: базы собраны с C-сортировкой.
+     */
+    private function listing(Regulation $regulation): JsonResponse
+    {
+        return $this->both(
+            $this->byName($regulation->members()),
+            $regulation->memberGroups()->withCount('people')->ordered()->get(),
+        );
+    }
+
+    /**
+     * Два списка одним ответом: порознь их не спрашивают — на экране это одна
+     * панель.
+     *
+     * @param  Collection<int, User>  $people
+     * @param  Collection<int, Group>  $groups
+     */
+    private function both(Collection $people, Collection $groups): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'people' => CoursePersonResource::collection($people)->resolve(),
+                'groups' => GroupResource::collection($groups)->resolve(),
+            ],
+        ]);
     }
 
     /**

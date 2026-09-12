@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Lms;
 
 use App\Enums\MaterialKind;
+use App\Enums\Permission;
 use App\Models\Course;
 use App\Models\Regulation;
 use App\Models\User;
@@ -130,6 +131,14 @@ final class PlannableMaterial
      */
     private function courses(User $user): Collection
     {
+        // Раздел, закрытый этому человеку, для него пуст. Спрашивается это и у
+        // составителя, и у сотрудника: первому не показывают того, чего он не
+        // вправе открыть сам, второму — ставят признак «не увидит», чтобы шаг
+        // не пропал у него в плане молча.
+        if ($user->cannot(Permission::ViewCourses->value)) {
+            return new Collection;
+        }
+
         // Только опубликованные: назначать черновик значит назначать то, чего
         // сотрудник не откроет, — и с чем ничего не поделает.
         return Course::query()
@@ -145,6 +154,10 @@ final class PlannableMaterial
      */
     private function materials(User $user, MaterialKind $kind): Collection
     {
+        if ($user->cannot($kind->viewPermission()->value)) {
+            return new Collection;
+        }
+
         return Regulation::query()
             ->ofKind($kind)
             ->visibleTo($user)

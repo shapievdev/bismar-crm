@@ -32,7 +32,12 @@ final class WrittenAnswerTest extends TestCase
 
     private function author(): User
     {
-        return $this->userWith(Permission::ViewCourses, Permission::UpdateCourses);
+        return $this->userWith(
+            Permission::ViewCourses,
+            Permission::UpdateCourses,
+            Permission::ViewDocuments,
+            Permission::UpdateDocuments,
+        );
     }
 
     /**
@@ -293,7 +298,7 @@ final class WrittenAnswerTest extends TestCase
 
     /* ---------- Разбор для автора ---------- */
 
-    public function test_the_author_sees_the_average_similarity(): void
+    public function test_an_administrator_sees_the_average_similarity(): void
     {
         $this->fakeEmbeddings();
 
@@ -306,7 +311,7 @@ final class WrittenAnswerTest extends TestCase
             ])
             ->assertCreated();
 
-        $statistics = $this->actingAs($this->author())
+        $statistics = $this->actingAs($this->administrator())
             ->getJson(route('lms.documents.quiz.statistics', $document))
             ->assertOk()
             ->assertJsonPath('data.questions.0.answered', 1)

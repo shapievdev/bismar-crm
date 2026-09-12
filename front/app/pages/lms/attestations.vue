@@ -9,7 +9,7 @@ import type { Attestation } from '~/types/lms'
  * проверять именно ему. Назначение и есть право — у того, кому ничего не
  * сдавали, страница просто пуста.
  */
-definePageMeta({ middleware: 'auth', permission: 'courses.view' })
+definePageMeta({ middleware: 'auth', permission: ['courses.view', 'documents.view', 'handbooks.view'] })
 useHead({ title: 'Аттестация' })
 
 const { fetchAttestations, fetchAttestation, judgeAttestation } = useLmsApi()

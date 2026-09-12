@@ -156,7 +156,7 @@ final class RegulationTest extends TestCase
         }
 
         $this->actingAs($this->administrator())
-            ->putJson(route('lms.documents.access.update', $closed), ['members' => [$this->learner()->id]])
+            ->putJson(route('lms.documents.access.update', $closed), ['members' => [$this->learner()->id], 'groups' => []])
             ->assertForbidden();
     }
 
@@ -441,7 +441,7 @@ final class RegulationTest extends TestCase
     public function test_the_editor_sees_who_has_read_it(): void
     {
         $reader = User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Вера']);
-        $reader->givePermissionTo('courses.view');
+        $reader->givePermissionTo('documents.view');
         $regulation = Regulation::factory()->published()->create();
 
         $this->actingAs($reader)->postJson(route('lms.documents.acknowledge', $regulation))->assertOk();
@@ -471,15 +471,15 @@ final class RegulationTest extends TestCase
         $regulation = Regulation::factory()->published()->closed()->create(['author_id' => $author->id]);
 
         $this->actingAs($author)
-            ->putJson(route('lms.documents.access.update', $regulation), ['members' => [$person->id]])
+            ->putJson(route('lms.documents.access.update', $regulation), ['members' => [$person->id], 'groups' => []])
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $person->id);
+            ->assertJsonCount(1, 'data.people')
+            ->assertJsonPath('data.people.0.id', $person->id);
 
         // Другой редактор списком не распоряжается: закрытость заводят под свой
         // круг людей — см. RegulationPolicy::manageAccess.
         $this->actingAs($this->author())
-            ->putJson(route('lms.documents.access.update', $regulation), ['members' => []])
+            ->putJson(route('lms.documents.access.update', $regulation), ['members' => [], 'groups' => []])
             ->assertForbidden();
     }
 

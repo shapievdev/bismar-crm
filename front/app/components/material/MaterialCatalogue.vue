@@ -168,8 +168,8 @@ function sectionsLabel(count: number): string {
  */
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
   { id: 'published', label: 'Опубликованные', visible: true },
-  { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
-  { id: 'archived', label: 'В архиве', visible: can('courses.update') },
+  { id: 'drafts', label: 'Черновики', visible: can(copy.rights.update) },
+  { id: 'archived', label: 'В архиве', visible: can(copy.rights.update) },
 ]
 </script>
 
@@ -194,13 +194,13 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         <!-- Дерево правят там же, где смотрят его содержимое: в полосе разделов
              трём спискам категорий не место — см. ModuleNav. -->
         <NuxtLink
-          v-if="can('courses.update')"
+          v-if="can(copy.rights.update)"
           :to="`/lms/${copy.section}/categories`"
           class="button-secondary"
         >
           Категории
         </NuxtLink>
-        <NuxtLink v-if="can('courses.create')" :to="`/lms/${copy.section}/new`" class="button-primary">
+        <NuxtLink v-if="can(copy.rights.create)" :to="`/lms/${copy.section}/new`" class="button-primary">
           {{ copy.createLabel }}
         </NuxtLink>
       </div>
@@ -297,7 +297,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
           ? 'Попробуйте изменить запрос или категорию.'
           : 'Заведите первый — он будет виден всем, кто читает базу знаний.'"
       >
-        <NuxtLink v-if="can('courses.create')" :to="`/lms/${copy.section}/new`" class="button-primary">
+        <NuxtLink v-if="can(copy.rights.create)" :to="`/lms/${copy.section}/new`" class="button-primary">
           {{ copy.createLabel }}
         </NuxtLink>
       </UiEmptyState>

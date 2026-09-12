@@ -53,16 +53,13 @@ final class UpdateUserRequest extends FormRequest
     }
 
     /**
-     * Сообщение о номере — своё, по той же причине, что и в StoreUserRequest.
+     * Отказы — те же, что и при заведении, см. StaffFieldMessages.
      *
      * @return array<string, string>
      */
     public function messages(): array
     {
-        return [
-            'phone.regex' => 'Телефон должен быть российским номером: +7 и десять цифр.',
-            'phone.unique' => 'Этот номер уже занят: по нему входит другой сотрудник.',
-        ];
+        return StaffFieldMessages::all();
     }
 
     /**

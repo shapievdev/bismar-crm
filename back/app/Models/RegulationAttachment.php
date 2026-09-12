@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Устроен как файл при уроке — и тем же способом бывает не нашим, а лежащим на
  * Google Диске: рассуждение об адресах у них одно, см. AttachedFile.
  */
-#[Fillable(['regulation_id', 'source', 'external_id', 'disk', 'path', 'name', 'description', 'mime_type', 'size'])]
+#[Fillable(['regulation_id', 'version_id', 'source', 'external_id', 'disk', 'path', 'name', 'description', 'mime_type', 'size'])]
 class RegulationAttachment extends Model
 {
     use AttachedFile;
@@ -26,5 +26,16 @@ class RegulationAttachment extends Model
     public function regulation(): BelongsTo
     {
         return $this->belongsTo(Regulation::class);
+    }
+
+    /**
+     * Версия, к которой файл приложен. Null — общая: у документа без версий
+     * так лежат все файлы, и ничего для них не изменилось.
+     *
+     * @return BelongsTo<RegulationVersion, $this>
+     */
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(RegulationVersion::class, 'version_id');
     }
 }

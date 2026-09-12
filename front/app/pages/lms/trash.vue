@@ -8,7 +8,7 @@ import type { TrashedMaterial } from '~/types/lms'
  * прогресс, за другим отметки об ознакомлении. Здесь это наконец видно: что
  * выброшено, кем и когда, и как вернуть.
  */
-definePageMeta({ middleware: 'auth', permission: 'courses.delete' })
+definePageMeta({ middleware: 'auth', permission: ['courses.delete', 'documents.delete', 'handbooks.delete'] })
 useHead({ title: 'Корзина' })
 
 /** Чем строка была до корзины — тем же словом, что и в разделе, откуда её убрали. */

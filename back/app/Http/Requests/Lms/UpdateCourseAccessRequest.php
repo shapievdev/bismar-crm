@@ -7,6 +7,13 @@ namespace App\Http\Requests\Lms;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Список людей, присланный целиком.
+ *
+ * Остался у ответственных — за курс и за документ. У допуска в закрытый
+ * материал с 2026-09-12 свой запрос: там рядом с людьми едут группы, см.
+ * UpdateMaterialAccessRequest.
+ */
 final class UpdateCourseAccessRequest extends FormRequest
 {
     /**

@@ -9,9 +9,11 @@ use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Lesson;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Ai\Embedder;
 use App\Support\Ai\ModelSettings;
+use App\Support\Lms\MaterialVersions;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -35,6 +37,15 @@ class AppServiceProvider extends ServiceProvider
         // заново. Настройки в пределах запроса не меняются — кроме экрана, где
         // их и правят, а он эмбеддер не трогает.
         $this->app->singleton(Embedder::class);
+
+        /*
+         * Кому какая версия документа — один на обращение к приложению.
+         *
+         * Спрашивают его и экран документа, и корпус консультанта, причём
+         * последний несколькими запросами за один ответ: без общего экземпляра
+         * группы сотрудника читались бы из базы по разу на каждый.
+         */
+        $this->app->singleton(MaterialVersions::class);
     }
 
     /**
@@ -65,6 +76,10 @@ class AppServiceProvider extends ServiceProvider
             'module' => CourseModule::class,
             'lesson' => Lesson::class,
             'regulation' => Regulation::class,
+
+            // Версия документа — третий владелец теста (2026-09-12): у неё своя
+            // проверка, а устройство теста от владельца не зависит.
+            'regulation_version' => RegulationVersion::class,
         ]);
     }
 

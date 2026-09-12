@@ -4,7 +4,7 @@
  *
  * Экран общий с документами: см. MaterialCatalogue.
  */
-definePageMeta({ middleware: 'auth', permission: 'courses.view' })
+definePageMeta({ middleware: 'auth', permission: 'handbooks.view' })
 </script>
 
 <template>

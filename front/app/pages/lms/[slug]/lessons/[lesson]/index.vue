@@ -5,8 +5,17 @@ import { withResolvedMedia } from '~/utils/editor/attachments'
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
-const { fetchLesson, fetchCourse, completeLesson, submitQuiz, fetchAttempt } = useLmsApi()
-const { can } = useAuth()
+const {
+  fetchLesson,
+  fetchCourse,
+  completeLesson,
+  submitQuiz,
+  fetchAttempt,
+  fetchLessonProgress,
+  fetchQuizStatistics,
+  fetchLessonAttempt,
+} = useLmsApi()
+const { can, isAdmin } = useAuth()
 
 const lessonId = computed(() => String(route.params.lesson))
 const courseSlug = computed(() => String(route.params.slug))
@@ -555,6 +564,27 @@ function formatSize(bytes: number): string {
       <!-- Замечание пишут с того урока, на котором споткнулись: автору важно,
            где именно не хватило, а не «где-то в курсе». -->
       <MaterialFeedback :target="{ kind: 'lesson', id: lesson.id }" class="feedback" />
+
+      <!-- Как урок проходят — администратору (решение пользователя
+           2026-09-12). Разбор теста стоит здесь же: прежде он жил в редакторе
+           урока, но это такая же статистика прохождения, и место у неё одно. -->
+      <template v-if="isAdmin">
+        <ProgressPeoplePanel
+          :key="`progress-${lesson.id}`"
+          :load="async () => (await fetchLessonProgress(lessonId)).data"
+          title="Как проходят урок"
+          summary-label="Прошли урок"
+          done-label="Пройден"
+          pending-label="Не пройден"
+        />
+
+        <QuizStatisticsPanel
+          v-if="lesson.quiz"
+          :key="lesson.quiz.id"
+          :load="async () => (await fetchQuizStatistics(lessonId)).data"
+          :load-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
+        />
+      </template>
 
       <nav class="pager">
         <NuxtLink

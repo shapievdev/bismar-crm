@@ -13,6 +13,7 @@ use App\Http\Requests\Lms\UpdateAttachmentRequest;
 use App\Http\Resources\Lms\RegulationAttachmentResource;
 use App\Models\Regulation;
 use App\Models\RegulationAttachment;
+use App\Models\RegulationVersion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -61,6 +62,71 @@ final class RegulationAttachmentController extends Controller
         return RegulationAttachmentResource::make($attachment)
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Файл при версии документа (2026-09-12).
+     *
+     * Отдельным адресом, а не полем в теле запроса: загрузка идёт
+     * multipart'ом, и версия — часть того, куда кладут, а не того, что кладут.
+     * Права те же, что у файла самого документа: версия — его часть.
+     */
+    public function storeForVersion(
+        StoreAttachmentRequest $request,
+        Regulation $regulation,
+        RegulationVersion $version,
+        StoreRegulationAttachment $storeAttachment,
+    ): JsonResponse {
+        Gate::authorize('update', $regulation);
+        $this->ensureVersionBelongs($regulation, $version);
+
+        $file = $request->file('file');
+
+        abort_if($file === null, HttpResponse::HTTP_UNPROCESSABLE_ENTITY);
+
+        $attachment = $storeAttachment->handle(
+            $regulation,
+            $file,
+            $request->validated('description'),
+            $version,
+        );
+
+        return RegulationAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Файл с Google Диска при версии — то же, что и при документе.
+     */
+    public function storeFromDriveForVersion(
+        AttachDriveFileRequest $request,
+        Regulation $regulation,
+        RegulationVersion $version,
+        AttachDriveFile $attach,
+    ): JsonResponse {
+        Gate::authorize('update', $regulation);
+        $this->ensureVersionBelongs($regulation, $version);
+
+        /** @var array{external_id: string, name: string, mime_type?: ?string, description?: ?string} $file */
+        $file = $request->validated();
+
+        /** @var RegulationAttachment $attachment */
+        $attachment = $attach->handle($regulation, $file);
+
+        $attachment->forceFill(['version_id' => $version->getKey()])->save();
+
+        return RegulationAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Версия чужого документа — тот же случай, что и её отсутствие.
+     */
+    private function ensureVersionBelongs(Regulation $regulation, RegulationVersion $version): void
+    {
+        abort_if($version->regulation_id !== $regulation->getKey(), HttpResponse::HTTP_NOT_FOUND);
     }
 
     /**

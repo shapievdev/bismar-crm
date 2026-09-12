@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import { ApiValidationError, messageFromError, type ValidationErrors } from '~/composables/useAuth'
 import type { StaffAccountDraft } from '~/types/auth'
 import { phoneForApi } from '~/utils/phone'
 
@@ -50,9 +50,15 @@ async function save() {
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       errors.value = caught.errors
+
+      // Ещё и строкой над формой: на телефоне поля идут одной колонкой, и
+      // подпись под тем, в котором ошиблись, остаётся выше экрана — человек
+      // жмёт «Завести» и не видит, чтобы что-нибудь изменилось. Над формой —
+      // первая причина, под полями — все.
+      generalError.value = caught.firstMessage
     }
     else {
-      generalError.value = 'Не удалось завести сотрудника.'
+      generalError.value = messageFromError(caught, 'Не удалось завести сотрудника.')
     }
   }
   finally {

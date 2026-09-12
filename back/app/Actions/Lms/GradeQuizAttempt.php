@@ -12,6 +12,7 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Lms\AnswerSimilarity;
 use App\Support\Lms\QuestionTable;
@@ -147,6 +148,24 @@ final readonly class GradeQuizAttempt
 
         if ($owner instanceof Regulation) {
             $this->acknowledgeRegulation->handle($owner, $learner);
+
+            return;
+        }
+
+        /*
+         * Проверка при версии засчитывает ознакомление с самим документом
+         * (2026-09-12), а версия остаётся пометкой на отметке.
+         *
+         * Отдельного «ознакомлен с версией» нет намеренно: версия у человека
+         * одна, и сдавший свою прочитал документ — требовать от него ещё и
+         * чужие правила было бы странно.
+         */
+        if ($owner instanceof RegulationVersion) {
+            $regulation = $owner->loadMissing('regulation')->regulation;
+
+            if ($regulation !== null) {
+                $this->acknowledgeRegulation->handle($regulation, $learner, $owner);
+            }
 
             return;
         }

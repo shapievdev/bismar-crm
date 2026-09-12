@@ -264,7 +264,7 @@ async function move(siblings: RegulationCategory[], index: number, delta: number
             Изменить
           </button>
           <button
-            v-if="can('courses.delete')"
+            v-if="can(copy.rights.delete)"
             type="button"
             class="button-danger button-sm"
             :disabled="busy"

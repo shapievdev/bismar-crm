@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 
 /**
@@ -70,5 +71,92 @@ enum MaterialKind: string
             self::Document => 'documents',
             self::Handbook => 'handbooks',
         };
+    }
+
+    /**
+     * Права раздела — все четыре в одном месте.
+     *
+     * У каждого вида они свои (решение пользователя 2026-09-11): правила
+     * компании и справочник для зала ведут разные люди. Собраны здесь, а не
+     * расписаны по маршрутам и политикам, ровно затем же, зачем и section():
+     * третий вид должен добавляться одним случаем перечисления, а не обходом
+     * двадцати мест, каждое из которых можно пропустить.
+     *
+     * Публикации среди них нет: документ пишут и выпускают одним движением —
+     * см. App\Enums\Permission.
+     */
+    public function viewPermission(): Permission
+    {
+        return match ($this) {
+            self::Document => Permission::ViewDocuments,
+            self::Handbook => Permission::ViewHandbooks,
+        };
+    }
+
+    public function createPermission(): Permission
+    {
+        return match ($this) {
+            self::Document => Permission::CreateDocuments,
+            self::Handbook => Permission::CreateHandbooks,
+        };
+    }
+
+    public function updatePermission(): Permission
+    {
+        return match ($this) {
+            self::Document => Permission::UpdateDocuments,
+            self::Handbook => Permission::UpdateHandbooks,
+        };
+    }
+
+    public function deletePermission(): Permission
+    {
+        return match ($this) {
+            self::Document => Permission::DeleteDocuments,
+            self::Handbook => Permission::DeleteHandbooks,
+        };
+    }
+
+    /**
+     * Виды, опубликованное в которых этот человек вправе читать.
+     *
+     * Нужно там, где материалы разных разделов лежат вперемешку и отобрать их
+     * маршрутом нельзя: соседи «рядом по теме», частые вопросы, приложенное к
+     * уроку, корзина, корпус консультанта. Пустой список — честный ответ «ни
+     * одного», и запрос по нему не должен вернуть ничего.
+     *
+     * @return list<self>
+     */
+    public static function viewableBy(User $user): array
+    {
+        return array_values(array_filter(
+            self::cases(),
+            static fn (self $kind): bool => $user->can($kind->viewPermission()->value),
+        ));
+    }
+
+    /**
+     * Виды, которые этот человек вправе править, — а значит, видит и в
+     * черновиках.
+     *
+     * @return list<self>
+     */
+    public static function editableBy(User $user): array
+    {
+        return array_values(array_filter(
+            self::cases(),
+            static fn (self $kind): bool => $user->can($kind->updatePermission()->value),
+        ));
+    }
+
+    /**
+     * Значения видов — для условий `whereIn`, которым нужны строки.
+     *
+     * @param  list<self>  $kinds
+     * @return list<string>
+     */
+    public static function valuesOf(array $kinds): array
+    {
+        return array_map(static fn (self $kind): string => $kind->value, $kinds);
     }
 }

@@ -165,7 +165,7 @@ final class QuizReviewTest extends TestCase
         $this->answerAs($this->learner(), $lesson, [$question->id => [$wrong->id]]);
         $this->answerAs($this->learner(), $lesson, [$question->id => [$wrong->id]]);
 
-        $response = $this->actingAs($this->author())
+        $response = $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertOk()
             ->assertJsonPath('data.attempts', 3)
@@ -193,7 +193,7 @@ final class QuizReviewTest extends TestCase
         $this->answerAs($learner, $lesson, $this->wrongAnswers($quiz));
         $this->answerAs($learner, $lesson, $this->correctAnswers($quiz));
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertOk()
             ->assertJsonPath('data.attempts', 2)
@@ -228,7 +228,7 @@ final class QuizReviewTest extends TestCase
         $this->answerAs($failed, $lesson, $this->wrongAnswers($quiz));
         $this->answerAs($passed, $lesson, $this->correctAnswers($quiz));
 
-        $people = $this->actingAs($this->author())
+        $people = $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertOk()
             ->json('data.people');
@@ -253,7 +253,7 @@ final class QuizReviewTest extends TestCase
         $this->answerAs($learner, $lesson, $this->wrongAnswers($quiz));
         $this->answerAs($learner, $lesson, $this->correctAnswers($quiz));
 
-        $people = $this->actingAs($this->author())
+        $people = $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertOk()
             ->json('data.people');
@@ -268,7 +268,7 @@ final class QuizReviewTest extends TestCase
      * Автору верные ответы открыты и в чужой попытке: он их сам и написал, а
      * без них не прочесть, чем сотрудник заменил верный вариант.
      */
-    public function test_the_author_reads_the_review_of_a_learners_attempt(): void
+    public function test_an_administrator_reads_the_review_of_a_learners_attempt(): void
     {
         [$lesson, $quiz] = $this->lessonWithQuiz(questions: 1);
         $learner = $this->learner();
@@ -278,7 +278,7 @@ final class QuizReviewTest extends TestCase
             ->assertCreated()
             ->json('data.id');
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.attempt', [$lesson, $attempt]))
             ->assertOk()
             ->assertJsonPath('data.id', $attempt)
@@ -314,7 +314,7 @@ final class QuizReviewTest extends TestCase
             ->assertCreated()
             ->json('data.id');
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.attempt', [$other, $attempt]))
             ->assertNotFound();
     }
@@ -323,7 +323,7 @@ final class QuizReviewTest extends TestCase
     {
         $course = Course::factory()->withLessons(1)->create();
 
-        $this->actingAs($this->author())
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $course->lessons()->firstOrFail()))
             ->assertNotFound();
     }

@@ -2,8 +2,8 @@
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
 const route = useRoute()
-const { fetchCourse } = useLmsApi()
-const { can, user } = useAuth()
+const { fetchCourse, fetchCourseProgress, fetchLearnerProgress } = useLmsApi()
+const { can, isAdmin, user } = useAuth()
 
 const slug = computed(() => String(route.params.slug))
 
@@ -253,6 +253,15 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
     <!-- Разговор о курсе начинается там же, где его читают: причина,
          сообщение — и всё это уходит письмом тому, кто курс правит. -->
     <MaterialFeedback :target="{ kind: 'course', slug: course.slug }" class="feedback" />
+
+    <!-- Как курс проходят — администратору, внизу самой страницы курса
+         (решение пользователя 2026-09-12). Читателю этого блока нет вовсе:
+         сервер отвечает ему 403, и спрашивать незачем. -->
+    <ProgressCoursePanel
+      v-if="isAdmin"
+      :load="async () => (await fetchCourseProgress(slug)).data"
+      :load-learner="async learnerId => (await fetchLearnerProgress(slug, learnerId)).data"
+    />
   </section>
 </template>
 

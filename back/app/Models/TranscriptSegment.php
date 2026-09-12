@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'transcript_id',
     'lesson_id',
     'regulation_id',
+    'version_id',
     'position',
     'heading',
     'content',
@@ -47,6 +48,20 @@ class TranscriptSegment extends Model
     public function regulation(): BelongsTo
     {
         return $this->belongsTo(Regulation::class);
+    }
+
+    /**
+     * Версия документа, из которой взят кусок. Null — общая.
+     *
+     * Рядом с документом, а не вместо него: отбор в поиске идёт по документу —
+     * закрытость, раздел, состояние, — а версия лишь сужает выбранное до того
+     * текста, который этому человеку и предназначен.
+     *
+     * @return BelongsTo<RegulationVersion, $this>
+     */
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(RegulationVersion::class, 'version_id');
     }
 
     /**

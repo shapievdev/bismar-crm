@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import { ApiValidationError, messageFromError, type ValidationErrors } from '~/composables/useAuth'
 import type { AccessLevel, PermissionOption, StaffAccountDraft, User } from '~/types/auth'
 import { formatDate } from '~/utils/numbers'
 import { maskPhone, phoneForApi } from '~/utils/phone'
@@ -163,9 +163,13 @@ async function saveAccount() {
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       formErrors.value = caught.errors
+
+      // И строкой над формой: подпись под полем, в котором ошиблись, может
+      // остаться выше экрана — см. staff/new.vue.
+      errorMessage.value = caught.firstMessage
     }
     else {
-      errorMessage.value = messageFrom(caught, 'Не удалось сохранить сотрудника.')
+      errorMessage.value = messageFromError(caught, 'Не удалось сохранить сотрудника.')
     }
   }
   finally {
@@ -268,7 +272,7 @@ async function saveAccess() {
     isEditingAccess.value = false
   }
   catch (caught) {
-    errorMessage.value = messageFrom(caught, 'Не удалось сохранить доступ.')
+    errorMessage.value = messageFromError(caught, 'Не удалось сохранить доступ.')
   }
   finally {
     isSaving.value = false
@@ -345,7 +349,7 @@ async function remove() {
     await router.push('/staff')
   }
   catch (caught) {
-    errorMessage.value = messageFrom(caught, 'Не удалось удалить учётную запись.')
+    errorMessage.value = messageFromError(caught, 'Не удалось удалить учётную запись.')
     isBusy.value = false
   }
 }
@@ -361,7 +365,7 @@ async function act(action: () => Promise<unknown>, fallback: string) {
     await afterChange()
   }
   catch (caught) {
-    errorMessage.value = messageFrom(caught, fallback)
+    errorMessage.value = messageFromError(caught, fallback)
   }
   finally {
     isBusy.value = false
@@ -377,9 +381,6 @@ async function afterChange() {
   }
 }
 
-function messageFrom(caught: unknown, fallback: string): string {
-  return (caught as { data?: { message?: string } }).data?.message ?? fallback
-}
 </script>
 
 <template>

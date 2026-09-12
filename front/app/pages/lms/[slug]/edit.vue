@@ -47,13 +47,11 @@ const canManageAccess = computed(() => data.value?.course.can_manage_access ?? f
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSubmitting = ref(false)
-const savedAt = ref<string | null>(null)
 
 async function submit(payload: CoursePayload) {
   isSubmitting.value = true
   errors.value = {}
   generalError.value = null
-  savedAt.value = null
 
   try {
     const { data: saved } = await updateCourse(slug.value, {
@@ -62,13 +60,13 @@ async function submit(payload: CoursePayload) {
       description: payload.description || null,
     })
 
-    // An unpublished course changes slug when retitled, so follow it.
-    if (saved.slug !== slug.value) {
-      await router.replace(`/lms/${saved.slug}/edit`)
-    }
-
-    await refresh()
-    savedAt.value = new Date().toLocaleTimeString('ru-RU')
+    // Сохранили — значит правка закончена, и дальше человек смотрит, что
+    // получилось: на странице правки его держала только отметка «Сохранено
+    // в 14:32», по которой всё равно не видно, как курс выглядит.
+    //
+    // Адрес берётся из ответа: у неопубликованного курса он следует за
+    // названием, и прежний привёл бы в «не найдено».
+    await router.push(`/lms/${saved.slug}`)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -147,8 +145,6 @@ async function remove() {
       @submit="submit"
     >
       <template #secondary-actions>
-        <span v-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
-
         <button
           v-if="can('courses.delete')"
           type="button"
@@ -165,11 +161,20 @@ async function remove() {
          колонкой во всю ширину они разгоняли страницу на лишний экран. Тот же
          приём, что в редакторе документа. -->
     <div class="settings">
+      <!--
+        Только у приватного курса (решение пользователя 2026-09-12): у
+        открытого список ни на что не влияет, а панель, объясняющая, что она ни
+        на что не влияет, — лишняя строка на экране.
+
+        Смотрит на форму, а не на сохранённое: переключив доступ на
+        «приватный», список собирают тут же, не сохраняя курс наперёд.
+        Обратное переключение список не стирает — он ждёт в базе, когда курс
+        закроют снова.
+      -->
       <CourseAccessPanel
-        v-if="canManageAccess"
+        v-if="canManageAccess && form.visibility === 'private'"
         :key="data.course.id"
         :slug="slug"
-        :is-private="data.course.is_private"
         :author-name="data.course.author?.name ?? null"
       />
 
@@ -219,11 +224,6 @@ async function remove() {
 .back {
   font-size: 0.9rem;
   text-decoration: none;
-}
-
-.muted {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
 }
 
 /* Подальше от «Сохранить»: соседство с кнопкой, которую жмут постоянно, — не

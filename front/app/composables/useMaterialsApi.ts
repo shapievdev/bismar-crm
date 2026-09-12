@@ -5,6 +5,11 @@ import type {
   CategoryPayload,
   CoursePerson,
   LessonAttachment,
+  MaterialAccess,
+  MaterialVersion,
+  MaterialVersionPayload,
+  MaterialVersionSummary,
+  MaterialProgress,
   PaginatedResponse,
   Quiz,
   QuizAttempt,
@@ -80,11 +85,113 @@ export function useMaterialsApi(section: MaterialSection) {
     deleteQuiz: (slug: string): Promise<void> =>
       $api(`${base}/${slug}/quiz`, { method: 'DELETE' }),
 
-    /** Что проверка показывает тому, кто ведёт документ: какие вопросы заваливают. */
+    /* ---------- Версии: то же правило для своих людей ---------- */
+
+    /**
+     * Все версии — тому, кто документ ведёт: с названиями и кругом групп, но
+     * без тел. Читателю отдельного запроса не нужно: переключатель приходит
+     * вместе с документом.
+     */
+    fetchVersions: (slug: string): Promise<ResourceResponse<MaterialVersionSummary[]>> =>
+      $api<ResourceResponse<MaterialVersionSummary[]>>(`${base}/${slug}/versions`),
+
+    /** Одна версия целиком: статья, файлы и проверка. */
+    fetchVersion: (slug: string, versionId: number): Promise<ResourceResponse<MaterialVersion>> =>
+      $api<ResourceResponse<MaterialVersion>>(`${base}/${slug}/versions/${versionId}`),
+
+    createVersion: (slug: string, payload: MaterialVersionPayload): Promise<ResourceResponse<MaterialVersionSummary>> =>
+      $api<ResourceResponse<MaterialVersionSummary>>(`${base}/${slug}/versions`, {
+        method: 'POST',
+        body: payload,
+      }).catch(toValidationError),
+
+    updateVersion: (
+      slug: string,
+      versionId: number,
+      payload: MaterialVersionPayload,
+    ): Promise<ResourceResponse<MaterialVersionSummary>> =>
+      $api<ResourceResponse<MaterialVersionSummary>>(`${base}/${slug}/versions/${versionId}`, {
+        method: 'PUT',
+        body: payload,
+      }).catch(toValidationError),
+
+    /**
+     * Порядок версий: им же решается спор, когда человек попал в две сразу.
+     * Присылается целиком — «пусть будет вот так».
+     */
+    reorderVersions: (slug: string, versions: number[]): Promise<ResourceResponse<MaterialVersionSummary[]>> =>
+      $api<ResourceResponse<MaterialVersionSummary[]>>(`${base}/${slug}/versions/order`, {
+        method: 'PUT',
+        body: { versions },
+      }),
+
+    deleteVersion: (slug: string, versionId: number): Promise<void> =>
+      $api(`${base}/${slug}/versions/${versionId}`, { method: 'DELETE' }),
+
+    /** Проверка при версии — своя у каждой; сдача по-прежнему ознакомление. */
+    submitVersionQuiz: (
+      slug: string,
+      versionId: number,
+      answers: Record<number, number[] | string | string[][]>,
+    ): Promise<{ data: QuizOutcome }> =>
+      $api<{ data: QuizOutcome }>(`${base}/${slug}/versions/${versionId}/quiz/submit`, {
+        method: 'POST',
+        body: { answers },
+      }),
+
+    saveVersionQuiz: (slug: string, versionId: number, payload: QuizPayload): Promise<ResourceResponse<Quiz>> =>
+      $api<ResourceResponse<Quiz>>(`${base}/${slug}/versions/${versionId}/quiz`, {
+        method: 'PUT',
+        body: payload,
+      }).catch(toValidationError),
+
+    deleteVersionQuiz: (slug: string, versionId: number): Promise<void> =>
+      $api(`${base}/${slug}/versions/${versionId}/quiz`, { method: 'DELETE' }),
+
+    /** Файл при версии — свой бланк расчёта у каждой. */
+    uploadVersionAttachment: (
+      slug: string,
+      versionId: number,
+      file: File,
+      description: string | null,
+      options: UploadOptions = {},
+    ): Promise<ResourceResponse<LessonAttachment>> => {
+      const body = new FormData()
+
+      body.append('file', file)
+
+      if (description) {
+        body.append('description', description)
+      }
+
+      return $upload<ResourceResponse<LessonAttachment>>(
+        `${base}/${slug}/versions/${versionId}/attachments`,
+        body,
+        options,
+      )
+    },
+
+    attachVersionDriveFile: (
+      slug: string,
+      versionId: number,
+      file: DriveFile,
+    ): Promise<ResourceResponse<LessonAttachment>> =>
+      $api<ResourceResponse<LessonAttachment>>(`${base}/${slug}/versions/${versionId}/attachments/drive`, {
+        method: 'POST',
+        body: { ...file, description: null },
+      }),
+
+    /* ---------- Как материал проходят: администратору ---------- */
+
+    /** Кто ознакомился, кому назначено и чем кончилась проверка. */
+    fetchProgress: (slug: string): Promise<ResourceResponse<MaterialProgress>> =>
+      $api<ResourceResponse<MaterialProgress>>(`${base}/${slug}/progress`),
+
+    /** Какие вопросы проверки заваливают. */
     fetchQuizStatistics: (slug: string): Promise<ResourceResponse<QuizStatistics>> =>
       $api<ResourceResponse<QuizStatistics>>(`${base}/${slug}/quiz/statistics`),
 
-    /** Ведущему документ: разбор попытки сотрудника — что он отправил. */
+    /** Разбор попытки сотрудника — что он отправил. */
     fetchQuizAttempt: (slug: string, attemptId: number): Promise<ResourceResponse<QuizAttempt>> =>
       $api<ResourceResponse<QuizAttempt>>(`${base}/${slug}/quiz/attempts/${attemptId}`),
 
@@ -120,17 +227,22 @@ export function useMaterialsApi(section: MaterialSection) {
 
     /* ---------- Люди ---------- */
 
-    fetchMembers: (slug: string): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`${base}/${slug}/access`),
+    /** Кого пустили в закрытый материал: люди и группы одним ответом. */
+    fetchMembers: (slug: string): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`${base}/${slug}/access`),
 
-    updateMembers: (slug: string, members: number[]): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`${base}/${slug}/access`, {
+    updateMembers: (
+      slug: string,
+      members: number[],
+      groups: number[],
+    ): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`${base}/${slug}/access`, {
         method: 'PUT',
-        body: { members },
+        body: { members, groups },
       }),
 
-    searchMemberCandidates: (slug: string, search: string): Promise<ResourceResponse<CoursePerson[]>> =>
-      $api<ResourceResponse<CoursePerson[]>>(`${base}/${slug}/access/candidates`, {
+    searchMemberCandidates: (slug: string, search: string): Promise<ResourceResponse<MaterialAccess>> =>
+      $api<ResourceResponse<MaterialAccess>>(`${base}/${slug}/access/candidates`, {
         query: { search },
       }),
 

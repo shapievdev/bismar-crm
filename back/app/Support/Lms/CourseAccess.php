@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\DB;
  * 2026-09-10). Приватность отгораживает курс от компании, а не от тех, кто за
  * неё отвечает.
  *
+ * Добавить можно и поимённо, и группой (2026-09-12): списки складываются, а
+ * состав группы читается на каждом обращении — см. admitted().
+ *
  * Видеть закрытый курс и распоряжаться им — по-прежнему разные вещи: круг
  * допущенных остаётся за автором, и должность его не расширяет. Об этом
  * отдельное правило — decidesWhoGetsIn().
@@ -80,7 +83,27 @@ final class CourseAccess
 
         // Отношением, а не перечнем всех приватных курсов: здесь спрашивают
         // про один курс, и читать ради этого весь список незачем.
-        return $course->members()->whereKey($this->reader->getKey())->exists();
+        if ($course->members()->whereKey($this->reader->getKey())->exists()) {
+            return true;
+        }
+
+        return $this->admittedByGroup((int) $course->getKey());
+    }
+
+    /**
+     * Впущен ли человек группой, в которой состоит (2026-09-12).
+     *
+     * Состав группы читается здесь же, а не замораживается при допуске: ушедший
+     * из группы теряет курс тем же вечером, пришедший — открывает. Ровно ради
+     * этого группу и называют вместо двадцати фамилий.
+     */
+    private function admittedByGroup(int $course): bool
+    {
+        return DB::table('course_member_groups')
+            ->join('group_members', 'group_members.group_id', '=', 'course_member_groups.group_id')
+            ->where('course_member_groups.course_id', $course)
+            ->where('group_members.user_id', $this->reader->getKey())
+            ->exists();
     }
 
     /**
@@ -102,14 +125,41 @@ final class CourseAccess
 
         $query->where(function (EloquentBuilder|QueryBuilder $query) use ($table, $reader): void {
             $query->where($table.'.visibility', CourseVisibility::Public->value)
-                ->orWhere($table.'.author_id', $reader)
-                ->orWhereExists(function (QueryBuilder $query) use ($table, $reader): void {
-                    $query->selectRaw('1')
-                        ->from('course_members')
-                        ->whereColumn('course_members.course_id', $table.'.id')
-                        ->where('course_members.user_id', $reader);
-                });
+                ->orWhere($table.'.author_id', $reader);
+
+            $this->admitted($query, $table.'.id');
         });
+    }
+
+    /**
+     * Допущен ли читатель — поимённо или группой (2026-09-12).
+     *
+     * Двумя EXISTS, дописанными через OR к уже начатому условию: оба способа
+     * складываются, и вызывающему остаётся сказать только про автора и про
+     * открытость. Одним куском, чтобы список допущенных не разошёлся между
+     * каталогом и перечнем приватных курсов.
+     *
+     * @param  EloquentBuilder<Course>|QueryBuilder  $query
+     * @param  string  $courseId  колонка с номером курса в объемлющем запросе
+     */
+    private function admitted(EloquentBuilder|QueryBuilder $query, string $courseId): void
+    {
+        $reader = $this->reader->getKey();
+
+        $query
+            ->orWhereExists(function (QueryBuilder $query) use ($courseId, $reader): void {
+                $query->selectRaw('1')
+                    ->from('course_members')
+                    ->whereColumn('course_members.course_id', $courseId)
+                    ->where('course_members.user_id', $reader);
+            })
+            ->orWhereExists(function (QueryBuilder $query) use ($courseId, $reader): void {
+                $query->selectRaw('1')
+                    ->from('course_member_groups')
+                    ->join('group_members', 'group_members.group_id', '=', 'course_member_groups.group_id')
+                    ->whereColumn('course_member_groups.course_id', $courseId)
+                    ->where('group_members.user_id', $reader);
+            });
     }
 
     /**
@@ -129,6 +179,10 @@ final class CourseAccess
              AND (%1$s.visibility = ? OR %1$s.author_id = ? OR EXISTS (
                 SELECT 1 FROM course_members
                 WHERE course_members.course_id = %1$s.id AND course_members.user_id = ?
+            ) OR EXISTS (
+                SELECT 1 FROM course_member_groups
+                JOIN group_members ON group_members.group_id = course_member_groups.group_id
+                WHERE course_member_groups.course_id = %1$s.id AND group_members.user_id = ?
             ))
         SQL, $table);
     }
@@ -144,7 +198,14 @@ final class CourseAccess
             return [];
         }
 
-        return [CourseVisibility::Public->value, $this->reader->getKey(), $this->reader->getKey()];
+        // Читатель назван трижды: автором, допущенным поимённо и участником
+        // впущенной группы.
+        return [
+            CourseVisibility::Public->value,
+            $this->reader->getKey(),
+            $this->reader->getKey(),
+            $this->reader->getKey(),
+        ];
     }
 
     /**
@@ -184,13 +245,9 @@ final class CourseAccess
 
         if (! $this->seesEverything()) {
             $query->where(function (QueryBuilder $query) use ($reader): void {
-                $query->where('author_id', $reader)
-                    ->orWhereExists(function (QueryBuilder $query) use ($reader): void {
-                        $query->selectRaw('1')
-                            ->from('course_members')
-                            ->whereColumn('course_members.course_id', 'courses.id')
-                            ->where('course_members.user_id', $reader);
-                    });
+                $query->where('author_id', $reader);
+
+                $this->admitted($query, 'courses.id');
             });
         }
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\AttachLessonMaterials;
-use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\UpdateLessonMaterialsRequest;
 use App\Http\Resources\Lms\LessonMaterialResource;
@@ -13,7 +12,6 @@ use App\Http\Resources\Lms\RegulationLinkResource;
 use App\Models\Lesson;
 use App\Models\Regulation;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -99,9 +97,10 @@ final class LessonMaterialController extends Controller
      * ехали бы в каждый урок впустую.
      *
      * Отбор здесь тот же, каким урок отбирает названия (см. LearningController):
-     * материал должен быть приложен именно к этому уроку, открыт этому
-     * человеку и — если он не правит курсы — опубликован. Иначе статью
-     * закрытого правила можно было бы вычитать, зная его адрес и любой урок.
+     * материал должен быть приложен именно к этому уроку и открыт этому
+     * человеку — с закрытостью, разделом и состоянием разом (readableBy).
+     * Иначе статью закрытого правила можно было бы вычитать, зная его адрес и
+     * любой урок.
      *
      * Отказ — 404, а не 403: «нет доступа» и «нет такого» отвечают одинаково,
      * иначе перебор адресов рассказывал бы, какие правила в компании есть.
@@ -120,11 +119,7 @@ final class LessonMaterialController extends Controller
             // Файлы едут вместе со статьёй: картинки и видео внутри неё
             // хранятся номерами вложений, и без них она пришла бы с дырами.
             ->with('category', 'attachments')
-            ->visibleTo($reader)
-            ->when(
-                $reader->cannot(Permission::UpdateCourses->value),
-                fn (Builder $query) => $query->published(),
-            )
+            ->readableBy($reader)
             ->first();
 
         abort_if($material === null, 404);

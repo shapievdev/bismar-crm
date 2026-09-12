@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Enums\MaterialKind;
+use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Regulation;
+use App\Models\User;
 use App\Support\Lms\CourseAccess;
 use App\Support\Lms\DiscardedFiles;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -26,6 +30,12 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  * Право то же, что на удаление: кто вправе выбросить, тот вправе и достать
  * обратно. А стереть насовсем — только администратору: это единственное
  * действие во всей базе знаний, после которого возвращать нечего.
+ *
+ * Разделов при этом три, и право у каждого своё (см. App\Enums\MaterialKind).
+ * Маршрут пускает сюда с любым из трёх — иначе правящий справочники не увидел
+ * бы и собственной корзины, — а каждая строка сверяется отдельно: в списке
+ * видно только то, что этот человек вправе вернуть, и попытка вернуть чужое
+ * отвечает «не найдено».
  */
 final class TrashController extends Controller
 {
@@ -40,9 +50,33 @@ final class TrashController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $access = CourseAccess::of($request->user());
+        /** @var User $reader */
+        $reader = $request->user();
 
-        $courses = Course::onlyTrashed()
+        // Свежее сверху: возвращают обычно то, что выбросили только что.
+        $rows = $this->discardedCourses($reader)
+            ->concat($this->discardedMaterials($reader))
+            ->sortByDesc('deleted_at')
+            ->values()
+            ->all();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * Выброшенные курсы — тому, кто вправе их удалять.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function discardedCourses(User $reader): Collection
+    {
+        if ($reader->cannot(Permission::DeleteCourses->value)) {
+            return collect();
+        }
+
+        $access = CourseAccess::of($reader);
+
+        return Course::onlyTrashed()
             ->with('author:id,last_name,first_name,middle_name', 'remover:id,last_name,first_name,middle_name')
             ->get()
             // Закрытый курс не показывается тому, кого в него не пускали, — и
@@ -59,8 +93,19 @@ final class TrashController extends Controller
                 // что именно уйдёт при окончательном удалении.
                 'lessons' => $course->loadCount('lessons')->lessons_count,
             ]);
+    }
 
-        $documents = Regulation::onlyTrashed()
+    /**
+     * Выброшенные документы и справочники — только из разделов, в которых этот
+     * человек вправе удалять: выброшенный справочник не дело того, кто ведёт
+     * одни курсы, и названия его он видеть не должен.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function discardedMaterials(User $reader): Collection
+    {
+        return Regulation::onlyTrashed()
+            ->whereIn('kind', MaterialKind::valuesOf($this->discardableBy($reader)))
             ->with('author:id,last_name,first_name,middle_name', 'remover:id,last_name,first_name,middle_name')
             ->get()
             ->map(fn (Regulation $document): array => [
@@ -74,14 +119,6 @@ final class TrashController extends Controller
                 'deleted_by' => $document->remover?->name,
                 'lessons' => null,
             ]);
-
-        // Свежее сверху: возвращают обычно то, что выбросили только что.
-        $rows = $courses->concat($documents)
-            ->sortByDesc('deleted_at')
-            ->values()
-            ->all();
-
-        return response()->json(['data' => $rows]);
     }
 
     /** Вернуть на место — со всем, что за ним стояло. */
@@ -147,20 +184,51 @@ final class TrashController extends Controller
      */
     private function trashedCourse(Request $request, int $id): Course
     {
+        /** @var User $actor */
+        $actor = $request->user();
+
         $course = Course::onlyTrashed()->find($id);
 
         abort_if($course === null, HttpResponse::HTTP_NOT_FOUND);
-        abort_unless(CourseAccess::of($request->user())->allows($course), HttpResponse::HTTP_NOT_FOUND);
+        abort_unless($actor->can(Permission::DeleteCourses->value), HttpResponse::HTTP_NOT_FOUND);
+        abort_unless(CourseAccess::of($actor)->allows($course), HttpResponse::HTTP_NOT_FOUND);
 
         return $course;
     }
 
+    /**
+     * Удалённый материал, до которого этому человеку есть дело.
+     *
+     * Раздел спрашивается у самой строки, а не у маршрута: адрес в корзине
+     * один на документы и справочники — она показывает выброшенное вместе, —
+     * и только найденная строка знает, каким разделом она была.
+     *
+     * Отказ — «не найдено», как и у чужого закрытого курса: перебор номеров не
+     * должен рассказывать, что в компании удаляли.
+     */
     private function trashedDocument(Request $request, int $id): Regulation
     {
+        /** @var User $actor */
+        $actor = $request->user();
+
         $document = Regulation::onlyTrashed()->find($id);
 
         abort_if($document === null, HttpResponse::HTTP_NOT_FOUND);
+        abort_unless($actor->can($document->kind->deletePermission()->value), HttpResponse::HTTP_NOT_FOUND);
 
         return $document;
+    }
+
+    /**
+     * Разделы, выброшенное из которых этот человек вправе вернуть.
+     *
+     * @return list<MaterialKind>
+     */
+    private function discardableBy(User $actor): array
+    {
+        return array_values(array_filter(
+            MaterialKind::cases(),
+            static fn (MaterialKind $kind): bool => $actor->can($kind->deletePermission()->value),
+        ));
     }
 }

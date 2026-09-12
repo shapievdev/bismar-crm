@@ -6,6 +6,7 @@ namespace App\Support\Ai;
 
 use App\Enums\AnswerSource;
 use App\Enums\CourseStatus;
+use App\Enums\Permission;
 use App\Models\LessonAttachment;
 use App\Support\Lms\CourseAccess;
 use Illuminate\Database\Query\Builder;
@@ -177,8 +178,9 @@ final readonly class CuratedAnswers
         $perLeg = $keep * 4;
 
         $visible = sprintf(
-            'courses.status = ? AND courses.deleted_at IS NULL%s',
+            'courses.status = ? AND courses.deleted_at IS NULL%s%s',
             $access->sqlCondition(),
+            $this->openToReader($access),
         );
 
         $legs = [];
@@ -327,6 +329,19 @@ final readonly class CuratedAnswers
         ));
     }
 
+    /**
+     * Открыт ли спрашивающему раздел курсов.
+     *
+     * Таблицы ответов ведутся при уроках, и другого раздела у них нет: без
+     * права на курсы отвечать ими нельзя. Спрашивается это здесь, а не на
+     * маршруте, потому что консультанта с 2026-09-11 спрашивает и тот, кому
+     * открыты одни справочники, — см. EnsureAnyPermission.
+     */
+    private function openToReader(CourseAccess $access): string
+    {
+        return $access->reader()->can(Permission::ViewCourses->value) ? '' : ' AND FALSE';
+    }
+
     private function rows(CourseAccess $access): Builder
     {
         $rows = DB::table('lesson_answers')
@@ -336,7 +351,11 @@ final readonly class CuratedAnswers
             ->join('courses', 'courses.id', '=', 'course_modules.course_id')
             ->leftJoin('lesson_attachments as attachments', 'attachments.id', '=', 'lesson_answers.source_attachment_id')
             ->where('courses.status', CourseStatus::Published->value)
-            ->whereNull('courses.deleted_at');
+            ->whereNull('courses.deleted_at')
+            ->when(
+                $access->reader()->cannot(Permission::ViewCourses->value),
+                fn (Builder $query) => $query->whereRaw('FALSE'),
+            );
 
         $access->applyTo($rows);
 

@@ -28,10 +28,21 @@ trait MakesUsers
         return $user;
     }
 
-    /** Reads the knowledge base and nothing else. */
+    /**
+     * Reads the knowledge base and nothing else.
+     *
+     * Все три раздела: разделы базы знаний получили свои права (2026-09-11), но
+     * «читатель базы» по-прежнему означает человека, которому она открыта
+     * целиком. Кому открыт один раздел из трёх — отдельный случай, и заводят
+     * его там, где он и проверяется, через userWith().
+     */
     protected function learner(): User
     {
-        return $this->userWith(Permission::ViewCourses);
+        return $this->userWith(
+            Permission::ViewCourses,
+            Permission::ViewDocuments,
+            Permission::ViewHandbooks,
+        );
     }
 
     /**
@@ -45,6 +56,12 @@ trait MakesUsers
             Permission::ViewCourses,
             Permission::CreateCourses,
             Permission::UpdateCourses,
+            Permission::ViewDocuments,
+            Permission::CreateDocuments,
+            Permission::UpdateDocuments,
+            Permission::ViewHandbooks,
+            Permission::CreateHandbooks,
+            Permission::UpdateHandbooks,
         );
     }
 
@@ -57,6 +74,14 @@ trait MakesUsers
             Permission::UpdateCourses,
             Permission::DeleteCourses,
             Permission::PublishCourses,
+            Permission::ViewDocuments,
+            Permission::CreateDocuments,
+            Permission::UpdateDocuments,
+            Permission::DeleteDocuments,
+            Permission::ViewHandbooks,
+            Permission::CreateHandbooks,
+            Permission::UpdateHandbooks,
+            Permission::DeleteHandbooks,
         );
     }
 

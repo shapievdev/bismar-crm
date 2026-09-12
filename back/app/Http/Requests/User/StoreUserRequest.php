@@ -43,17 +43,13 @@ final class StoreUserRequest extends FormRequest
     }
 
     /**
-     * Сообщение о номере пишется здесь: остальные приходят из английского
-     * набора фреймворка, а это поле человек чаще всего и набирает неверно.
+     * Отказы — по-русски и одни на оба экрана, см. StaffFieldMessages.
      *
      * @return array<string, string>
      */
     public function messages(): array
     {
-        return [
-            'phone.regex' => 'Телефон должен быть российским номером: +7 и десять цифр.',
-            'phone.unique' => 'Этот номер уже занят: по нему входит другой сотрудник.',
-        ];
+        return StaffFieldMessages::all();
     }
 
     /**

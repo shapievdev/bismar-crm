@@ -36,6 +36,10 @@ final readonly class SaveTranscriptSegments
                 // ради того, чьё это. Хозяин ровно один — урок или документ.
                 'lesson_id' => $transcript->lesson_id,
                 'regulation_id' => $transcript->regulation_id,
+                // Версия документа, если кусок взят из неё: отбор в поиске
+                // идёт по документу, а версия сужает выбранное до того текста,
+                // который этому человеку и предназначен (2026-09-12).
+                'version_id' => $transcript->version_id,
                 'position' => $position,
                 'heading' => $heading,
                 'content' => $cue->text,

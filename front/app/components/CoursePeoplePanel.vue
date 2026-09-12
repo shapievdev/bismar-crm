@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CoursePerson } from '~/types/lms'
+import type { Group } from '~/types/structure'
 
 /**
  * Список людей у курса: показать, убрать, найти и добавить.
@@ -9,6 +10,10 @@ import type { CoursePerson } from '~/types/lms'
  * остальное — поиск с задержкой, порядок, разметка — устроено одинаково, и
  * держать это дважды значит однажды поправить в одном месте.
  *
+ * У допуска рядом с людьми стоят группы (2026-09-12); у ответственных их нет —
+ * «к кому идти с вопросом» группа не отвечает. Поэтому всё групповое здесь
+ * необязательно: не передали `groups` — панель работает ровно как прежде.
+ *
  * Панель ничего не решает сама: она показывает то, что дали, и сообщает о
  * нажатиях. Кто и как сохраняет — дело того, кто её поставил.
  */
@@ -17,6 +22,8 @@ const props = defineProps<{
   /** Пояснение над списком: когда список ни на что не влияет, например. */
   note?: string | null
   people: CoursePerson[]
+  /** Впущенные группы. Не передали — панель о группах не знает. */
+  groups?: Group[]
   isLoading: boolean
   isSaving: boolean
   errorMessage?: string | null
@@ -25,21 +32,36 @@ const props = defineProps<{
   fixedBadge?: string | null
   emptyNote: string
   addLabel: string
+  searchPlaceholder?: string
   notFoundNote: string
   search: (term: string) => Promise<CoursePerson[]>
+  /** Поиск групп тем же словом. Не передали — ищутся одни люди. */
+  searchGroups?: (term: string) => Promise<Group[]>
 }>()
 
 const emit = defineEmits<{
   add: [person: CoursePerson]
   remove: [person: CoursePerson]
+  addGroup: [group: Group]
+  removeGroup: [group: Group]
 }>()
 
+const groups = computed(() => props.groups ?? [])
+const handlesGroups = computed(() => props.groups !== undefined)
+
 function add(person: CoursePerson) {
-  query.value = ''
-  candidates.value = []
+  clearSearch()
 
   if (!props.people.some(one => one.id === person.id)) {
     emit('add', person)
+  }
+}
+
+function addGroup(group: Group) {
+  clearSearch()
+
+  if (!groups.value.some(one => one.id === group.id)) {
+    emit('addGroup', group)
   }
 }
 
@@ -47,15 +69,25 @@ function add(person: CoursePerson) {
 
 const query = ref('')
 const candidates = ref<CoursePerson[]>([])
+const groupCandidates = ref<Group[]>([])
 const isSearching = ref(false)
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchToken = 0
 
+function clearSearch() {
+  query.value = ''
+  candidates.value = []
+  groupCandidates.value = []
+}
+
 /**
  * Ищет с задержкой, и показывает только ответ на последний запрос: набранное
  * целиком приходит раньше, чем ответ на первую букву, и без этого список
  * подсказок мигал бы результатами уже стёртого слова.
+ *
+ * Люди и группы ищутся одним словом и разом: набравший «продаж» видит и отдел
+ * продаж группой, и Продажникова поимённо, не выбирая заранее, кого он ищет.
  */
 watch(query, (value) => {
   clearTimeout(searchTimer)
@@ -64,6 +96,7 @@ watch(query, (value) => {
 
   if (term === '') {
     candidates.value = []
+    groupCandidates.value = []
     isSearching.value = false
 
     return
@@ -75,15 +108,20 @@ watch(query, (value) => {
     const token = ++searchToken
 
     try {
-      const found = await props.search(term)
+      const [people, found] = await Promise.all([
+        props.search(term),
+        props.searchGroups?.(term) ?? Promise.resolve([]),
+      ])
 
       if (token === searchToken) {
-        candidates.value = found
+        candidates.value = people
+        groupCandidates.value = found
       }
     }
     catch {
       if (token === searchToken) {
         candidates.value = []
+        groupCandidates.value = []
       }
     }
     finally {
@@ -95,6 +133,13 @@ watch(query, (value) => {
 })
 
 onBeforeUnmount(() => clearTimeout(searchTimer))
+
+const hasCandidates = computed(() => candidates.value.length > 0 || groupCandidates.value.length > 0)
+
+/** «Группа · 12 человек» — по числу видно, скольким это открывает материал. */
+function groupSize(group: Group): string {
+  return `${group.people_count} ${pluralise(group.people_count, 'человек', 'человека', 'человек')}`
+}
 
 const inputId = useId()
 </script>
@@ -123,6 +168,19 @@ const inputId = useId()
         <span class="badge">{{ fixedBadge }}</span>
       </li>
 
+      <!-- Группы впереди людей: группа — мазок шире, и «весь отдел продаж
+           плюс Иванов» читается именно в таком порядке. -->
+      <li v-for="group in groups" :key="`group-${group.id}`" class="people__item">
+        <span class="people__group-mark" aria-hidden="true">Гр</span>
+        <span class="people__name">
+          {{ group.name }}
+          <span class="people__email">Группа · {{ groupSize(group) }}</span>
+        </span>
+        <button type="button" class="people__remove" :disabled="isSaving" @click="emit('removeGroup', group)">
+          Убрать
+        </button>
+      </li>
+
       <li v-for="person in people" :key="person.id" class="people__item">
         <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
         <span class="people__name">
@@ -135,7 +193,7 @@ const inputId = useId()
       </li>
     </ul>
 
-    <p v-if="!isLoading && people.length === 0" class="panel__note">
+    <p v-if="!isLoading && people.length === 0 && groups.length === 0" class="panel__note">
       {{ emptyNote }}
     </p>
 
@@ -149,11 +207,21 @@ const inputId = useId()
           v-model="query"
           type="search"
           autocomplete="off"
-          placeholder="Фамилия или почта"
+          :placeholder="searchPlaceholder ?? 'Фамилия или почта'"
         >
       </div>
 
-      <ul v-if="candidates.length" class="finder__results">
+      <ul v-if="hasCandidates" class="finder__results">
+        <li v-for="group in groupCandidates" :key="`group-${group.id}`">
+          <button type="button" class="finder__option" @click="addGroup(group)">
+            <span class="people__group-mark" aria-hidden="true">Гр</span>
+            <span class="people__name">
+              {{ group.name }}
+              <span class="people__email">Группа · {{ groupSize(group) }}</span>
+            </span>
+          </button>
+        </li>
+
         <li v-for="person in candidates" :key="person.id">
           <button type="button" class="finder__option" @click="add(person)">
             <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
@@ -244,6 +312,22 @@ const inputId = useId()
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Метка группы стоит там же, где у человека лицо, и того же размера: строки
+   идут вперемешку, и без общей левой границы список ломается на две колонки.
+   Буквы, а не значок: значков в оформлении нет вовсе. */
+.people__group-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .people__remove {

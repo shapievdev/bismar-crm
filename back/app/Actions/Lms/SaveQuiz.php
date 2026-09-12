@@ -11,6 +11,7 @@ use App\Models\Quiz;
 use App\Models\QuizOption;
 use App\Models\QuizQuestion;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use App\Support\Lms\QuestionTable;
 use Illuminate\Support\Facades\DB;
 
@@ -38,7 +39,7 @@ final readonly class SaveQuiz
      *     questions: array<int, array{id?: ?int, text: string, type: string, points: int, expected_answer?: ?string, table?: ?array<string, mixed>, options?: array<int, array{id?: ?int, text: string, is_correct: bool}>}>
      * } $attributes
      */
-    public function handle(Lesson|Regulation $owner, array $attributes): Quiz
+    public function handle(Lesson|Regulation|RegulationVersion $owner, array $attributes): Quiz
     {
         return DB::transaction(function () use ($owner, $attributes): Quiz {
             $quiz = Quiz::updateOrCreate(

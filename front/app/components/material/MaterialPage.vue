@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { withResolvedMedia } from '~/utils/editor/attachments'
-import type { CoursePerson, MaterialSection, QuizOutcome } from '~/types/lms'
+import type { CoursePerson, MaterialSection, MaterialVersion, QuizOutcome } from '~/types/lms'
 
 /**
  * Страница документа или справочника — один экран на оба раздела.
@@ -12,8 +12,19 @@ const copy = useMaterialSection(props.section)
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 
-const { can, user } = useAuth()
-const { fetchRegulation, acknowledge, fetchReaders, fetchCategories, submitQuiz } = useMaterialsApi(props.section)
+const { can, isAdmin, user } = useAuth()
+const {
+  fetchRegulation,
+  acknowledge,
+  fetchReaders,
+  fetchCategories,
+  submitQuiz,
+  fetchVersion,
+  submitVersionQuiz,
+  fetchProgress,
+  fetchQuizStatistics,
+  fetchQuizAttempt,
+} = useMaterialsApi(props.section)
 
 const { data, error, refresh } = await useAsyncData(
   () => `lms.${props.section}.${slug.value}`,
@@ -27,6 +38,67 @@ if (error.value) {
 const regulation = computed(() => data.value?.data ?? null)
 
 useHead({ title: () => regulation.value?.title ?? copy.title })
+
+/* ---------- Версии: то же правило, написанное для своих людей ---------- */
+
+/**
+ * Какие версии этому человеку открыты и какую он читает.
+ *
+ * Общей версии в списке нет — она сам документ, — поэтому в переключателе она
+ * стоит первой строкой, а `selected` при ней пуст. Своя версия открывается
+ * сама: её присылает сервер, и спрашивать его об этом второй раз незачем.
+ */
+const versions = computed(() => regulation.value?.versions ?? [])
+const selected = ref<MaterialVersion | null>(regulation.value?.version ?? null)
+const isSwitchingVersion = ref(false)
+
+/*
+ * Перечитали документ — перечитываем и открытую версию.
+ *
+ * Перечитывают его после ознакомления и после сдачи проверки, и тело версии
+ * при этом устаревает вместе с ним: в нём лежит история попыток. Подменять
+ * открытое на общую тоже нельзя — текст сменился бы под читателем.
+ */
+watch(regulation, async (value) => {
+  const open = selected.value
+
+  if (open === null) {
+    selected.value = value?.version ?? null
+
+    return
+  }
+
+  selected.value = (value?.versions ?? []).some(one => one.id === open.id)
+    ? (await fetchVersion(slug.value, open.id)).data
+    : null
+})
+
+/**
+ * Тело страницы: статья, файлы и проверка выбранной версии — или общие, если
+ * выбрана общая.
+ */
+const body = computed(() => selected.value ?? regulation.value)
+
+async function openVersion(versionId: number | null) {
+  if (versionId === null) {
+    selected.value = null
+
+    return
+  }
+
+  if (selected.value?.id === versionId) {
+    return
+  }
+
+  isSwitchingVersion.value = true
+
+  try {
+    selected.value = (await fetchVersion(slug.value, versionId)).data
+  }
+  finally {
+    isSwitchingVersion.value = false
+  }
+}
 
 /**
  * Крошки: раздел, категории по дороге сюда и сам документ.
@@ -49,8 +121,8 @@ const trail = computed(() => categoryTrail(
  * хранит их номера, а подписанные ссылки живут час.
  */
 const article = computed(() => withResolvedMedia(
-  regulation.value?.content_json ?? null,
-  regulation.value?.attachments ?? [],
+  body.value?.content_json ?? null,
+  body.value?.attachments ?? [],
 ))
 
 /**
@@ -79,7 +151,7 @@ const askedTitle = computed(() =>
 )
 
 const documents = computed(() =>
-  (regulation.value?.attachments ?? []).filter(file =>
+  (body.value?.attachments ?? []).filter(file =>
     // Файл с Диска в списке всегда: он не бывает случайной картинкой из статьи
     // — его прикладывают руками и затем, чтобы его нашли.
     file.source === 'google_drive' || !file.opens_inline || file.description))
@@ -115,8 +187,8 @@ async function confirm() {
  * Есть проверка — ознакомление засчитывается сдачей. Кнопки при ней нет вовсе:
  * нажатие обесценивало бы тест, и сервер её всё равно не примет.
  */
-const quiz = computed(() => regulation.value?.quiz ?? null)
-const attempts = computed(() => regulation.value?.own_attempts ?? [])
+const quiz = computed(() => body.value?.quiz ?? null)
+const attempts = computed(() => body.value?.own_attempts ?? [])
 
 const isSubmitting = ref(false)
 const quizError = ref<string | null>(null)
@@ -144,7 +216,11 @@ async function sendAnswers(answers: Record<number, number[] | string | string[][
   quizError.value = null
 
   try {
-    outcome.value = (await submitQuiz(slug.value, answers)).data
+    // Проверка своя у каждой версии: сдают ту, что читают. Сдача при этом
+    // по-прежнему означает ознакомление с документом.
+    outcome.value = selected.value === null
+      ? (await submitQuiz(slug.value, answers)).data
+      : (await submitVersionQuiz(slug.value, selected.value.id, answers)).data
 
     // Сдал — документ прочитан: перечитываем его, чтобы отметка и история
     // попыток пришли с сервера, а не собирались на экране.
@@ -215,7 +291,43 @@ async function toggleReaders() {
         {{ day(regulation.published_at) }}
       </p>
 
-      <div v-if="can('courses.update')" class="head__actions">
+      <!--
+        Переключатель версий: то же правило, написанное для разных людей.
+
+        Общая стоит первой и всегда — она сам документ. Своя версия открыта с
+        самого начала, но посмотреть соседнюю не запрещено: за этим сюда и
+        приходят («а как считают у них»). Закрытая помечена: пересказывать её
+        коллеге, которого в группу не внесли, не стоит.
+      -->
+      <nav v-if="versions.length" class="versions" aria-label="Версии документа">
+        <button
+          type="button"
+          class="versions__item"
+          :class="{ 'versions__item--current': selected === null }"
+          :aria-pressed="selected === null"
+          :disabled="isSwitchingVersion"
+          @click="openVersion(null)"
+        >
+          Общая
+        </button>
+
+        <button
+          v-for="version in versions"
+          :key="version.id"
+          type="button"
+          class="versions__item"
+          :class="{ 'versions__item--current': selected?.id === version.id }"
+          :aria-pressed="selected?.id === version.id"
+          :disabled="isSwitchingVersion"
+          @click="openVersion(version.id)"
+        >
+          {{ version.name }}
+          <span v-if="version.is_mine" class="versions__mark">ваша</span>
+          <span v-else-if="version.is_private" class="versions__mark">закрытая</span>
+        </button>
+      </nav>
+
+      <div v-if="can(copy.rights.update)" class="head__actions">
         <NuxtLink :to="`/lms/${copy.section}/${regulation.slug}/edit`" class="button-secondary button-sm">
           Редактировать
         </NuxtLink>
@@ -325,7 +437,17 @@ async function toggleReaders() {
             <AttestationStatusPanel :attempt="judgedAttestation" :examiner="quiz.examiner?.name" />
           </section>
 
-          <section v-else class="card confirm">
+          <!--
+            Кнопка — только тому, кому ещё есть что отметить, и только там, где
+            отмечаются кнопкой.
+
+            Условие названо полностью, а не одним `v-else`: тот относился к
+            вердикту проверяющего строкой выше, и потому кнопка вылезала дважды
+            — рядом с «вы ознакомились» у отмеченного документа и рядом с самой
+            проверкой, где её быть не должно вовсе (сервер такое нажатие и не
+            принимает, см. RegulationAcknowledgementController).
+          -->
+          <section v-else-if="!regulation.is_acknowledged && !quiz" class="card confirm">
             <p v-if="confirmError" class="alert alert--danger" role="alert">
               {{ confirmError }}
             </p>
@@ -412,6 +534,29 @@ async function toggleReaders() {
         </section>
       </aside>
     </div>
+
+    <!-- Как материал проходят — администратору (решение пользователя
+         2026-09-12). Во всю ширину, под колонками: список людей длиннее
+         врезки, и в боковой колонке он читался бы в три слова на строку. -->
+    <template v-if="isAdmin">
+      <ProgressPeoplePanel
+        :key="`progress-${regulation.id}`"
+        :load="async () => (await fetchProgress(slug)).data"
+        title="Кто ознакомился"
+        summary-label="Ознакомились"
+        done-label="Ознакомлен"
+        pending-label="Не ознакомлен"
+      />
+
+      <!-- Разбор проверки стоит здесь же: прежде он жил в редакторе, но это
+           такая же статистика прохождения, и место у неё одно. -->
+      <QuizStatisticsPanel
+        v-if="quiz"
+        :key="quiz.id"
+        :load="async () => (await fetchQuizStatistics(slug)).data"
+        :load-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
+      />
+    </template>
   </article>
 </template>
 
@@ -649,6 +794,62 @@ async function toggleReaders() {
 
 .neighbours__link:hover {
   text-decoration: underline;
+}
+
+/*
+ * Переключатель версий — строка вкладок под шапкой.
+ *
+ * Кнопками, а не ссылками: версия не меняет адреса документа. Ссылку на него
+ * шлют коллеге, а откроется по ней версия того, кто перешёл, — в этом весь
+ * смысл разделения.
+ */
+.versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+}
+
+.versions__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.87rem;
+  cursor: pointer;
+}
+
+.versions__item:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.versions__item:disabled {
+  cursor: progress;
+}
+
+/* Выбранная — заливкой, а не одним цветом текста: вкладок бывает пять, и
+   разницу в оттенке между ними глазом не поймать. */
+.versions__item--current {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 550;
+}
+
+.versions__mark {
+  color: var(--color-text-faint);
+  font-size: 0.75rem;
+}
+
+.versions__item--current .versions__mark {
+  color: inherit;
+  opacity: 0.75;
 }
 
 .confirm {

@@ -7,6 +7,7 @@ namespace App\Actions\Lms;
 use App\Enums\AnswerSource;
 use App\Models\Lesson;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use App\Support\Lms\BlockIdentifier;
 use App\Support\Lms\RichTextExtractor;
 use App\Support\Lms\TranscriptCue;
@@ -40,13 +41,13 @@ final readonly class SyncLessonTranscripts
     ) {}
 
     /**
-     * Держит выведенную расшифровку в согласии с текстом — у урока и у
-     * документа одинаково: и то и другое написано словами, и корпус поиска у
-     * них общий.
+     * Держит выведенную расшифровку в согласии с текстом — у урока, у
+     * документа и у его версии одинаково: всё это написано словами, и корпус
+     * поиска у них общий.
      *
      * @return int сколько блоков получили выведенную расшифровку
      */
-    public function handle(Lesson|Regulation $material): int
+    public function handle(Lesson|Regulation|RegulationVersion $material): int
     {
         $blocks = $this->blocks($material);
 
@@ -70,6 +71,13 @@ final readonly class SyncLessonTranscripts
             }
 
             $transcript = $material->transcripts()->create([
+                // У версии хозяев два: сам документ — им идёт отбор в поиске,
+                // — и версия, которая сужает выбранное. Проверка в базе
+                // требует ровно одного из урока и документа, и документ здесь
+                // обязателен.
+                ...$material instanceof RegulationVersion
+                    ? ['regulation_id' => $material->regulation_id]
+                    : [],
                 'source_kind' => AnswerSource::Text,
                 // Одна на весь текст урока, а не на каждый абзац: у статьи на
                 // семьдесят абзацев автор получал семьдесят расшифровок, между
@@ -83,10 +91,23 @@ final readonly class SyncLessonTranscripts
                 'format' => TranscriptParser::FORMAT_PLAIN,
             ]);
 
-            // Заголовок куска собирается из названия урока или документа, а
-            // он у нас на руках: без этого расшифровка шла бы за ним отдельным
-            // запросом — за тем самым, который её и создал.
-            $transcript->setRelation($material instanceof Lesson ? 'lesson' : 'regulation', $material);
+            /*
+             * Заголовок куска собирается из названия урока или документа, а он
+             * у нас на руках: без этого расшифровка шла бы за ним отдельным
+             * запросом — за тем самым, который её и создал.
+             *
+             * У версии заголовком служит название документа, а не её
+             * собственное: спрашивают «что там в правилах отпуска», а не «что
+             * там в версии для розницы».
+             */
+            match (true) {
+                $material instanceof Lesson => $transcript->setRelation('lesson', $material),
+                $material instanceof Regulation => $transcript->setRelation('regulation', $material),
+                default => $transcript->setRelation(
+                    'regulation',
+                    $material->loadMissing('regulation')->regulation,
+                ),
+            };
 
             $this->segments->handle($transcript, $this->cues($blocks));
 
@@ -128,7 +149,7 @@ final readonly class SyncLessonTranscripts
      *
      * @return array<string|null, string>
      */
-    private function blocks(Lesson|Regulation $material): array
+    private function blocks(Lesson|Regulation|RegulationVersion $material): array
     {
         $document = $material->content_json;
 

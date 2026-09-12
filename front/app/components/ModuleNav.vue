@@ -91,25 +91,29 @@ const links = computed<NavLink[]>(() => {
 
   if (path.startsWith('/lms')) {
     return [
-      { to: '/lms', label: 'Курсы', visible: true, matches: (p: string) => p === '/lms' },
+      // Раздел показывают тому, кому он открыт: права у курсов, документов и
+      // справочников свои (2026-09-11), и вкладка в чужой раздел вела бы в
+      // отказ.
+      { to: '/lms', label: 'Курсы', visible: can('courses.view'), matches: (p: string) => p === '/lms' },
       // Рядом с материалами: по одному учатся, по другому работают, в третье
       // заглядывают за ответом посреди разговора с клиентом.
       {
         to: '/lms/documents',
         label: 'Документы',
-        visible: true,
+        visible: can('documents.view'),
         matches: (p: string) => p.startsWith('/lms/documents') && p !== '/lms/documents/categories',
       },
       {
         to: '/lms/handbooks',
         label: 'Справочники',
-        visible: true,
+        visible: can('handbooks.view'),
         matches: (p: string) => p.startsWith('/lms/handbooks') && p !== '/lms/handbooks/categories',
       },
       // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
-      // сам. Первое идёт раньше: с него начинают.
+      // сам. Первое идёт раньше: с него начинают. План ведёт и в документы,
+      // поэтому виден всякому, кому открыт хоть один раздел.
       { to: '/lms/plan', label: 'Мой план', visible: true },
-      { to: '/lms/my', label: 'Мои курсы', visible: true },
+      { to: '/lms/my', label: 'Мои курсы', visible: can('courses.view') },
       // Вкладка есть у того, кому сдают работы: назначение — не право с
       // галочкой, и пустой раздел в меню обещал бы то, чего за ним нет.
       {
@@ -121,7 +125,7 @@ const links = computed<NavLink[]>(() => {
       },
       { to: '/lms/assistant', label: 'Консультант', visible: true },
       // Корзина — тому, кто вправе удалять: остальным в ней нечего искать.
-      { to: '/lms/trash', label: 'Корзина', visible: can('courses.delete') },
+      { to: '/lms/trash', label: 'Корзина', visible: can('courses.delete') || can('documents.delete') || can('handbooks.delete') },
       //
       // Категорий здесь нет намеренно. С появлением справочников их стало три
       // штуки — курсов, документов, справочников, — и полоса разделов

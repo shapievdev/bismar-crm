@@ -8,7 +8,9 @@ use App\Enums\AnswerSource;
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
+use App\Enums\Permission;
 use App\Support\Lms\CourseAccess;
+use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\RegulationAccess;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
@@ -143,16 +145,100 @@ final readonly class KnowledgeBase
      * Черновики и удалённое отсеиваются здесь же: пересказ неопубликованного
      * выдаёт его так же верно, как открытая страница. Закрытое — тем же
      * правилом, каким закрыты сами страницы (CourseAccess и RegulationAccess).
+     *
+     * Раздел — третье условие и такое же обязательное (решение пользователя
+     * 2026-09-11). Права у курсов, документов и справочников теперь свои, а
+     * консультант ищет по всему корпусу разом: без этого отбора ответ
+     * пересказал бы правило тому, кому раздел правил закрыт, и поставил бы
+     * ссылку, ведущую в отказ. Ни одного открытого раздела — ветка гасится
+     * целиком, а не остаётся без условия.
      */
     private function visible(CourseAccess $access, RegulationAccess $documents): string
     {
         return sprintf(<<<'SQL'
             WHERE (
-                (courses.id IS NOT NULL AND courses.status = ? AND courses.deleted_at IS NULL%1$s)
+                (courses.id IS NOT NULL AND courses.status = ? AND courses.deleted_at IS NULL%1$s%3$s)
                 OR
-                (regulations.id IS NOT NULL AND regulations.status = ? AND regulations.deleted_at IS NULL%2$s)
+                (regulations.id IS NOT NULL AND regulations.status = ? AND regulations.deleted_at IS NULL%4$s%2$s%5$s)
             )
-        SQL, $access->sqlCondition(), $documents->sqlCondition());
+        SQL,
+            $access->sqlCondition(),
+            $documents->sqlCondition(),
+            $this->openCourses($access),
+            $this->openSections($access),
+            $this->myVersion($access),
+        );
+    }
+
+    /**
+     * Версия документа, по которой отвечают этому человеку (2026-09-12).
+     *
+     * У документа бывает несколько текстов: общий и версии для разных групп.
+     * Отвечать надо по тому, который этому человеку и предназначен, — иначе
+     * рознице пересказали бы расчёт офиса, а закрытая версия ушла бы наружу
+     * пересказом, что не лучше открытой страницы.
+     *
+     * Правило поэтому одно на оба случая: из документа, где у человека есть
+     * своя версия, в корпус идёт только она; из остальных — только общий
+     * текст. Чужие версии не попадают в ответ никогда, и закрытость проверять
+     * отдельно уже незачем.
+     */
+    private function myVersion(CourseAccess $access): string
+    {
+        $mine = app(MaterialVersions::class)->mineAcross($access->reader());
+
+        if ($mine === []) {
+            return ' AND transcript_segments.version_id IS NULL';
+        }
+
+        $versions = implode(', ', array_fill(0, count($mine), '?'));
+        $documents = implode(', ', array_fill(0, count($mine), '?'));
+
+        return sprintf(
+            ' AND (transcript_segments.version_id IN (%1$s)'
+            .' OR (transcript_segments.version_id IS NULL AND transcript_segments.regulation_id NOT IN (%2$s)))',
+            $versions,
+            $documents,
+        );
+    }
+
+    /**
+     * Подстановки к myVersion(), в том же порядке: сперва мои версии, затем
+     * документы, у которых они есть.
+     *
+     * @return list<int>
+     */
+    private function myVersionBindings(CourseAccess $access): array
+    {
+        $mine = app(MaterialVersions::class)->mineAcross($access->reader());
+
+        return [...array_values($mine), ...array_keys($mine)];
+    }
+
+    /**
+     * Открыт ли этому человеку раздел курсов вовсе.
+     *
+     * Право спрашивается здесь, а не на маршруте: спрашивать консультанта
+     * вправе тот, кому открыт хоть один раздел (см. EnsureAnyPermission в
+     * routes/api.php), и какие из них его — решается уже на корпусе.
+     */
+    private function openCourses(CourseAccess $access): string
+    {
+        return $access->reader()->can(Permission::ViewCourses->value) ? '' : ' AND FALSE';
+    }
+
+    /**
+     * Разделы документов, открытые этому человеку, — условием для SQL.
+     */
+    private function openSections(CourseAccess $access): string
+    {
+        $kinds = MaterialKind::viewableBy($access->reader());
+
+        if ($kinds === []) {
+            return ' AND FALSE';
+        }
+
+        return ' AND regulations.kind IN ('.implode(', ', array_fill(0, count($kinds), '?')).')';
     }
 
     /**
@@ -166,7 +252,12 @@ final readonly class KnowledgeBase
             CourseStatus::Published->value,
             ...$access->sqlBindings(),
             CourseStatus::Published->value,
+            // Ровно там, где стоят их вопросительные знаки: раздел проверяется
+            // до закрытости, см. visible().
+            ...MaterialKind::valuesOf(MaterialKind::viewableBy($access->reader())),
             ...$documents->sqlBindings(),
+            // Версия — последнее условие документной ветки, см. visible().
+            ...$this->myVersionBindings($access),
         ];
     }
 
@@ -715,32 +806,88 @@ final readonly class KnowledgeBase
      * it answer "there is nothing on that here" with confidence instead of
      * inventing something plausible.
      *
-     * Один на всех и потому кэшируемый — и здесь, и на стороне модели.
+     * Не один на всех, а один на набор открытых разделов (решение пользователя
+     * 2026-09-11, вместе с раздельными правами): перечень, где названы правила
+     * компании, нельзя показывать тому, кому раздел правил закрыт, — модель
+     * сошлётся на них и пошлёт человека туда, куда его не пустят.
+     *
+     * Кэш от этого не рассыпается. Права у сотрудников одинаковы пачками, и
+     * набор «курсы + документы + справочники» покрывает почти всех: вариантов
+     * столько, сколько сочетаний разделов, а не сколько людей. Общим остаётся и
+     * кэш подсказки на стороне модели — внутри одной пачки префикс тот же.
      */
-    public function publicCatalogue(): string
+    public function publicCatalogue(CourseAccess $access): string
     {
+        $reader = $access->reader();
+        $courses = $reader->can(Permission::ViewCourses->value);
+        $kinds = MaterialKind::viewableBy($reader);
+
         return Cache::remember(
-            self::PUBLIC_CATALOGUE_KEY,
+            self::catalogueKey($courses, $kinds),
             now()->addMinutes((int) config('ai.catalogue_cache_minutes')),
-            function (): string {
-                $courses = $this->lines(
-                    $this->publishedCourses()->where('courses.visibility', CourseVisibility::Public->value),
-                );
+            function () use ($courses, $kinds): string {
+                $sections = [];
 
-                // Документы отдельным перечнем, а не вперемешку с курсами:
-                // модель должна понимать, что перед ней правило, а не учебный
-                // материал, — от этого зависит и тон ответа, и то, насколько
-                // буквально его следует пересказывать.
-                $documents = $this->lines(
-                    $this->publishedDocuments()->where('regulations.visibility', CourseVisibility::Public->value),
-                );
+                if ($courses) {
+                    $sections[] = "Курсы:\n".$this->lines(
+                        $this->publishedCourses()->where('courses.visibility', CourseVisibility::Public->value),
+                    );
+                }
 
-                return implode("\n", array_filter([
-                    $courses === '' ? '' : "Курсы:\n".$courses,
-                    $documents === '' ? '' : "Документы — правила, по которым работают:\n".$documents,
-                ]));
+                // Документы и справочники — своими перечнями, а не вперемешку с
+                // курсами и не вперемешку между собой: модель должна понимать,
+                // что перед ней — правило, справка или учебный материал. От
+                // этого зависит и тон ответа, и то, насколько буквально его
+                // следует пересказывать.
+                foreach ($kinds as $kind) {
+                    $lines = $this->lines(
+                        $this->publishedDocuments()
+                            ->where('regulations.kind', $kind->value)
+                            ->where('regulations.visibility', CourseVisibility::Public->value),
+                    );
+
+                    if ($lines !== '') {
+                        $sections[] = self::heading($kind)."\n".$lines;
+                    }
+                }
+
+                return implode("\n", array_filter($sections, static fn (string $section): bool => trim($section) !== ''));
             },
         );
+    }
+
+    /**
+     * Чем перечень раздела представляется модели.
+     *
+     * Не `plural()`: там название раздела для человека, который его открыл, а
+     * здесь — объяснение модели, что это за материал и как с ним обращаться.
+     */
+    private static function heading(MaterialKind $kind): string
+    {
+        return match ($kind) {
+            MaterialKind::Document => 'Документы — правила, по которым работают:',
+            MaterialKind::Handbook => 'Справочники — ответы на ситуацию:',
+        };
+    }
+
+    /**
+     * Ключ перечня — по набору открытых разделов.
+     *
+     * @param  list<MaterialKind>  $kinds
+     */
+    private static function catalogueKey(bool $courses, array $kinds): string
+    {
+        // Порядок разделов в ключе — всегда порядок перечисления: иначе один и
+        // тот же набор, собранный с разных концов, дал бы два разных ключа, и
+        // забытый кэш остался бы лежать под вторым именем.
+        $ordered = array_values(array_filter(
+            MaterialKind::cases(),
+            static fn (MaterialKind $kind): bool => in_array($kind, $kinds, strict: true),
+        ));
+
+        $sections = [...($courses ? ['courses'] : []), ...MaterialKind::valuesOf($ordered)];
+
+        return self::PUBLIC_CATALOGUE_KEY.'.'.($sections === [] ? 'none' : implode('-', $sections));
     }
 
     /**
@@ -752,6 +899,13 @@ final readonly class KnowledgeBase
      */
     public function privateCatalogue(CourseAccess $access): string
     {
+        // Раздел курсов может быть закрыт вовсе — тогда и приватные его курсы
+        // называть незачем: право на курсы и допуск в отдельный курс
+        // складываются, а не заменяют друг друга.
+        if ($access->reader()->cannot(Permission::ViewCourses->value)) {
+            return '';
+        }
+
         $ids = $access->privateCourseIds();
 
         if ($ids === []) {
@@ -766,14 +920,45 @@ final readonly class KnowledgeBase
     }
 
     /**
-     * Забывает перечень открытых курсов.
+     * Забывает перечень открытых материалов.
      *
      * Зовётся, когда курс закрывают или открывают: пока перечень лежит в кэше,
      * модели показывают название курса, который уже стал приватным.
+     *
+     * Перечней теперь столько, сколько сочетаний открытых разделов, и забыть
+     * надо все: человек, которому приватный курс был виден, и человек, которому
+     * он был закрыт, читают разные перечни, а устаревает от одной правки и тот,
+     * и другой.
      */
     public static function forgetPublicCatalogue(): void
     {
-        Cache::forget(self::PUBLIC_CATALOGUE_KEY);
+        foreach ([true, false] as $courses) {
+            foreach (self::sectionCombinations() as $kinds) {
+                Cache::forget(self::catalogueKey($courses, $kinds));
+            }
+        }
+    }
+
+    /**
+     * Все наборы разделов, какие бывают, — включая пустой.
+     *
+     * Разделов два, и перечислить их сочетания дешевле, чем вести список ключей
+     * кэша: забытый ключ — это перечень, переживший правку, и заметить его
+     * нечем.
+     *
+     * @return list<list<MaterialKind>>
+     */
+    private static function sectionCombinations(): array
+    {
+        $combinations = [[]];
+
+        foreach (MaterialKind::cases() as $kind) {
+            foreach ($combinations as $combination) {
+                $combinations[] = [...$combination, $kind];
+            }
+        }
+
+        return $combinations;
     }
 
     private function publishedCourses(): Builder

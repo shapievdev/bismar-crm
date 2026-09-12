@@ -78,10 +78,16 @@ export function useNavigation() {
       badge: pendingNews.value,
     },
     {
-      to: '/lms',
+      /*
+       * Разделов в базе знаний три, и права у них свои (2026-09-11). Модуль
+       * виден тому, кому открыт хоть один, а открывается первым из открытых:
+       * продавец со справочниками попадал бы иначе в каталог курсов, которого
+       * ему не видно.
+       */
+      to: can('courses.view') ? '/lms' : can('documents.view') ? '/lms/documents' : '/lms/handbooks',
       label: 'База знаний',
       icon: 'library',
-      visible: can('courses.view'),
+      visible: can('courses.view') || can('documents.view') || can('handbooks.view'),
       matches: (path: string) => path.startsWith('/lms'),
     },
     {

@@ -6,14 +6,15 @@ namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\SyncCourseAccess;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Lms\UpdateCourseAccessRequest;
+use App\Http\Requests\Lms\UpdateMaterialAccessRequest;
+use App\Http\Resources\GroupResource;
 use App\Http\Resources\Lms\CoursePersonResource;
 use App\Models\Course;
+use App\Models\Group;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -22,32 +23,36 @@ use Illuminate\Support\Facades\Gate;
  * Отдельно от самого курса: править материал и решать, кто его увидит, — разные
  * решения с разными правами. Первое требует права на курсы, второе — авторства,
  * см. CoursePolicy::manageAccess.
+ *
+ * Пускают двумя способами сразу — поимённо и группами (решение пользователя
+ * 2026-09-12), — поэтому и список, и подсказка поиска отвечают двумя частями:
+ * `people` и `groups`. Порознь их не спрашивают: на экране это одна панель.
  */
 final class CourseAccessController extends Controller
 {
-    /** Сколько человек показывает подсказка поиска. */
+    /** Сколько строк показывает подсказка поиска — людей и групп поровну. */
     private const CANDIDATES = 20;
 
-    public function show(Course $course): AnonymousResourceCollection
+    public function show(Course $course): JsonResponse
     {
         Gate::authorize('manageAccess', $course);
 
-        return CoursePersonResource::collection($this->membersOf($course));
+        return $this->listing($course);
     }
 
     public function update(
-        UpdateCourseAccessRequest $request,
+        UpdateMaterialAccessRequest $request,
         Course $course,
         SyncCourseAccess $syncAccess,
-    ): AnonymousResourceCollection {
+    ): JsonResponse {
         Gate::authorize('manageAccess', $course);
 
         /** @var User $actor */
         $actor = $request->user();
 
-        $syncAccess->handle($course, $request->members(), $actor);
+        $syncAccess->handle($course, $request->members(), $request->groups(), $actor);
 
-        return CoursePersonResource::collection($this->membersOf($course->refresh()));
+        return $this->listing($course->refresh());
     }
 
     /**
@@ -55,8 +60,12 @@ final class CourseAccessController extends Controller
      *
      * Поиском, а не списком целиком: сотрудников в компании тысячи, а нужен из
      * них один. Автор и уже добавленные не предлагаются — доступ у них есть.
+     *
+     * Группы ищутся тем же словом и тем же запросом: человек набирает «продаж»
+     * и видит разом отдел продаж группой и Продажникова поимённо, не выбирая
+     * заранее, кого он ищет.
      */
-    public function candidates(Request $request, Course $course): AnonymousResourceCollection
+    public function candidates(Request $request, Course $course): JsonResponse
     {
         Gate::authorize('manageAccess', $course);
 
@@ -74,20 +83,43 @@ final class CourseAccessController extends Controller
             ->limit(self::CANDIDATES)
             ->get();
 
-        return CoursePersonResource::collection($people);
+        $groups = Group::query()
+            ->whereNotIn('id', $course->memberGroups()->select('groups.id'))
+            ->matching($search)
+            ->withCount('people')
+            ->ordered()
+            ->limit(self::CANDIDATES)
+            ->get();
+
+        return response()->json([
+            'data' => [
+                'people' => CoursePersonResource::collection($people)->resolve(),
+                'groups' => GroupResource::collection($groups)->resolve(),
+            ],
+        ]);
     }
 
     /**
-     * По фамилии, как читают список людей, — и с учётом ICU, иначе «Ёлкин»
-     * оказался бы после «Яковлева»: базы собраны с C-сортировкой.
+     * Допущенные — людьми и группами.
      *
-     * @return Collection<int, User>
+     * Люди по фамилии, как читают список людей, группы по названию, и то и
+     * другое с учётом ICU: базы собраны с C-сортировкой, где «Ёлкин» оказался
+     * бы после «Яковлева».
      */
-    private function membersOf(Course $course): Collection
+    private function listing(Course $course): JsonResponse
     {
-        return $course->members()
+        $people = $course->members()
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
             ->get();
+
+        $groups = $course->memberGroups()->withCount('people')->ordered()->get();
+
+        return response()->json([
+            'data' => [
+                'people' => CoursePersonResource::collection($people)->resolve(),
+                'groups' => GroupResource::collection($groups)->resolve(),
+            ],
+        ]);
     }
 }

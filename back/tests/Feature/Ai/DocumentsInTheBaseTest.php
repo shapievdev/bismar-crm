@@ -219,6 +219,9 @@ final class DocumentsInTheBaseTest extends TestCase
             Permission::ViewCourses,
             Permission::CreateCourses,
             Permission::UpdateCourses,
+            Permission::ViewDocuments,
+            Permission::CreateDocuments,
+            Permission::UpdateDocuments,
         );
     }
 }

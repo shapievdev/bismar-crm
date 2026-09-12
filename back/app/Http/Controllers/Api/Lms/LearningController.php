@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\Lms;
 use App\Actions\Lms\CompleteLesson;
 use App\Actions\Lms\EnrollLearner;
 use App\Actions\Lms\GradeQuizAttempt;
-use App\Enums\Permission;
 use App\Exceptions\ConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SubmitQuizRequest;
@@ -22,7 +21,6 @@ use App\Models\User;
 use App\Support\Lms\LearningPlan;
 use App\Support\Lms\ProgressCalculator;
 use App\Support\Lms\QuizReview;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -141,9 +139,10 @@ final class LearningController extends Controller
         $reader = $request->user();
 
         // Документы и справочники, приложенные к уроку, — под статьёй.
-        // Отбираются под того, кто спрашивает: чужое закрытое правило и
-        // черновик из списка выпадают, иначе ссылка вела бы читателя в отказ, а
-        // название закрытого правила выдавало бы его не хуже страницы.
+        // Отбираются под того, кто спрашивает: чужое закрытое правило, черновик
+        // и целый раздел, который этому человеку не открыт, из списка выпадают
+        // — иначе ссылка вела бы читателя в отказ, а название закрытого правила
+        // выдавало бы его не хуже страницы.
         //
         // Едут только названия: статью каждого материала экран забирает
         // отдельным запросом, когда его раскрывают. Двадцать приложенных
@@ -151,11 +150,7 @@ final class LearningController extends Controller
         // будет один.
         $lesson->load(['materials' => fn (BelongsToMany $query) => $query
             ->with('category')
-            ->visibleTo($reader)
-            ->when(
-                $reader->cannot(Permission::UpdateCourses->value),
-                fn (Builder $query) => $query->published(),
-            )]);
+            ->readableBy($reader)]);
 
         // A knowledge base has no sign-up step: opening a lesson is enough to
         // start tracking progress, so the enrolment is created on the spot.

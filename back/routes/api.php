@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\LessonMaterialController;
 use App\Http\Controllers\Api\Lms\LessonTranscriptController;
+use App\Http\Controllers\Api\Lms\ProgressController;
 use App\Http\Controllers\Api\Lms\QuizController;
 use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
 use App\Http\Controllers\Api\Lms\RegulationAttachmentController;
@@ -44,6 +45,7 @@ use App\Http\Controllers\Api\Lms\RegulationLinkController;
 use App\Http\Controllers\Api\Lms\RegulationPeopleController;
 use App\Http\Controllers\Api\Lms\RegulationQuestionController;
 use App\Http\Controllers\Api\Lms\RegulationQuizController;
+use App\Http\Controllers\Api\Lms\RegulationVersionController;
 use App\Http\Controllers\Api\Lms\TrashController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
@@ -57,6 +59,7 @@ use App\Http\Controllers\Api\Structure\DepartmentController;
 use App\Http\Controllers\Api\Structure\DepartmentMemberController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Middleware\EnsureAdministrator;
+use App\Http\Middleware\EnsureAnyPermission;
 use App\Http\Middleware\EnsureCourseAccess;
 use App\Http\Middleware\EnsureEmployed;
 use App\Http\Middleware\EnsureLearningPlanOrder;
@@ -99,22 +102,37 @@ Route::middleware([
     $update = 'can:'.Permission::UpdateCourses->value;
     $delete = 'can:'.Permission::DeleteCourses->value;
 
-    // The consultant quotes published material only, so reading the base and
-    // asking about it answer to the same right.
-    Route::post('ask', [ConsultantController::class, 'ask'])->middleware($view)->name('ask');
+    /*
+     * Консультант отвечает по всей базе знаний, а разделов в ней три, и права
+     * у них свои. Поэтому спрашивать вправе тот, кому открыт хоть один раздел:
+     * потребовать здесь право курсов значило бы закрыть консультанта от
+     * продавца, которому открыты одни справочники, — хотя отвечать ему было бы
+     * чем.
+     *
+     * Что попадёт в ответ, решает не это: корпус отбирается по разделам,
+     * открытым спрашивающему, и ссылка не может привести туда, куда его не
+     * пустят (см. App\Support\Ai\KnowledgeBase).
+     */
+    $asks = EnsureAnyPermission::of(
+        Permission::ViewCourses,
+        Permission::ViewDocuments,
+        Permission::ViewHandbooks,
+    );
+
+    Route::post('ask', [ConsultantController::class, 'ask'])->middleware($asks)->name('ask');
 
     // Своя переписка, и только своя: отбор идёт по спрашивавшему, а не по
     // тому, что попросил клиент.
-    Route::get('ask/history', [ConsultantController::class, 'history'])->middleware($view)->name('ask.history');
-    Route::delete('ask/history', [ConsultantController::class, 'forget'])->middleware($view)->name('ask.forget');
+    Route::get('ask/history', [ConsultantController::class, 'history'])->middleware($asks)->name('ask.history');
+    Route::delete('ask/history', [ConsultantController::class, 'forget'])->middleware($asks)->name('ask.forget');
 
     // Что сотрудник думает о полученном ответе и просьба дописать его.
     // Ставится только на свой вопрос — проверяет контроллер.
     Route::post('ask/{question}/feedback', [ConsultantController::class, 'feedback'])
-        ->middleware($view)
+        ->middleware($asks)
         ->name('ask.feedback');
     Route::post('ask/{question}/request', [ConsultantController::class, 'requestFollowUp'])
-        ->middleware($view)
+        ->middleware($asks)
         ->name('ask.request');
 
     Route::get('statuses', [CourseController::class, 'statuses'])->middleware($view)->name('statuses');
@@ -122,22 +140,30 @@ Route::middleware([
 
     /*
      * Документы — правила, по которым работают, — и справочники: ответы на
-     * ситуацию, за которыми заходят посреди разговора с клиентом. Права те же,
-     * что у курсов (решение пользователя 2026-08-27): кто ведёт материалы,
-     * ведёт и правила.
+     * ситуацию, за которыми заходят посреди разговора с клиентом.
+     *
+     * У каждого раздела свои четыре права (решение пользователя 2026-09-11;
+     * прежде оба отвечали правам на курсы). Берутся они не отсюда, а у самого
+     * вида — см. App\Enums\MaterialKind: раздел ходит по приложению видом, и
+     * третий вид должен добавляться случаем перечисления, а не обходом
+     * маршрутов.
      *
      * Оба вида ведут одни и те же контроллеры: устроены они одинаково до
-     * последней мелочи, и разница — только в разделе, в котором материал живёт
-     * (см. App\Enums\MaterialKind). Вид едет умолчанием маршрута; по нему же
-     * связывается `{regulation}` — см. AppServiceProvider, — так что адрес
-     * документа в разделе справочников отвечает «не найдено», а не открывает
-     * чужой раздел.
+     * последней мелочи, и разница — только в разделе, в котором материал живёт.
+     * Вид едет умолчанием маршрута; по нему же связывается `{regulation}` — см.
+     * AppServiceProvider, — так что адрес документа в разделе справочников
+     * отвечает «не найдено», а не открывает чужой раздел.
      *
      * Закрытость проверяет RegulationPolicy, а не EnsureCourseAccess: у
      * материала нет частей, за которые пришлось бы отвечать на входе, — есть
      * он сам, и его политика спрашивается прямо в контроллере.
      */
-    $materials = function (string $prefix, MaterialKind $kind) use ($view, $create, $update, $delete): void {
+    $materials = function (string $prefix, MaterialKind $kind): void {
+        $view = 'can:'.$kind->viewPermission()->value;
+        $create = 'can:'.$kind->createPermission()->value;
+        $update = 'can:'.$kind->updatePermission()->value;
+        $delete = 'can:'.$kind->deletePermission()->value;
+
         Route::prefix($prefix)->as($prefix.'.')->middleware(EnsureMaterialKind::class.':'.$kind->value)->group(function () use ($view, $create, $update, $delete): void {
             // Раньше `{regulation}`, иначе «categories» уедет в подстановку адреса.
             Route::get('categories', [RegulationCategoryController::class, 'index'])->middleware($view)->name('categories.index');
@@ -173,6 +199,85 @@ Route::middleware([
             });
 
             Route::middleware($update)->group(function (): void {
+                Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
+                Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
+            });
+
+            /*
+             * Версии — то же правило, написанное для своих людей (решение
+             * пользователя 2026-09-12).
+             *
+             * Общей версии здесь нет ни одним адресом: она — сам документ, и
+             * читается теми же маршрутами, что и до всякого разделения. Права
+             * у версии не свои: ведёт её тот, кто правит материал, читает —
+             * тот, кому она открыта.
+             */
+            Route::prefix('{regulation}/versions')->as('versions.')->group(function () use ($view, $update): void {
+                // Раньше подстановки `{version}`, иначе «order» уедет в неё и
+                // ответит «не найдено» — тот же случай, что и с «categories».
+                Route::put('order', [RegulationVersionController::class, 'reorder'])
+                    ->middleware($update)
+                    ->name('order');
+
+                Route::get('/', [RegulationVersionController::class, 'index'])
+                    ->middleware($update)
+                    ->name('index');
+                Route::post('/', [RegulationVersionController::class, 'store'])
+                    ->middleware($update)
+                    ->name('store');
+
+                // Одну версию читает всякий, кому она открыта: переключатель
+                // на странице документа ходит сюда же.
+                Route::get('{version}', [RegulationVersionController::class, 'show'])
+                    ->middleware($view)
+                    ->name('show');
+
+                Route::put('{version}', [RegulationVersionController::class, 'update'])
+                    ->middleware($update)
+                    ->name('update');
+                Route::delete('{version}', [RegulationVersionController::class, 'destroy'])
+                    ->middleware($update)
+                    ->name('destroy');
+
+                // Проверка при версии: своя у каждой, а сдача по-прежнему
+                // означает ознакомление с документом.
+                Route::post('{version}/quiz/submit', [RegulationQuizController::class, 'submitForVersion'])
+                    ->middleware($view)
+                    ->name('quiz.submit');
+
+                Route::middleware($update)->group(function (): void {
+                    Route::put('{version}/quiz', [RegulationQuizController::class, 'saveForVersion'])
+                        ->name('quiz.save');
+                    Route::delete('{version}/quiz', [RegulationQuizController::class, 'destroyForVersion'])
+                        ->name('quiz.destroy');
+
+                    // Файлы версии — свой бланк расчёта у каждой.
+                    Route::post('{version}/attachments', [RegulationAttachmentController::class, 'storeForVersion'])
+                        ->name('attachments.store');
+                    Route::post('{version}/attachments/drive', [RegulationAttachmentController::class, 'storeFromDriveForVersion'])
+                        ->name('attachments.drive');
+                });
+
+                // Разбор проверки при версии — там же, где и разбор проверки
+                // документа: администратору.
+                Route::middleware(EnsureAdministrator::class)->group(function (): void {
+                    Route::get('{version}/quiz/statistics', [RegulationQuizController::class, 'statisticsForVersion'])
+                        ->name('quiz.statistics');
+                    Route::get('{version}/quiz/attempts/{attempt}', [RegulationQuizController::class, 'attemptForVersion'])
+                        ->name('quiz.attempt');
+                });
+            });
+
+            /*
+             * Как документ проходят — то же, что у курса, и по той же причине
+             * под тем же средством: администратору и суперадминистратору
+             * (решение пользователя 2026-09-12). Разбор проверки переехал сюда
+             * из редактора вместе с разбором теста урока.
+             */
+            Route::middleware(EnsureAdministrator::class)->group(function (): void {
+                Route::get('{regulation}/progress', [ProgressController::class, 'material'])
+                    ->name('progress');
+
                 Route::get('{regulation}/quiz/statistics', [RegulationQuizController::class, 'statistics'])
                     ->name('quiz.statistics');
 
@@ -180,8 +285,6 @@ Route::middleware([
                 // что отправил конкретный человек.
                 Route::get('{regulation}/quiz/attempts/{attempt}', [RegulationQuizController::class, 'attempt'])
                     ->name('quiz.attempt');
-                Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
-                Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
             });
             Route::get('{regulation}/acknowledgements', [RegulationAcknowledgementController::class, 'index'])
                 ->middleware($update)
@@ -377,16 +480,6 @@ Route::middleware([
         Route::put('lessons/{lesson}/quiz', [QuizController::class, 'save'])->name('quiz.save');
         Route::delete('lessons/{lesson}/quiz', [QuizController::class, 'destroy'])->name('quiz.destroy');
 
-        // Разбор теста для автора: где урок не научил. Право то же, что на
-        // правку урока, — чинить дыру всё равно правкой материала.
-        Route::get('lessons/{lesson}/quiz/statistics', [QuizController::class, 'statistics'])->name('quiz.statistics');
-
-        // Разбор чужой попытки: не только «какой вопрос заваливают», но и что
-        // отправил конкретный человек. Право спрашивается у урока, потому адрес
-        // при нём, а не при попытке.
-        Route::get('lessons/{lesson}/quiz/attempts/{attempt}', [QuizController::class, 'attempt'])
-            ->name('quiz.attempt');
-
         // Таблица «вопрос — ответ — источник». Право то же, что на правку
         // урока: это часть материала, а не отдельная сущность.
         Route::put('lessons/{lesson}/answers', [LessonAnswerController::class, 'save'])->name('answers.save');
@@ -413,28 +506,69 @@ Route::middleware([
     Route::middleware($delete)->group(function (): void {
         Route::delete('modules/{module}', [CourseStructureController::class, 'destroyModule'])->name('modules.destroy');
         Route::delete('lessons/{lesson}', [CourseStructureController::class, 'destroyLesson'])->name('lessons.destroy');
+    });
 
-        /*
-         * Корзина. Право то же, что на удаление: кто вправе выбросить, тот
-         * вправе и достать обратно.
-         *
-         * Стереть насовсем — только администратору: это единственное действие
-         * во всей базе знаний, после которого возвращать нечего.
-         */
-        Route::prefix('trash')->as('trash.')->group(function (): void {
-            Route::get('/', [TrashController::class, 'index'])->name('index');
+    /*
+     * Как материал проходят — поимённо.
+     *
+     * Смотрит администратор и суперадминистратор, и только они (решение
+     * пользователя 2026-09-12). Правом это не выразить: `can:` спрашивает Gate,
+     * а Gate::before пропускает администраторов и не умеет сказать «и никого
+     * больше», — отсюда EnsureAdministrator вместо права на правку курса.
+     *
+     * Сюда же переехал разбор теста: прежде он отвечал праву на правку урока и
+     * стоял в редакторе, но это такая же статистика прохождения, и место у неё
+     * одно — страница материала, а не форма его правки.
+     */
+    Route::middleware(EnsureAdministrator::class)->group(function (): void {
+        Route::get('courses/{course}/progress', [ProgressController::class, 'course'])
+            ->name('courses.progress');
 
-            Route::post('courses/{course}/restore', [TrashController::class, 'restoreCourse'])
-                ->name('courses.restore');
-            Route::post('documents/{document}/restore', [TrashController::class, 'restoreDocument'])
-                ->name('documents.restore');
+        // Один человек по урокам курса — то, что раскрывается у строки отчёта.
+        Route::get('courses/{course}/progress/{learner}', [ProgressController::class, 'learner'])
+            ->name('courses.progress.learner');
 
-            Route::middleware(EnsureAdministrator::class)->group(function (): void {
-                Route::delete('courses/{course}', [TrashController::class, 'purgeCourse'])
-                    ->name('courses.purge');
-                Route::delete('documents/{document}', [TrashController::class, 'purgeDocument'])
-                    ->name('documents.purge');
-            });
+        Route::get('lessons/{lesson}/progress', [ProgressController::class, 'lesson'])
+            ->name('lessons.progress');
+
+        // Разбор теста: какой вопрос заваливают и какой неверный вариант
+        // выбирают — единственное место, где урок сам сообщает о своей дыре.
+        Route::get('lessons/{lesson}/quiz/statistics', [QuizController::class, 'statistics'])
+            ->name('quiz.statistics');
+
+        // Разбор чужой попытки: не только «какой вопрос заваливают», но и что
+        // отправил конкретный человек. Адрес при уроке, а не при попытке:
+        // попытка сама по себе не знает, чей материал она проверяет.
+        Route::get('lessons/{lesson}/quiz/attempts/{attempt}', [QuizController::class, 'attempt'])
+            ->name('quiz.attempt');
+    });
+
+    /*
+     * Корзина. Право то же, что на удаление: кто вправе выбросить, тот вправе и
+     * достать обратно, — но разделов три, и право у каждого своё. На входе
+     * поэтому спрашивается любое из трёх, а какую строку этот человек вправе
+     * тронуть, решает контроллер: удалявший справочники не возвращает курсы.
+     *
+     * Стереть насовсем — только администратору: это единственное действие во
+     * всей базе знаний, после которого возвращать нечего.
+     */
+    Route::prefix('trash')->as('trash.')->middleware(EnsureAnyPermission::of(
+        Permission::DeleteCourses,
+        Permission::DeleteDocuments,
+        Permission::DeleteHandbooks,
+    ))->group(function (): void {
+        Route::get('/', [TrashController::class, 'index'])->name('index');
+
+        Route::post('courses/{course}/restore', [TrashController::class, 'restoreCourse'])
+            ->name('courses.restore');
+        Route::post('documents/{document}/restore', [TrashController::class, 'restoreDocument'])
+            ->name('documents.restore');
+
+        Route::middleware(EnsureAdministrator::class)->group(function (): void {
+            Route::delete('courses/{course}', [TrashController::class, 'purgeCourse'])
+                ->name('courses.purge');
+            Route::delete('documents/{document}', [TrashController::class, 'purgeDocument'])
+                ->name('documents.purge');
         });
     });
 });

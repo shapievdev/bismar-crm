@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth', permission: 'courses.view' })
+definePageMeta({ middleware: 'auth', permission: 'documents.view' })
 </script>
 
 <template>

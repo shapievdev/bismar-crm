@@ -6,6 +6,7 @@ import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachm
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
 const route = useRoute()
+const router = useRouter()
 const {
   fetchLesson,
   updateLesson,
@@ -17,8 +18,6 @@ const {
   attachDriveFile,
   saveAnswers,
   suggestAnswers,
-  fetchQuizStatistics,
-  fetchLessonAttempt,
   fetchLessonMaterials,
   updateLessonMaterials,
   searchLessonMaterialCandidates,
@@ -49,7 +48,7 @@ const form = ref<LessonPayload>({
 // Addresses are resolved on the way in and dropped again on the way out, so
 // the record holds attachment ids and never a signature that expires. Написанное
 // при этом переживает перечитывание урока — см. useArticleDocument.
-const { document, isDirty: hasArticleEdits, adoptSaved } = useArticleDocument(lesson, value => ({
+const { document, isDirty: hasArticleEdits } = useArticleDocument(lesson, value => ({
   content: value.content_json ?? null,
   attachments: value.attachments ?? [],
 }))
@@ -95,7 +94,6 @@ async function uploadInlineVideo(file: File, options: UploadOptions): Promise<Up
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
-const savedAt = ref<string | null>(null)
 
 /*
  * Документы и справочники, приложенные к уроку. Список сохраняется сам, без
@@ -159,13 +157,11 @@ const answerErrors = ref<ValidationErrors>({})
 const isSavingAnswers = ref(false)
 const isSuggesting = ref(false)
 const answerTable = useTemplateRef<{ showSuggestions: (drafts: SuggestedAnswer[]) => void }>('answerTable')
-const transcripts = useTemplateRef<{ reload: () => Promise<void> }>('transcripts')
 
 async function save() {
   isSaving.value = true
   errors.value = {}
   generalError.value = null
-  savedAt.value = null
 
   const sent = withoutResolvedMedia(document.value)
 
@@ -179,18 +175,11 @@ async function save() {
       video_url: form.value.video_url || null,
     })
 
-    await refresh()
-
-    // Сохранённое возвращается с именами блоков, проставленными сервером, — на
-    // них и ссылаются строки таблицы ответов ниже.
-    adoptSaved(sent)
-
-    // Правка статьи пересобирает выведенные расшифровки на сервере: у нового
-    // абзаца она появляется, у исчезнувшего пропадает. Без этого список
-    // показывал бы вчерашнее состояние.
-    await transcripts.value?.reload()
-
-    savedAt.value = new Date().toLocaleTimeString('ru-RU')
+    // Сохранили — значит правка закончена, и дальше урок смотрят глазами
+    // читателя. Перечитывать страницу правки, подхватывать имена блоков и
+    // пересобирать список расшифровок незачем: всё это держало в порядке экран,
+    // который мы сейчас покидаем.
+    await router.push(`/lms/${courseSlug.value}/lessons/${lessonId.value}`)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -371,7 +360,6 @@ async function removeQuiz() {
               {{ isSaving ? 'Сохраняем…' : 'Сохранить урок' }}
             </button>
             <span v-if="isDirty" class="muted">Есть несохранённые правки</span>
-            <span v-else-if="savedAt" class="muted">Сохранено в {{ savedAt }}</span>
           </div>
         </form>
 
@@ -413,7 +401,6 @@ async function removeQuiz() {
         <!-- После вложений и видео: расшифровка привязана к ним, и до появления
              файлов расшифровывать нечего. -->
         <LessonTranscripts
-          ref="transcripts"
           :lesson-id="lessonId"
           :lesson="lesson"
           :attachments="lesson.attachments ?? []"
@@ -453,16 +440,11 @@ async function removeQuiz() {
       @remove="removeQuiz"
     />
 
-    <!-- Разбор — только у сохранённого теста: пока его нет, считать нечего.
-         Ключ здесь и так открыт: автор видит верные ответы в самом тесте. -->
-    <QuizStatisticsPanel
-      v-if="lesson.quiz"
-      :key="lesson.quiz.id"
-      :load="async () => (await fetchQuizStatistics(lessonId)).data"
-      :load-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
-    />
+    <!-- Разбор теста живёт не здесь, а на странице урока, рядом с остальной
+         статистикой прохождения (решение пользователя 2026-09-12): редактор
+         отвечает на вопрос «что написано», а не «как это проходят». -->
 
-    <section v-else class="add-quiz">
+    <section v-if="!lesson.quiz" class="add-quiz">
       <button type="button" class="button-plain" @click="showQuizBuilder = true">
         Добавить тест к уроку
       </button>

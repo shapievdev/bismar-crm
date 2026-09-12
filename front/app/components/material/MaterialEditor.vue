@@ -4,6 +4,7 @@ import type {
   CoursePerson,
   CourseStatus,
   CourseVisibility,
+  MaterialAccess,
   MaterialSection,
   QuizPayload,
   RegulationLink,
@@ -44,8 +45,6 @@ const {
   searchQuestionCandidates,
   saveQuiz,
   deleteQuiz,
-  fetchQuizStatistics,
-  fetchQuizAttempt,
 } = useMaterialsApi(props.section)
 
 const router = useRouter()
@@ -80,7 +79,7 @@ const form = reactive({
 // Адреса вложенных картинок и видео живут час, а правило — годы: документ
 // хранит номера, и адрес подставляется на пути к редактору. Написанное при
 // этом переживает перечитывание записи — см. useArticleDocument.
-const { document, isDirty: hasArticleEdits, adoptSaved } = useArticleDocument(regulation, value => ({
+const { document, isDirty: hasArticleEdits } = useArticleDocument(regulation, value => ({
   content: value.content_json ?? null,
   attachments: value.attachments ?? [],
 }))
@@ -128,13 +127,11 @@ const isDirty = computed(() => {
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
-const savedAt = ref<string | null>(null)
 
 async function save() {
   isSaving.value = true
   errors.value = {}
   generalError.value = null
-  savedAt.value = null
 
   const sent = withoutResolvedMedia(document.value)
 
@@ -149,11 +146,13 @@ async function save() {
       keywords: form.keywords,
     })
 
-    savedAt.value = new Date().toLocaleTimeString('ru-RU')
-    await refresh()
-
-    // Сохранённое возвращается с именами блоков, проставленными сервером.
-    adoptSaved(sent)
+    // Сохранили — значит правка закончена, и дальше материал смотрят глазами
+    // читателя. Перечитывать страницу правки и подхватывать имена блоков
+    // незачем: это держало в порядке экран, который мы сейчас покидаем.
+    //
+    // Адрес не меняется от переименования: `slug` у материала ставится один раз
+    // при заведении — см. SaveRegulation.
+    await router.push(`/lms/${copy.section}/${slug.value}`)
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -243,7 +242,11 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
 
 /* ---------- Люди ---------- */
 
-const members = ref<CoursePerson[]>([])
+/**
+ * Допуск — это люди и группы разом (2026-09-12); ответственные — только люди:
+ * «к кому идти с вопросом» группа не отвечает.
+ */
+const access = ref<MaterialAccess>({ people: [], groups: [] })
 const experts = ref<CoursePerson[]>([])
 const isLoadingPeople = ref(false)
 const isSavingPeople = ref(false)
@@ -258,7 +261,7 @@ async function loadPeople() {
     // Список допущенных ведёт автор: другому редактору сервер откажет, и это
     // не ошибка экрана — панель просто не показывается.
     if (regulation.value?.can_manage_access) {
-      members.value = (await fetchMembers(slug.value)).data
+      access.value = (await fetchMembers(slug.value)).data
     }
   }
   finally {
@@ -268,12 +271,20 @@ async function loadPeople() {
 
 onMounted(() => void loadPeople())
 
-async function saveMembers(next: CoursePerson[]) {
+/**
+ * Оба списка уходят вместе: сервер задаёт доступ целиком, и прислать один без
+ * другого значило бы стереть второй.
+ */
+async function saveAccess(next: MaterialAccess) {
   isSavingPeople.value = true
   peopleError.value = null
 
   try {
-    members.value = (await updateMembers(slug.value, next.map(person => person.id))).data
+    access.value = (await updateMembers(
+      slug.value,
+      next.people.map(person => person.id),
+      next.groups.map(group => group.id),
+    )).data
     await refresh()
   }
   catch {
@@ -282,6 +293,23 @@ async function saveMembers(next: CoursePerson[]) {
   finally {
     isSavingPeople.value = false
   }
+}
+
+/**
+ * Подсказка поиска: люди и группы приходят одним ответом, а панель спрашивает
+ * их порознь. Ответ на последнее слово держим при себе, иначе на каждое
+ * нажатие клавиши уходило бы два одинаковых запроса.
+ */
+let lastTerm: string | null = null
+let lastFound: Promise<MaterialAccess> | null = null
+
+function memberCandidates(term: string): Promise<MaterialAccess> {
+  if (term !== lastTerm || lastFound === null) {
+    lastTerm = term
+    lastFound = searchMemberCandidates(slug.value, term).then(response => response.data)
+  }
+
+  return lastFound
 }
 
 async function saveExperts(next: CoursePerson[]) {
@@ -524,24 +552,36 @@ function moveQuestion(document: RegulationLink, delta: number) {
         </div>
       </section>
 
-      <!-- Допущенные: право авторское, поэтому панель есть не у каждого редактора. -->
+      <!--
+        Допущенные: право авторское, поэтому панель есть не у каждого
+        редактора. И только у закрытого материала (решение пользователя
+        2026-09-12): у открытого список ни на что не влияет, а панель,
+        объясняющая, что она ни на что не влияет, — лишняя строка на экране.
+
+        Смотрит на форму, а не на сохранённое: переключив доступ на «автору и
+        допущенным», список собирают тут же, не сохраняя материал наперёд.
+        Обратное переключение список не стирает — он ждёт в базе, когда
+        материал закроют снова.
+      -->
       <CoursePeoplePanel
-        v-if="regulation.can_manage_access"
+        v-if="regulation.can_manage_access && form.visibility === 'private'"
         title="Кто допущен"
-        :note="form.visibility === 'private'
-        ? null
-        : 'Материал открыт всем — список ни на что не влияет, пока он не закрыт.'"
-        :people="members"
+        :people="access.people"
+        :groups="access.groups"
         :is-loading="isLoadingPeople"
         :is-saving="isSavingPeople"
         :fixed-name="regulation.author?.name ?? null"
         fixed-badge="Автор"
         empty-note="Кроме автора — никого."
-        add-label="Добавить сотрудника"
+        add-label="Добавить сотрудника или группу"
+        search-placeholder="Фамилия, почта или название группы"
         not-found-note="Никого не нашли."
-        :search="term => searchMemberCandidates(slug, term).then(response => response.data)"
-        @add="person => saveMembers([...members, person])"
-        @remove="person => saveMembers(members.filter(one => one.id !== person.id))"
+        :search="async (term: string) => (await memberCandidates(term)).people"
+        :search-groups="async (term: string) => (await memberCandidates(term)).groups"
+        @add="person => saveAccess({ ...access, people: [...access.people, person] })"
+        @remove="person => saveAccess({ ...access, people: access.people.filter(one => one.id !== person.id) })"
+        @add-group="group => saveAccess({ ...access, groups: [...access.groups, group] })"
+        @remove-group="group => saveAccess({ ...access, groups: access.groups.filter(one => one.id !== group.id) })"
       />
 
       <CoursePeoplePanel
@@ -557,6 +597,14 @@ function moveQuestion(document: RegulationLink, delta: number) {
         @add="person => saveExperts([...experts, person])"
         @remove="person => saveExperts(experts.filter(one => one.id !== person.id))"
       />
+
+      <!--
+        Версии — то же правило, написанное для своих людей: у каждой свой
+        текст, свои файлы и своя проверка. Правят их на своём экране, здесь же
+        заводят и расставляют по порядку — им решается спор, когда человек
+        попал в две версии сразу.
+      -->
+      <MaterialVersionsPanel :section="copy.section" :slug="slug" />
 
       <!-- Что читать рядом. Список сохраняется сразу — как и списки людей. -->
       <RelatedDocumentsPanel
@@ -628,15 +676,9 @@ function moveQuestion(document: RegulationLink, delta: number) {
       @remove="dropQuiz"
     />
 
-    <!-- Разбор — только у сохранённой проверки: пока её нет, считать нечего.
-         Ключ здесь и так открыт: автор видит верные ответы в самой проверке. -->
-    <QuizStatisticsPanel
-      v-if="regulation.quiz"
-      :key="regulation.quiz.id"
-      :load="async () => (await fetchQuizStatistics(slug)).data"
-      :load-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
-    />
-
+    <!-- Разбор проверки живёт не здесь, а на странице материала, рядом с
+         остальной статистикой прохождения (решение пользователя 2026-09-12):
+         редактор отвечает на вопрос «что написано», а не «как это проходят». -->
 
     <div class="actions">
       <button type="button" class="button-primary" :disabled="isSaving" @click="save">
@@ -645,7 +687,6 @@ function moveQuestion(document: RegulationLink, delta: number) {
       <!-- Кнопка одна на всю страницу, а списки людей и соседей сохраняются
            сами: без этой строчки автор не отличает сохранённое от набранного. -->
       <span v-if="isDirty" class="faint">Есть несохранённые правки</span>
-      <span v-else-if="savedAt" class="faint">Сохранено в {{ savedAt }}</span>
       <button type="button" class="button-ghost actions__remove" @click="remove">
         {{ copy.removeLabel }}
       </button>

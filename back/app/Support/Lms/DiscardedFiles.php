@@ -84,7 +84,9 @@ final readonly class DiscardedFiles
     {
         $files = [];
 
-        foreach ($regulation->loadMissing('attachments')->attachments as $attachment) {
+        // Все, включая файлы версий: строки уйдут каскадом, а файлы остались бы
+        // лежать в хранилище навсегда.
+        foreach ($regulation->loadMissing('allAttachments')->allAttachments as $attachment) {
             if ($attachment->isFromDrive() || $attachment->path === null) {
                 continue;
             }

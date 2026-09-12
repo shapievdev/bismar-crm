@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Появляется один раз и не снимается: отменить ознакомление значит утверждать,
  * что прочитанное можно разучиться знать.
  */
-#[Fillable(['regulation_id', 'user_id', 'acknowledged_at'])]
+#[Fillable(['regulation_id', 'version_id', 'user_id', 'acknowledged_at'])]
 class RegulationAcknowledgement extends Model
 {
     /**
@@ -34,6 +34,20 @@ class RegulationAcknowledgement extends Model
     public function regulation(): BelongsTo
     {
         return $this->belongsTo(Regulation::class);
+    }
+
+    /**
+     * По какой версии человек ознакомился (2026-09-12).
+     *
+     * Пометка, а не вторая отметка: версия у человека одна, и требовать
+     * ознакомления со всеми значило бы требовать прочитать чужие правила. Null
+     * — общая версия, то есть всё, что отмечено до появления версий.
+     *
+     * @return BelongsTo<RegulationVersion, $this>
+     */
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(RegulationVersion::class, 'version_id');
     }
 
     /**

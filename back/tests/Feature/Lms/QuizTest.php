@@ -274,7 +274,7 @@ final class QuizTest extends TestCase
             // показывали.
             ->assertJsonPath('data.review.questions.1.is_answered', false);
 
-        $this->actingAs($author)
+        $this->actingAs($this->administrator())
             ->getJson(route('lms.quiz.statistics', $lesson))
             ->assertOk()
             ->assertJsonPath('data.questions.0.answered', 1)

@@ -16,6 +16,18 @@ export class ApiValidationError extends Error {
     super(message)
     this.name = 'ApiValidationError'
   }
+
+  /**
+   * Первая причина отказа — одной строкой, для места над формой.
+   *
+   * Не `message`: когда полей с ошибкой несколько, Laravel дописывает туда
+   * «(and 3 more errors)» — по-английски посреди русской формы. Остальные
+   * причины при этом никуда не деваются, они стоят подписями под своими
+   * полями.
+   */
+  get firstMessage(): string {
+    return Object.values(this.errors).flat()[0] ?? this.message
+  }
 }
 
 /**
@@ -33,6 +45,23 @@ export function toValidationError(error: unknown): never {
   }
 
   throw error
+}
+
+/**
+ * Причина отказа словами сервера — или своими, если он смолчал.
+ *
+ * Отказ бывает не только разбором по полям: «нельзя уволить самого себя»,
+ * «один суперадминистратор обязан остаться», «сотрудник уже уволен» приходят
+ * ответом 409 с готовым объяснением. Написать вместо него «не удалось» значит
+ * выбросить единственное, что человеку и нужно, — что делать дальше.
+ *
+ * Запасная строка остаётся для того, что объяснить нечем: оборванная сеть,
+ * пятисотая, отказ без тела.
+ */
+export function messageFromError(caught: unknown, fallback: string): string {
+  const message = (caught as { data?: { message?: string } }).data?.message
+
+  return typeof message === 'string' && message !== '' ? message : fallback
 }
 
 export function useAuth() {

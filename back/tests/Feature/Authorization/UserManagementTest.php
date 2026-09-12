@@ -300,6 +300,66 @@ final class UserManagementTest extends TestCase
             ->assertJsonValidationErrors('phone');
     }
 
+    /**
+     * Отказ объясняется по-русски — на том же языке, что и сама форма.
+     *
+     * Проверяются именно те два, которые администратор видит чаще всего:
+     * занятый номер и слишком короткий пароль. Второй важен особо — его пишет
+     * не наше правило, а `Password::defaults()`, и без своего сообщения он
+     * приходит из английского набора фреймворка.
+     *
+     * Строки сверяются целиком, а не на «непустое»: дело тут не в наличии
+     * ответа, а в том, что человек его поймёт.
+     */
+    public function test_a_refusal_is_explained_in_the_language_of_the_form(): void
+    {
+        User::factory()->create(['phone' => '+79990009977']);
+
+        $administrator = $this->administrator();
+
+        $this->actingAs($administrator)
+            ->postJson(route('users.store'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'phone' => '+79990009977',
+                'password' => 'correct-horse-battery-staple',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath(
+                'errors.phone.0',
+                'Этот номер уже занят: по нему входит другой сотрудник.',
+            );
+
+        $this->actingAs($administrator)
+            ->postJson(route('users.store'), [
+                'last_name' => 'Лавлейс',
+                'first_name' => 'Ада',
+                'phone' => '+79990009988',
+                'password' => 'корот',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.password.0', 'Пароль короче восьми знаков.');
+    }
+
+    /** Те же слова и при правке карточки: форма одна, объяснения одни. */
+    public function test_the_same_refusal_is_worded_the_same_when_editing(): void
+    {
+        User::factory()->create(['phone' => '+79990009977']);
+        $edited = User::factory()->create(['phone' => '+79990009988']);
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.update', $edited), [
+                'last_name' => $edited->last_name,
+                'first_name' => $edited->first_name,
+                'phone' => '+79990009977',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath(
+                'errors.phone.0',
+                'Этот номер уже занят: по нему входит другой сотрудник.',
+            );
+    }
+
     public function test_a_number_that_is_not_a_number_is_refused(): void
     {
         $this->actingAs($this->administrator())

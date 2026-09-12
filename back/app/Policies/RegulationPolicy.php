@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
-use App\Enums\Permission;
+use App\Enums\MaterialKind;
 use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Lms\RegulationAccess;
@@ -12,9 +12,10 @@ use App\Support\Lms\RegulationAccess;
 /**
  * Кто читает регламент и кто его ведёт.
  *
- * Права взяты у курсов (решение пользователя 2026-08-27): регламент — часть той
- * же учебной площадки, и тот, кто ведёт материалы, ведёт и правила. Своего
- * права у регламентов нет.
+ * Право спрашивается у раздела, в котором материал живёт (решение пользователя
+ * 2026-09-11): у документов свои четыре права, у справочников свои — см.
+ * App\Enums\MaterialKind. До этого оба раздела отвечали правам на курсы, и
+ * «дать вести справочник» означало «дать переписать все правила компании».
  *
  * Доступ и право складываются, как и у курсов: доступ решает, существует ли
  * регламент для этого человека, право — можно ли его править. Пропуск
@@ -32,27 +33,33 @@ class RegulationPolicy
         // Черновик виден только тому, кто мог бы его править: пока правило не
         // опубликовано, его ещё пишут, и прочитанное может смениться.
         if ($regulation->isPublished()) {
-            return $user->can(Permission::ViewCourses->value);
+            return $user->can($regulation->kind->viewPermission()->value);
         }
 
-        return $user->can(Permission::UpdateCourses->value);
+        return $user->can($regulation->kind->updatePermission()->value);
     }
 
-    public function create(User $user): bool
+    /**
+     * Заводить материал — в том разделе, где его заводят.
+     *
+     * Вид приходит отдельным доводом, потому что самого материала ещё нет:
+     * спрашивается это до создания, и ответ у двух разделов разный.
+     */
+    public function create(User $user, MaterialKind $kind): bool
     {
-        return $user->can(Permission::CreateCourses->value);
+        return $user->can($kind->createPermission()->value);
     }
 
     public function update(User $user, Regulation $regulation): bool
     {
         return RegulationAccess::of($user)->allows($regulation)
-            && $user->can(Permission::UpdateCourses->value);
+            && $user->can($regulation->kind->updatePermission()->value);
     }
 
     public function delete(User $user, Regulation $regulation): bool
     {
         return RegulationAccess::of($user)->allows($regulation)
-            && $user->can(Permission::DeleteCourses->value);
+            && $user->can($regulation->kind->deletePermission()->value);
     }
 
     /**
