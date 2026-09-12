@@ -90,10 +90,11 @@ export function useLmsApi() {
       slug: string,
       members: number[],
       groups: number[],
+      departments: number[],
     ): Promise<ResourceResponse<MaterialAccess>> =>
       $api<ResourceResponse<MaterialAccess>>(`/api/lms/courses/${slug}/access`, {
         method: 'PUT',
-        body: { members, groups },
+        body: { members, groups, departments },
       }),
 
     /** Кого ещё можно добавить — поиском: сотрудников тысячи, нужен один. */

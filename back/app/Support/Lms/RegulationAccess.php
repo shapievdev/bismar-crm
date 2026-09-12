@@ -8,6 +8,7 @@ use App\Enums\AccessLevel;
 use App\Enums\CourseVisibility;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Structure\DepartmentReach;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
@@ -23,14 +24,23 @@ use Illuminate\Support\Facades\DB;
  * Правило живёт здесь, а не только в политике, которую Gate::before
  * администратору прощает.
  *
- * Пустить можно и поимённо, и группой (2026-09-12): списки складываются, а
- * состав группы читается на каждом обращении — см. admitted().
+ * Пустить можно поимённо, группой и отделом (2026-09-12): списки складываются,
+ * состав группы читается на каждом обращении, а отдел охватывает и всё, что под
+ * ним, — см. admitted().
  *
  * Отдельный класс, а не общий с курсами: у них разные таблицы допущенных, а
  * ветвление внутри по имени таблицы читалось бы хуже двух прямых правил.
  */
 final class RegulationAccess
 {
+    /**
+     * Отделы, которыми можно позвать этого человека, — вместе со стоящими над
+     * ними. Считаются один раз: см. reaching().
+     *
+     * @var list<int>|null
+     */
+    private ?array $reaching = null;
+
     private function __construct(private readonly User $reader) {}
 
     public static function of(User $reader): self
@@ -54,7 +64,29 @@ final class RegulationAccess
             return true;
         }
 
-        return $this->admittedByGroup((int) $regulation->getKey());
+        if ($this->admittedByGroup((int) $regulation->getKey())) {
+            return true;
+        }
+
+        return $this->admittedByDepartment((int) $regulation->getKey());
+    }
+
+    /**
+     * Впущен ли человек отделом, в котором он числится, — или тем, что стоит
+     * над его отделом (2026-09-12).
+     */
+    private function admittedByDepartment(int $regulation): bool
+    {
+        $departments = $this->reaching();
+
+        if ($departments === []) {
+            return false;
+        }
+
+        return DB::table('regulation_member_departments')
+            ->where('regulation_id', $regulation)
+            ->whereIn('department_id', $departments)
+            ->exists();
     }
 
     /**
@@ -98,9 +130,9 @@ final class RegulationAccess
     }
 
     /**
-     * Допущен ли читатель — поимённо или группой (2026-09-12).
+     * Допущен ли читатель — поимённо, группой или отделом (2026-09-12).
      *
-     * Двумя EXISTS, дописанными через OR к уже начатому условию: оба способа
+     * Тремя EXISTS, дописанными через OR к уже начатому условию: способы
      * складываются. Одним куском, чтобы список допущенных не разошёлся между
      * каталогом и перечнем закрытых документов.
      *
@@ -125,6 +157,53 @@ final class RegulationAccess
                     ->whereColumn('regulation_member_groups.regulation_id', $regulationId)
                     ->where('group_members.user_id', $reader);
             });
+
+        // Отдел спрашивается от человека: строка в списке одна на отдел, а
+        // охватывает он и всё, что под ним, — см. reaching().
+        $departments = $this->reaching();
+
+        if ($departments !== []) {
+            $query->orWhereExists(function (QueryBuilder $query) use ($regulationId, $departments): void {
+                $query->selectRaw('1')
+                    ->from('regulation_member_departments')
+                    ->whereColumn('regulation_member_departments.regulation_id', $regulationId)
+                    ->whereIn('regulation_member_departments.department_id', $departments);
+            });
+        }
+    }
+
+    /**
+     * Отделы, адресуясь к которым попадают в этого человека: его собственные и
+     * все, что стоят над ними. Считается один раз на объект.
+     *
+     * @return list<int>
+     */
+    private function reaching(): array
+    {
+        return $this->reaching ??= app(DepartmentReach::class)->reaching($this->reader);
+    }
+
+    /**
+     * Ветка отдела для запроса, написанного строкой.
+     *
+     * Пустая, когда человек не числится нигде: `IN ()` — не SQL, а условие,
+     * которое никогда не сходится, лишь удлиняет запрос.
+     */
+    private function departmentCondition(string $owner): string
+    {
+        $departments = $this->reaching();
+
+        if ($departments === []) {
+            return '';
+        }
+
+        return sprintf(
+            ' OR EXISTS (SELECT 1 FROM regulation_member_departments'
+            .' WHERE regulation_member_departments.regulation_id = %1$s.id'
+            .' AND regulation_member_departments.department_id IN (%2$s))',
+            $owner,
+            implode(', ', array_fill(0, count($departments), '?')),
+        );
     }
 
     /**
@@ -150,8 +229,8 @@ final class RegulationAccess
                 SELECT 1 FROM regulation_member_groups
                 JOIN group_members ON group_members.group_id = regulation_member_groups.group_id
                 WHERE regulation_member_groups.regulation_id = %1$s.id AND group_members.user_id = ?
-            ))
-        SQL, $table);
+            )%2$s)
+        SQL, $table, $this->departmentCondition($table));
     }
 
     /**
@@ -172,6 +251,10 @@ final class RegulationAccess
             $this->reader->getKey(),
             $this->reader->getKey(),
             $this->reader->getKey(),
+
+            // Отделы стоят последними — там же, где их вопросительные знаки,
+            // см. departmentCondition().
+            ...$this->reaching(),
         ];
     }
 

@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Кого пускают в закрытый материал: люди и группы разом.
+ * Кого пускают в закрытый материал: люди, группы и отделы разом.
  *
  * Отдельно от UpdateCourseAccessRequest, который остался у списков без групп —
  * ответственных за курс и за документ. Ответственный называется поимённо
@@ -29,6 +29,11 @@ final class UpdateMaterialAccessRequest extends FormRequest
 
             'groups' => ['present', 'array'],
             'groups.*' => ['integer', Rule::exists('groups', 'id')],
+
+            // Отдел рядом с группой (2026-09-12): открыть складу отвечает на
+            // место в структуре, а не на собранный под случай список.
+            'departments' => ['present', 'array'],
+            'departments.*' => ['integer', Rule::exists('departments', 'id')],
         ];
     }
 
@@ -46,6 +51,14 @@ final class UpdateMaterialAccessRequest extends FormRequest
     public function groups(): array
     {
         return $this->numbers('groups');
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function departments(): array
+    {
+        return $this->numbers('departments');
     }
 
     /**

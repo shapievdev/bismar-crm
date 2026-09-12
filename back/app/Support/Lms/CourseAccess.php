@@ -8,6 +8,7 @@ use App\Enums\AccessLevel;
 use App\Enums\CourseVisibility;
 use App\Models\Course;
 use App\Models\User;
+use App\Support\Structure\DepartmentReach;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +22,9 @@ use Illuminate\Support\Facades\DB;
  * 2026-09-10). Приватность отгораживает курс от компании, а не от тех, кто за
  * неё отвечает.
  *
- * Добавить можно и поимённо, и группой (2026-09-12): списки складываются, а
- * состав группы читается на каждом обращении — см. admitted().
+ * Добавить можно поимённо, группой и отделом (2026-09-12): списки
+ * складываются, состав группы читается на каждом обращении, а отдел охватывает
+ * и всё, что под ним, — см. admitted().
  *
  * Видеть закрытый курс и распоряжаться им — по-прежнему разные вещи: круг
  * допущенных остаётся за автором, и должность его не расширяет. Об этом
@@ -48,6 +50,14 @@ final class CourseAccess
      * @var list<int>|null
      */
     private ?array $privateIds = null;
+
+    /**
+     * Отделы, которыми можно позвать этого человека, — вместе со стоящими над
+     * ними. Считаются один раз: см. reaching().
+     *
+     * @var list<int>|null
+     */
+    private ?array $reaching = null;
 
     private function __construct(private readonly User $reader) {}
 
@@ -87,7 +97,29 @@ final class CourseAccess
             return true;
         }
 
-        return $this->admittedByGroup((int) $course->getKey());
+        if ($this->admittedByGroup((int) $course->getKey())) {
+            return true;
+        }
+
+        return $this->admittedByDepartment((int) $course->getKey());
+    }
+
+    /**
+     * Впущен ли человек отделом, в котором он числится, — или тем, что стоит
+     * над его отделом (2026-09-12).
+     */
+    private function admittedByDepartment(int $course): bool
+    {
+        $departments = $this->reaching();
+
+        if ($departments === []) {
+            return false;
+        }
+
+        return DB::table('course_member_departments')
+            ->where('course_id', $course)
+            ->whereIn('department_id', $departments)
+            ->exists();
     }
 
     /**
@@ -132,9 +164,9 @@ final class CourseAccess
     }
 
     /**
-     * Допущен ли читатель — поимённо или группой (2026-09-12).
+     * Допущен ли читатель — поимённо, группой или отделом (2026-09-12).
      *
-     * Двумя EXISTS, дописанными через OR к уже начатому условию: оба способа
+     * Тремя EXISTS, дописанными через OR к уже начатому условию: способы
      * складываются, и вызывающему остаётся сказать только про автора и про
      * открытость. Одним куском, чтобы список допущенных не разошёлся между
      * каталогом и перечнем приватных курсов.
@@ -160,6 +192,37 @@ final class CourseAccess
                     ->whereColumn('course_member_groups.course_id', $courseId)
                     ->where('group_members.user_id', $reader);
             });
+
+        /*
+         * Отдел спрашивается от человека, а не от курса: строка в списке одна
+         * на отдел, а охватывает он и всё, что под ним. Развернуть подотделы
+         * снизу вверх — один проход по дереву в памяти; разворачивать их сверху
+         * вниз пришлось бы на каждый курс в каталоге.
+         */
+        $departments = $this->reaching();
+
+        if ($departments !== []) {
+            $query->orWhereExists(function (QueryBuilder $query) use ($courseId, $departments): void {
+                $query->selectRaw('1')
+                    ->from('course_member_departments')
+                    ->whereColumn('course_member_departments.course_id', $courseId)
+                    ->whereIn('course_member_departments.department_id', $departments);
+            });
+        }
+    }
+
+    /**
+     * Отделы, адресуясь к которым попадают в этого человека: его собственные и
+     * все, что стоят над ними.
+     *
+     * Считается один раз на объект: спрашивают его и каталог, и проверка одного
+     * курса, и корпус консультанта — по нескольку раз за один ответ.
+     *
+     * @return list<int>
+     */
+    private function reaching(): array
+    {
+        return $this->reaching ??= app(DepartmentReach::class)->reaching($this->reader);
     }
 
     /**
@@ -183,8 +246,31 @@ final class CourseAccess
                 SELECT 1 FROM course_member_groups
                 JOIN group_members ON group_members.group_id = course_member_groups.group_id
                 WHERE course_member_groups.course_id = %1$s.id AND group_members.user_id = ?
-            ))
-        SQL, $table);
+            )%2$s)
+        SQL, $table, $this->departmentCondition('course_member_departments', 'course_id', $table));
+    }
+
+    /**
+     * Ветка отдела для запроса, написанного строкой.
+     *
+     * Пустой, когда человек не числится нигде: `IN ()` — не SQL, а условие,
+     * которое никогда не сходится, лишь удлиняет запрос.
+     */
+    private function departmentCondition(string $table, string $column, string $owner): string
+    {
+        $departments = $this->reaching();
+
+        if ($departments === []) {
+            return '';
+        }
+
+        return sprintf(
+            ' OR EXISTS (SELECT 1 FROM %1$s WHERE %1$s.%2$s = %3$s.id AND %1$s.department_id IN (%4$s))',
+            $table,
+            $column,
+            $owner,
+            implode(', ', array_fill(0, count($departments), '?')),
+        );
     }
 
     /**
@@ -205,6 +291,10 @@ final class CourseAccess
             $this->reader->getKey(),
             $this->reader->getKey(),
             $this->reader->getKey(),
+
+            // Отделы стоят последними — там же, где их вопросительные знаки,
+            // см. departmentCondition().
+            ...$this->reaching(),
         ];
     }
 

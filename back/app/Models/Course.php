@@ -168,6 +168,22 @@ class Course extends Model implements PartOfCourse
     }
 
     /**
+     * Отделы, которым открыт приватный курс (2026-09-12).
+     *
+     * Рядом с группами и по той же причине: «открыть складу» отвечает на отдел,
+     * а не на собранный под случай список. Адресуясь отделу, адресуются и всему,
+     * что под ним, — подотделы разворачиваются при проверке, см. CourseAccess.
+     *
+     * @return BelongsToMany<Department, $this>
+     */
+    public function memberDepartments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'course_member_departments')
+            ->withPivot('granted_by_id')
+            ->withTimestamps();
+    }
+
+    /**
      * Кто отвечает за курс — к кому идти с вопросом, на который материал не ответил.
      *
      * Не автор и не допущенные: автор мог собрать курс и уйти в другой отдел, а

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
+use App\Enums\DepartmentRole;
 use App\Enums\QuestionType;
+use App\Models\Department;
 use App\Models\Group;
 use App\Models\Quiz;
 use App\Models\Regulation;
@@ -133,6 +135,86 @@ final class MaterialVersionTest extends TestCase
         $this->assertSame($mine->id, $mine->id);
     }
 
+    /* ---------- Отдел рядом с группой (2026-09-12) ---------- */
+
+    public function test_a_version_can_be_written_for_a_department(): void
+    {
+        $document = Regulation::factory()->published()->create();
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+
+        $version = $this->version($document, 'Для склада', [], text: 'Складской расчёт');
+        $version->departments()->sync([$warehouse->id]);
+
+        $this->actingAs($storeman)
+            ->getJson(route('lms.documents.show', $document))
+            ->assertOk()
+            ->assertJsonPath('data.version.id', $version->id)
+            ->assertJsonPath('data.version.is_mine', true);
+
+        // Кто в отделе не числится — читает общую.
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.show', $document))
+            ->assertOk()
+            ->assertJsonMissingPath('data.version');
+    }
+
+    /** Отдел охватывает и свои подотделы — как у новостей и рассылок. */
+    public function test_a_department_version_reaches_the_sub_departments(): void
+    {
+        $document = Regulation::factory()->published()->create();
+
+        [$sales] = $this->departmentWithPerson('Продажи');
+        $shift = Department::factory()->create(['name' => 'Вторая смена', 'parent_id' => $sales->id]);
+
+        $person = $this->learner();
+        $shift->people()->attach($person, ['role' => DepartmentRole::Member->value]);
+
+        $version = $this->version($document, 'Для продаж', []);
+        $version->departments()->sync([$sales->id]);
+
+        $this->actingAs($person)
+            ->getJson(route('lms.documents.show', $document))
+            ->assertOk()
+            ->assertJsonPath('data.version.id', $version->id);
+    }
+
+    /** Группа и отдел складываются: совпало хоть что-то — версия его. */
+    public function test_a_group_and_a_department_add_up_in_one_version(): void
+    {
+        $document = Regulation::factory()->published()->create();
+
+        [$group, $inGroup] = $this->groupWithPerson('Наставники');
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+
+        $version = $this->version($document, 'Для своих', [$group]);
+        $version->departments()->sync([$warehouse->id]);
+
+        foreach ([$inGroup, $storeman] as $reader) {
+            $this->actingAs($reader)
+                ->getJson(route('lms.documents.show', $document))
+                ->assertOk()
+                ->assertJsonPath('data.version.id', $version->id);
+        }
+    }
+
+    /** Отделом версию заводят из редактора так же, как группой. */
+    public function test_the_editor_writes_a_version_for_a_department(): void
+    {
+        $document = Regulation::factory()->published()->create();
+        $department = Department::factory()->create(['name' => 'Склад']);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.documents.versions.store', $document), [
+                'name' => 'Для склада',
+                'groups' => [],
+                'departments' => [$department->id],
+            ])
+            ->assertCreated()
+            ->assertJsonCount(0, 'data.groups')
+            ->assertJsonPath('data.departments.0.name', 'Склад');
+    }
+
     /* ---------- Закрытая версия ---------- */
 
     public function test_a_private_version_is_invisible_to_everyone_else(): void
@@ -201,6 +283,7 @@ final class MaterialVersionTest extends TestCase
                 'name' => 'Для розницы',
                 'is_private' => false,
                 'groups' => [$group->id],
+                'departments' => [],
             ])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Для розницы')
@@ -212,6 +295,7 @@ final class MaterialVersionTest extends TestCase
                 'name' => 'Для розницы и склада',
                 'is_private' => true,
                 'groups' => [$group->id],
+                'departments' => [],
                 'content_json' => $this->article('Считаем так'),
             ])
             ->assertOk()
@@ -234,6 +318,7 @@ final class MaterialVersionTest extends TestCase
             ->postJson(route('lms.documents.versions.store', $document), [
                 'name' => 'Ничья',
                 'groups' => [],
+                'departments' => [],
             ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('groups');
@@ -248,6 +333,7 @@ final class MaterialVersionTest extends TestCase
             ->postJson(route('lms.documents.versions.store', $document), [
                 'name' => 'Своя',
                 'groups' => [$group->id],
+                'departments' => [],
             ])
             ->assertForbidden();
 
@@ -389,6 +475,19 @@ final class MaterialVersionTest extends TestCase
     }
 
     /* ---------- Заготовки ---------- */
+
+    /**
+     * @return array{0: Department, 1: User}
+     */
+    private function departmentWithPerson(string $name): array
+    {
+        $department = Department::factory()->create(['name' => $name]);
+        $person = $this->learner();
+
+        $department->people()->attach($person, ['role' => DepartmentRole::Member->value]);
+
+        return [$department, $person];
+    }
 
     /**
      * @return array{0: Group, 1: User}

@@ -27,10 +27,16 @@ final readonly class SyncRegulationPeople
     /**
      * @param  list<int>  $userIds
      * @param  list<int>  $groupIds  группы, впущенные целиком (2026-09-12)
+     * @param  list<int>  $departmentIds  отделы вместе с подотделами (2026-09-12)
      */
-    public function admit(Regulation $regulation, array $userIds, array $groupIds, User $actor): Regulation
-    {
-        DB::transaction(function () use ($regulation, $userIds, $groupIds, $actor): void {
+    public function admit(
+        Regulation $regulation,
+        array $userIds,
+        array $groupIds,
+        array $departmentIds,
+        User $actor,
+    ): Regulation {
+        DB::transaction(function () use ($regulation, $userIds, $groupIds, $departmentIds, $actor): void {
             // Автор в списке не состоит: его доступ следует из авторства, и
             // строка о нём означала бы, что доступ можно снять, — а его нельзя.
             $this->apply(
@@ -48,9 +54,17 @@ final readonly class SyncRegulationPeople
                 'granted_by_id',
                 $actor,
             );
+
+            $this->apply(
+                $regulation->memberDepartments(),
+                $this->clean($departmentIds),
+                'departments.id',
+                'granted_by_id',
+                $actor,
+            );
         });
 
-        return $regulation->load('members', 'memberGroups');
+        return $regulation->load('members', 'memberGroups', 'memberDepartments');
     }
 
     /**

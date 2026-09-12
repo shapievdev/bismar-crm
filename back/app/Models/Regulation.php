@@ -162,6 +162,21 @@ class Regulation extends Model
     }
 
     /**
+     * Отделы, которым открыт закрытый материал (2026-09-12).
+     *
+     * То же рассуждение, что и у курса (см. Course::memberDepartments):
+     * подотделы разворачиваются при проверке, а не переписываются в список.
+     *
+     * @return BelongsToMany<Department, $this>
+     */
+    public function memberDepartments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'regulation_member_departments')
+            ->withPivot('granted_by_id')
+            ->withTimestamps();
+    }
+
+    /**
      * Кому писать, если написанного не хватило.
      *
      * @return BelongsToMany<User, $this>

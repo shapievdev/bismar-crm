@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Кто, кроме автора, допущен к приватному курсу — поимённо и группами.
+ * Кто, кроме автора, допущен к приватному курсу — поимённо, группами и отделами.
  *
  * Список задаётся целиком, а не по одному человеку: экран доступа показывает
  * его весь, и «сохранить» там означает «пусть будет вот так». Разница видна,
@@ -24,9 +24,15 @@ final readonly class SyncCourseAccess
     /**
      * @param  list<int>  $userIds
      * @param  list<int>  $groupIds  группы, впущенные целиком (2026-09-12)
+     * @param  list<int>  $departmentIds  отделы вместе с подотделами (2026-09-12)
      */
-    public function handle(Course $course, array $userIds, array $groupIds, User $actor): Course
-    {
+    public function handle(
+        Course $course,
+        array $userIds,
+        array $groupIds,
+        array $departmentIds,
+        User $actor,
+    ): Course {
         // Автор в списке не состоит: его доступ следует из авторства, и строка
         // о нём означала бы, что доступ можно снять, — а его нельзя.
         $wanted = array_values(array_diff(
@@ -35,13 +41,15 @@ final readonly class SyncCourseAccess
         ));
 
         $wantedGroups = array_values(array_unique(array_map(intval(...), $groupIds)));
+        $wantedDepartments = array_values(array_unique(array_map(intval(...), $departmentIds)));
 
-        DB::transaction(function () use ($course, $wanted, $wantedGroups, $actor): void {
+        DB::transaction(function () use ($course, $wanted, $wantedGroups, $wantedDepartments, $actor): void {
             $this->apply($course->members(), $wanted, 'users.id', $actor);
             $this->apply($course->memberGroups(), $wantedGroups, 'groups.id', $actor);
+            $this->apply($course->memberDepartments(), $wantedDepartments, 'departments.id', $actor);
         });
 
-        return $course->load('members', 'memberGroups');
+        return $course->load('members', 'memberGroups', 'memberDepartments');
     }
 
     /**

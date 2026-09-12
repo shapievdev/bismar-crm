@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CoursePerson, MaterialAccess } from '~/types/lms'
+import type { AccessDepartment, CoursePerson, MaterialAccess } from '~/types/lms'
 import type { Group } from '~/types/structure'
 
 /**
@@ -24,7 +24,7 @@ const { fetchCourseAccess, updateCourseAccess, searchAccessCandidates } = useLms
  * Оба списка уходят вместе: сервер задаёт доступ целиком, и прислать один без
  * другого значило бы стереть второй.
  */
-const access = ref<MaterialAccess>({ people: [], groups: [] })
+const access = ref<MaterialAccess>({ people: [], groups: [], departments: [] })
 const isLoading = ref(true)
 const isSaving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -55,6 +55,7 @@ async function save(next: MaterialAccess) {
       props.slug,
       next.people.map(person => person.id),
       next.groups.map(group => group.id),
+      next.departments.map(department => department.id),
     )).data
   }
   catch {
@@ -67,11 +68,15 @@ async function save(next: MaterialAccess) {
 }
 
 function withPeople(people: CoursePerson[]): MaterialAccess {
-  return { people, groups: access.value.groups }
+  return { ...access.value, people }
 }
 
 function withGroups(groups: Group[]): MaterialAccess {
-  return { people: access.value.people, groups }
+  return { ...access.value, groups }
+}
+
+function withDepartments(departments: AccessDepartment[]): MaterialAccess {
+  return { ...access.value, departments }
 }
 
 /**
@@ -99,20 +104,24 @@ function candidates(term: string): Promise<MaterialAccess> {
     title="Доступ к курсу"
     :people="access.people"
     :groups="access.groups"
+    :departments="access.departments"
     :is-loading="isLoading"
     :is-saving="isSaving"
     :error-message="errorMessage"
     :fixed-name="authorName"
     fixed-badge="Автор"
     empty-note="Кроме автора — никого."
-    add-label="Добавить сотрудника или группу"
-    search-placeholder="Фамилия, почта или название группы"
+    add-label="Добавить сотрудника, группу или отдел"
+    search-placeholder="Фамилия, почта, группа или отдел"
     not-found-note="Никого не нашли. Возможно, доступ уже есть."
     :search="async (term: string) => (await candidates(term)).people"
     :search-groups="async (term: string) => (await candidates(term)).groups"
+    :search-departments="async (term: string) => (await candidates(term)).departments"
     @add="person => save(withPeople([...access.people, person]))"
     @remove="person => save(withPeople(access.people.filter(one => one.id !== person.id)))"
     @add-group="group => save(withGroups([...access.groups, group]))"
     @remove-group="group => save(withGroups(access.groups.filter(one => one.id !== group.id)))"
+    @add-department="unit => save(withDepartments([...access.departments, unit]))"
+    @remove-department="unit => save(withDepartments(access.departments.filter(one => one.id !== unit.id)))"
   />
 </template>

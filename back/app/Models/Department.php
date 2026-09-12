@@ -116,6 +116,28 @@ class Department extends Model
     /**
      * @param  Builder<$this>  $query
      */
+    /**
+     * Отделы под строку поиска — по названию.
+     *
+     * Сверяется с ICU: базы собраны с C-сортировкой, где ILIKE складывает
+     * только латиницу, так что «склад» иначе не нашёл бы «Склад». То же самое,
+     * что и у групп, — см. Group::scopeMatching.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeMatching(Builder $query, ?string $term): void
+    {
+        $term = trim((string) $term);
+
+        if ($term === '') {
+            return;
+        }
+
+        $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term).'%';
+
+        $query->whereRaw('name COLLATE "und-x-icu" ILIKE ?', [$pattern]);
+    }
+
     public function scopeOrdered(Builder $query): void
     {
         $query->orderBy('position')->orderBy('name');

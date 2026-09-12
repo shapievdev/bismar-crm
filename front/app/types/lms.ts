@@ -448,6 +448,8 @@ export interface MaterialVersionSummary {
   is_mine: boolean
   /** Для кого версия написана — приходит только тому, кто документ ведёт. */
   groups?: { id: number, name: string }[]
+  /** Отдел рядом с группой: охватывает и всё, что под ним. */
+  departments?: { id: number, name: string }[]
 }
 
 /** Версия целиком: своё тело вместо общего — статья, файлы и проверка. */
@@ -463,6 +465,7 @@ export interface MaterialVersionPayload {
   name: string
   is_private: boolean
   groups: number[]
+  departments: number[]
   content_json?: JSONContent | null
 }
 
@@ -905,6 +908,20 @@ export interface LessonTranscript {
 export interface MaterialAccess {
   people: CoursePerson[]
   groups: Group[]
+  departments: AccessDepartment[]
+}
+
+/**
+ * Отдел в списке допуска и в подсказке поиска.
+ *
+ * Родитель приложен не для красоты: «Продажи» в рознице и «Продажи» в опте —
+ * разные отделы, и в списке из одних названий их не различить. Полного дерева
+ * здесь нет: строку читают, а не разворачивают.
+ */
+export interface AccessDepartment {
+  id: number
+  name: string
+  parent: string | null
 }
 
 /* ---------- Как материал проходят ---------- */

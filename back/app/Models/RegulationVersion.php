@@ -71,6 +71,20 @@ class RegulationVersion extends Model
     }
 
     /**
+     * Отделы, которым эта версия предназначена (2026-09-12).
+     *
+     * Складываются с группами: «розница плюс отдел доставки» — обычная просьба.
+     * Отдел охватывает и свои подотделы, см. MaterialVersions.
+     *
+     * @return BelongsToMany<Department, $this>
+     */
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'regulation_version_departments', 'version_id')
+            ->withTimestamps();
+    }
+
+    /**
      * Файлы версии — свой бланк расчёта у каждой.
      *
      * @return HasMany<RegulationAttachment, $this>

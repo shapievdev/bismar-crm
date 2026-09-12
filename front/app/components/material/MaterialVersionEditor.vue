@@ -2,6 +2,7 @@
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { MaterialSection, MaterialVersion, QuizPayload } from '~/types/lms'
 import type { Group } from '~/types/structure'
+import { type FlatDepartment, flattenDepartments } from '~/utils/departments'
 import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 import type { UploadOptions } from '~/utils/upload'
 
@@ -40,17 +41,24 @@ const {
 } = useMaterialsApi(props.section)
 
 const { fetchGroups } = useGroupsApi()
+const { fetchStructure } = useStructureApi()
 
 const { data, error, refresh } = await useAsyncData(
   () => `lms.${props.section}.version.${versionId.value}`,
   async () => {
-    const [material, version, groups] = await Promise.all([
+    const [material, version, groups, structure] = await Promise.all([
       fetchRegulation(slug.value),
       fetchVersion(slug.value, versionId.value),
       fetchGroups(),
+      fetchStructure(),
     ])
 
-    return { material: material.data, version: version.data, groups: groups.data }
+    return {
+      material: material.data,
+      version: version.data,
+      groups: groups.data,
+      departments: flattenDepartments(structure.data),
+    }
   },
 )
 
@@ -61,6 +69,7 @@ if (error.value) {
 const material = computed(() => data.value?.material ?? null)
 const version = computed<MaterialVersion | null>(() => data.value?.version ?? null)
 const groups = computed<Group[]>(() => data.value?.groups ?? [])
+const departments = computed<FlatDepartment[]>(() => data.value?.departments ?? [])
 
 useHead({ title: () => version.value ? `${version.value.name} — версия` : 'Версия' })
 
@@ -70,6 +79,7 @@ const form = reactive({
   name: '',
   is_private: false,
   groups: [] as number[],
+  departments: [] as number[],
 })
 
 // Заполняется один раз на версию, а не при каждом перечитывании записи:
@@ -85,6 +95,7 @@ watch(() => version.value?.id, () => {
   form.name = value.name
   form.is_private = value.is_private
   form.groups = (value.groups ?? []).map(group => group.id)
+  form.departments = (value.departments ?? []).map(unit => unit.id)
 }, { immediate: true })
 
 /**
@@ -108,6 +119,7 @@ const isDirty = computed(() => {
     || form.name !== saved.name
     || form.is_private !== saved.is_private
     || form.groups.join(',') !== (saved.groups ?? []).map(group => group.id).join(',')
+    || form.departments.join(',') !== (saved.departments ?? []).map(unit => unit.id).join(',')
 })
 
 const errors = ref<ValidationErrors>({})
@@ -124,6 +136,7 @@ async function save() {
       name: form.name,
       is_private: form.is_private,
       groups: form.groups,
+      departments: form.departments,
       content_json: withoutResolvedMedia(document.value),
     })
 
@@ -146,6 +159,12 @@ function toggleGroup(id: number) {
   form.groups = form.groups.includes(id)
     ? form.groups.filter(one => one !== id)
     : [...form.groups, id]
+}
+
+function toggleDepartment(id: number) {
+  form.departments = form.departments.includes(id)
+    ? form.departments.filter(one => one !== id)
+    : [...form.departments, id]
 }
 
 /* ---------- Проверка при версии ---------- */
@@ -240,9 +259,31 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
       </div>
 
       <div class="field">
-        <span class="field-label">Для кого</span>
+        <span class="field-label">Для кого — отделы</span>
         <p class="faint field-hint">
-          Кому эти группы подошли — тот открывает эту версию первой.
+          Отмеченный отдел охватывает и всё, что под ним.
+        </p>
+        <ul v-if="departments.length" class="picker picker--tree">
+          <li v-for="unit in departments" :key="unit.id" :style="{ paddingLeft: `${unit.depth}rem` }">
+            <label class="choice">
+              <input
+                type="checkbox"
+                :checked="form.departments.includes(unit.id)"
+                @change="toggleDepartment(unit.id)"
+              >
+              {{ unit.name }}
+            </label>
+          </li>
+        </ul>
+        <p v-else class="faint">
+          Структура компании пока не заведена.
+        </p>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Для кого — группы</span>
+        <p class="faint field-hint">
+          Кому эти адресаты подошли — тот открывает эту версию первой.
         </p>
         <ul v-if="groups.length" class="picker">
           <li v-for="group in groups" :key="group.id">
@@ -269,7 +310,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
            то, кому она откроется первой. -->
       <label class="choice">
         <input v-model="form.is_private" type="checkbox">
-        Закрытая — видна только выбранным группам
+        Закрытая — видна только выбранным отделам и группам
       </label>
 
       <div class="field">
@@ -392,6 +433,17 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Отделы — столбцом: отступ показывает, чей это отдел, а в строку вперемешку
+   вложенность не прочитать. Без переноса: с ограниченной высотой колоночный
+   flex сворачивает список во вторую колонку, и отступы начинают врать. */
+.picker--tree {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.2rem;
+  max-height: 14rem;
+  overflow-y: auto;
 }
 
 .add-quiz {

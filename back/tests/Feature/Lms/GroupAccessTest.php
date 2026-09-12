@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
+use App\Enums\DepartmentRole;
 use App\Models\Course;
+use App\Models\Department;
 use App\Models\Group;
 use App\Models\Regulation;
 use App\Models\User;
@@ -41,6 +43,7 @@ final class GroupAccessTest extends TestCase
             ->putJson(route('lms.courses.access.update', $course), [
                 'members' => [],
                 'groups' => [$group->id],
+                'departments' => [],
             ])
             ->assertOk()
             ->assertJsonCount(1, 'data.groups')
@@ -103,6 +106,7 @@ final class GroupAccessTest extends TestCase
             ->putJson(route('lms.courses.access.update', $course), [
                 'members' => [$named->id],
                 'groups' => [$group->id],
+                'departments' => [],
             ])
             ->assertOk()
             ->assertJsonCount(1, 'data.people')
@@ -150,7 +154,7 @@ final class GroupAccessTest extends TestCase
         $this->actingAs($person)->getJson(route('lms.courses.show', $course))->assertOk();
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => [], 'departments' => []])
             ->assertOk()
             ->assertJsonCount(0, 'data.groups');
 
@@ -199,6 +203,7 @@ final class GroupAccessTest extends TestCase
             ->putJson(route('lms.documents.access.update', $document), [
                 'members' => [],
                 'groups' => [$group->id],
+                'departments' => [],
             ])
             ->assertOk()
             ->assertJsonCount(1, 'data.groups');
@@ -260,7 +265,7 @@ final class GroupAccessTest extends TestCase
         $course = $this->privateCourseOf($this->author());
         $group = Group::factory()->create();
 
-        $payload = ['members' => [], 'groups' => [$group->id]];
+        $payload = ['members' => [], 'groups' => [$group->id], 'departments' => []];
 
         // Администратору курс открыт на чтение — отказ ему в распоряжении
         // списком, 403.
@@ -288,9 +293,178 @@ final class GroupAccessTest extends TestCase
         $course = $this->privateCourseOf($author);
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => [999]])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => [999], 'departments' => []])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('groups.0');
+    }
+
+    /* ---------- Отдел рядом с группой (2026-09-12) ---------- */
+
+    public function test_a_department_opens_a_private_course_to_everyone_in_it(): void
+    {
+        $author = $this->author();
+        $course = $this->privateCourseOf($author);
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+        $outsider = $this->learner();
+
+        $this->actingAs($author)
+            ->putJson(route('lms.courses.access.update', $course), [
+                'members' => [],
+                'groups' => [],
+                'departments' => [$warehouse->id],
+            ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.departments')
+            ->assertJsonPath('data.departments.0.name', 'Склад');
+
+        $this->actingAs($storeman)->getJson(route('lms.courses.show', $course))->assertOk();
+        $this->actingAs($outsider)->getJson(route('lms.courses.show', $course))->assertNotFound();
+    }
+
+    /**
+     * Адресуясь отделу, адресуются и всему, что под ним: иначе подотделы
+     * пришлось бы перечислять руками, а завтра появится новый и о нём забудут.
+     */
+    public function test_a_department_carries_its_sub_departments(): void
+    {
+        $course = $this->privateCourseOf($this->author());
+
+        [$sales] = $this->departmentWithPerson('Продажи');
+        $shift = Department::factory()->create(['name' => 'Вторая смена', 'parent_id' => $sales->id]);
+
+        $person = $this->learner();
+        $shift->people()->attach($person, ['role' => DepartmentRole::Member->value]);
+
+        $this->actingAs($person)->getJson(route('lms.courses.show', $course))->assertNotFound();
+
+        // Впустили головной отдел — открылось и подотделу.
+        $course->memberDepartments()->attach($sales);
+
+        $this->actingAs($person)->getJson(route('lms.courses.show', $course))->assertOk();
+    }
+
+    /** Ушёл из отдела — потерял курс: состав читается на каждом обращении. */
+    public function test_leaving_the_department_takes_the_course_with_it(): void
+    {
+        $course = $this->privateCourseOf($this->author());
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+        $course->memberDepartments()->attach($warehouse);
+
+        $this->actingAs($storeman)->getJson(route('lms.courses.show', $course))->assertOk();
+
+        $warehouse->people()->detach($storeman);
+
+        $this->actingAs($storeman)->getJson(route('lms.courses.show', $course))->assertNotFound();
+    }
+
+    /** Три способа складываются: поимённо, группой и отделом. */
+    public function test_all_three_ways_add_up(): void
+    {
+        $author = $this->author();
+        $course = $this->privateCourseOf($author);
+
+        $named = $this->learner();
+
+        $group = Group::factory()->create();
+        $inGroup = $this->learner();
+        $group->members()->attach($inGroup);
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+
+        $this->actingAs($author)
+            ->putJson(route('lms.courses.access.update', $course), [
+                'members' => [$named->id],
+                'groups' => [$group->id],
+                'departments' => [$warehouse->id],
+            ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.people')
+            ->assertJsonCount(1, 'data.groups')
+            ->assertJsonCount(1, 'data.departments');
+
+        foreach ([$named, $inGroup, $storeman] as $reader) {
+            $this->actingAs($reader)->getJson(route('lms.courses.show', $course))->assertOk();
+        }
+    }
+
+    /** Закрытый документ открывается отделом так же, как и курс. */
+    public function test_a_department_opens_a_closed_document(): void
+    {
+        $author = $this->author();
+        $document = Regulation::factory()->published()->closed()->create(['author_id' => $author->id]);
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+
+        $this->actingAs($author)
+            ->putJson(route('lms.documents.access.update', $document), [
+                'members' => [],
+                'groups' => [],
+                'departments' => [$warehouse->id],
+            ])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.departments');
+
+        $this->actingAs($storeman)->getJson(route('lms.documents.show', $document))->assertOk();
+        $this->actingAs($this->learner())->getJson(route('lms.documents.show', $document))->assertForbidden();
+    }
+
+    /** Закрытый документ виден отделу и в каталоге, а не только по ссылке. */
+    public function test_the_catalogue_shows_what_a_department_was_let_into(): void
+    {
+        $document = Regulation::factory()->published()->closed()->create(['author_id' => $this->author()->id]);
+
+        [$warehouse, $storeman] = $this->departmentWithPerson('Склад');
+
+        $this->actingAs($storeman)
+            ->getJson(route('lms.documents.index'))
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $document->memberDepartments()->attach($warehouse);
+
+        $this->actingAs($storeman)
+            ->getJson(route('lms.documents.index'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
+    /** Подсказка поиска отвечает и отделами — тем же словом. */
+    public function test_the_picker_answers_with_departments_too(): void
+    {
+        $author = $this->author();
+        $course = $this->privateCourseOf($author);
+
+        [$sales] = $this->departmentWithPerson('Отдел продаж');
+
+        $names = $this->actingAs($author)
+            ->getJson(route('lms.courses.access.candidates', ['course' => $course, 'search' => 'продаж']))
+            ->assertOk()
+            ->json('data.departments.*.name');
+
+        $this->assertSame(['Отдел продаж'], $names);
+
+        // Уже впущенный отдел не предлагается — доступ у него есть.
+        $course->memberDepartments()->attach($sales);
+
+        $this->actingAs($author)
+            ->getJson(route('lms.courses.access.candidates', ['course' => $course, 'search' => 'продаж']))
+            ->assertOk()
+            ->assertJsonCount(0, 'data.departments');
+    }
+
+    /**
+     * @return array{0: Department, 1: User}
+     */
+    private function departmentWithPerson(string $name): array
+    {
+        $department = Department::factory()->create(['name' => $name]);
+        $person = $this->learner();
+
+        $department->people()->attach($person, ['role' => DepartmentRole::Member->value]);
+
+        return [$department, $person];
     }
 
     private function privateCourseOf(User $author): Course

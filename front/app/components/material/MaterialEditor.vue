@@ -246,7 +246,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
  * Допуск — это люди и группы разом (2026-09-12); ответственные — только люди:
  * «к кому идти с вопросом» группа не отвечает.
  */
-const access = ref<MaterialAccess>({ people: [], groups: [] })
+const access = ref<MaterialAccess>({ people: [], groups: [], departments: [] })
 const experts = ref<CoursePerson[]>([])
 const isLoadingPeople = ref(false)
 const isSavingPeople = ref(false)
@@ -284,6 +284,7 @@ async function saveAccess(next: MaterialAccess) {
       slug.value,
       next.people.map(person => person.id),
       next.groups.map(group => group.id),
+      next.departments.map(department => department.id),
     )).data
     await refresh()
   }
@@ -568,20 +569,24 @@ function moveQuestion(document: RegulationLink, delta: number) {
         title="Кто допущен"
         :people="access.people"
         :groups="access.groups"
+        :departments="access.departments"
         :is-loading="isLoadingPeople"
         :is-saving="isSavingPeople"
         :fixed-name="regulation.author?.name ?? null"
         fixed-badge="Автор"
         empty-note="Кроме автора — никого."
-        add-label="Добавить сотрудника или группу"
-        search-placeholder="Фамилия, почта или название группы"
+        add-label="Добавить сотрудника, группу или отдел"
+        search-placeholder="Фамилия, почта, группа или отдел"
         not-found-note="Никого не нашли."
         :search="async (term: string) => (await memberCandidates(term)).people"
         :search-groups="async (term: string) => (await memberCandidates(term)).groups"
+        :search-departments="async (term: string) => (await memberCandidates(term)).departments"
         @add="person => saveAccess({ ...access, people: [...access.people, person] })"
         @remove="person => saveAccess({ ...access, people: access.people.filter(one => one.id !== person.id) })"
         @add-group="group => saveAccess({ ...access, groups: [...access.groups, group] })"
         @remove-group="group => saveAccess({ ...access, groups: access.groups.filter(one => one.id !== group.id) })"
+        @add-department="unit => saveAccess({ ...access, departments: [...access.departments, unit] })"
+        @remove-department="unit => saveAccess({ ...access, departments: access.departments.filter(one => one.id !== unit.id) })"
       />
 
       <CoursePeoplePanel

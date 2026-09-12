@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Lms;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Версия документа: название, круг групп, закрытость и текст.
+ * Версия документа: название, круг адресатов, закрытость и текст.
  *
- * Группа обязательна хотя бы одна: версия без адресата ничья — она никому не
- * откроется первой, а закрытая не откроется вовсе. Требовать её на входе
- * честнее, чем позволить завести строку, которая ничего не делает.
+ * Адресат — группа, отдел или оба сразу, и хотя бы один обязателен: версия без
+ * адресата ничья, она никому не откроется первой, а закрытая не откроется
+ * вовсе. Требовать его на входе честнее, чем позволить завести строку, которая
+ * ничего не делает.
  */
 final class SaveVersionRequest extends FormRequest
 {
@@ -25,8 +27,14 @@ final class SaveVersionRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'is_private' => ['boolean'],
 
-            'groups' => ['required', 'array', 'min:1'],
+            // Адресат обязателен, но каким он будет — группой, отделом или
+            // обоими сразу, — решает автор; поэтому «обязателен» проверяется
+            // не полем, а обоими вместе, см. withValidator().
+            'groups' => ['present', 'array'],
             'groups.*' => ['integer', Rule::exists('groups', 'id')],
+
+            'departments' => ['present', 'array'],
+            'departments.*' => ['integer', Rule::exists('departments', 'id')],
 
             // Статья приходит с экрана правки версии, а с формы заведения —
             // нет: там называют версию и выбирают, для кого она.
@@ -35,14 +43,17 @@ final class SaveVersionRequest extends FormRequest
     }
 
     /**
-     * @return array<string, string>
+     * Версия без адресата ничья: она никому не откроется первой, а закрытая не
+     * откроется вовсе. Но адресатом годится и группа, и отдел, поэтому
+     * проверяются они вместе, а не каждое своим `required`.
      */
-    public function messages(): array
+    public function withValidator(Validator $validator): void
     {
-        return [
-            'groups.required' => 'Выберите, для кого эта версия.',
-            'groups.min' => 'Выберите, для кого эта версия.',
-        ];
+        $validator->after(function (Validator $validator): void {
+            if ($this->groups() === [] && $this->departments() === []) {
+                $validator->errors()->add('groups', 'Выберите, для кого эта версия.');
+            }
+        });
     }
 
     /**
@@ -62,9 +73,25 @@ final class SaveVersionRequest extends FormRequest
      */
     public function groups(): array
     {
-        /** @var list<int|string> $groups */
-        $groups = $this->validated('groups', []);
+        return $this->numbers('groups');
+    }
 
-        return array_values(array_unique(array_map(intval(...), $groups)));
+    /**
+     * @return list<int>
+     */
+    public function departments(): array
+    {
+        return $this->numbers('departments');
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function numbers(string $key): array
+    {
+        /** @var list<int|string> $values */
+        $values = $this->input($key, []);
+
+        return array_values(array_unique(array_map(intval(...), is_array($values) ? $values : [])));
     }
 }

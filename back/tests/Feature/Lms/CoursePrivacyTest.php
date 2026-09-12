@@ -145,6 +145,7 @@ final class CoursePrivacyTest extends TestCase
             ->putJson(route('lms.courses.access.update', $course), [
                 'members' => [$this->learner()->id],
                 'groups' => [],
+                'departments' => [],
             ])
             ->assertForbidden();
 
@@ -202,19 +203,19 @@ final class CoursePrivacyTest extends TestCase
 
         // Впущенный редактор правит материал, но круг допущенных не меняет.
         $this->actingAs($editor)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => [], 'departments' => []])
             ->assertForbidden();
 
         // Администратор курс читает, но круг допущенных не его: отказ здесь
         // «нельзя», а не «нет такого курса».
         $this->actingAs($this->administrator())
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$newcomer->id], 'groups' => [], 'departments' => []])
             ->assertForbidden();
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$editor->id, $newcomer->id], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$editor->id, $newcomer->id], 'groups' => [], 'departments' => []])
             ->assertOk()
-            ->assertJsonCount(2, 'data');
+            ->assertJsonCount(2, 'data.people');
 
         $this->actingAs($newcomer)
             ->getJson(route('lms.courses.show', $course))
@@ -231,7 +232,7 @@ final class CoursePrivacyTest extends TestCase
         $course = $this->privateCourseOf($author);
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [$author->id], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [$author->id], 'groups' => [], 'departments' => []])
             ->assertOk()
             ->assertJsonCount(0, 'data.people');
 
@@ -259,7 +260,7 @@ final class CoursePrivacyTest extends TestCase
             ->assertJsonCount(1, 'data');
 
         $this->actingAs($author)
-            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => []])
+            ->putJson(route('lms.courses.access.update', $course), ['members' => [], 'groups' => [], 'departments' => []])
             ->assertOk();
 
         $this->actingAs($member)

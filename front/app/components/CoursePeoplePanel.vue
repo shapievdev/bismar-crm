@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CoursePerson } from '~/types/lms'
+import type { AccessDepartment, CoursePerson } from '~/types/lms'
 import type { Group } from '~/types/structure'
 
 /**
@@ -10,9 +10,9 @@ import type { Group } from '~/types/structure'
  * остальное — поиск с задержкой, порядок, разметка — устроено одинаково, и
  * держать это дважды значит однажды поправить в одном месте.
  *
- * У допуска рядом с людьми стоят группы (2026-09-12); у ответственных их нет —
- * «к кому идти с вопросом» группа не отвечает. Поэтому всё групповое здесь
- * необязательно: не передали `groups` — панель работает ровно как прежде.
+ * У допуска рядом с людьми стоят группы и отделы (2026-09-12); у ответственных
+ * их нет — «к кому идти с вопросом» ни группа, ни отдел не отвечают. Поэтому
+ * всё это здесь необязательно: не передали — панель работает ровно как прежде.
  *
  * Панель ничего не решает сама: она показывает то, что дали, и сообщает о
  * нажатиях. Кто и как сохраняет — дело того, кто её поставил.
@@ -24,6 +24,8 @@ const props = defineProps<{
   people: CoursePerson[]
   /** Впущенные группы. Не передали — панель о группах не знает. */
   groups?: Group[]
+  /** Впущенные отделы. Охватывают и всё, что под ними. */
+  departments?: AccessDepartment[]
   isLoading: boolean
   isSaving: boolean
   errorMessage?: string | null
@@ -37,6 +39,8 @@ const props = defineProps<{
   search: (term: string) => Promise<CoursePerson[]>
   /** Поиск групп тем же словом. Не передали — ищутся одни люди. */
   searchGroups?: (term: string) => Promise<Group[]>
+  /** Поиск отделов тем же словом. */
+  searchDepartments?: (term: string) => Promise<AccessDepartment[]>
 }>()
 
 const emit = defineEmits<{
@@ -44,10 +48,12 @@ const emit = defineEmits<{
   remove: [person: CoursePerson]
   addGroup: [group: Group]
   removeGroup: [group: Group]
+  addDepartment: [department: AccessDepartment]
+  removeDepartment: [department: AccessDepartment]
 }>()
 
 const groups = computed(() => props.groups ?? [])
-const handlesGroups = computed(() => props.groups !== undefined)
+const departments = computed(() => props.departments ?? [])
 
 function add(person: CoursePerson) {
   clearSearch()
@@ -65,11 +71,20 @@ function addGroup(group: Group) {
   }
 }
 
+function addDepartment(department: AccessDepartment) {
+  clearSearch()
+
+  if (!departments.value.some(one => one.id === department.id)) {
+    emit('addDepartment', department)
+  }
+}
+
 /* ---------- Поиск ---------- */
 
 const query = ref('')
 const candidates = ref<CoursePerson[]>([])
 const groupCandidates = ref<Group[]>([])
+const departmentCandidates = ref<AccessDepartment[]>([])
 const isSearching = ref(false)
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -79,6 +94,7 @@ function clearSearch() {
   query.value = ''
   candidates.value = []
   groupCandidates.value = []
+  departmentCandidates.value = []
 }
 
 /**
@@ -97,6 +113,7 @@ watch(query, (value) => {
   if (term === '') {
     candidates.value = []
     groupCandidates.value = []
+    departmentCandidates.value = []
     isSearching.value = false
 
     return
@@ -108,20 +125,23 @@ watch(query, (value) => {
     const token = ++searchToken
 
     try {
-      const [people, found] = await Promise.all([
+      const [people, found, units] = await Promise.all([
         props.search(term),
         props.searchGroups?.(term) ?? Promise.resolve([]),
+        props.searchDepartments?.(term) ?? Promise.resolve([]),
       ])
 
       if (token === searchToken) {
         candidates.value = people
         groupCandidates.value = found
+        departmentCandidates.value = units
       }
     }
     catch {
       if (token === searchToken) {
         candidates.value = []
         groupCandidates.value = []
+        departmentCandidates.value = []
       }
     }
     finally {
@@ -134,7 +154,8 @@ watch(query, (value) => {
 
 onBeforeUnmount(() => clearTimeout(searchTimer))
 
-const hasCandidates = computed(() => candidates.value.length > 0 || groupCandidates.value.length > 0)
+const hasCandidates = computed(() =>
+  candidates.value.length > 0 || groupCandidates.value.length > 0 || departmentCandidates.value.length > 0)
 
 /** «Группа · 12 человек» — по числу видно, скольким это открывает материал. */
 function groupSize(group: Group): string {
@@ -168,8 +189,27 @@ const inputId = useId()
         <span class="badge">{{ fixedBadge }}</span>
       </li>
 
-      <!-- Группы впереди людей: группа — мазок шире, и «весь отдел продаж
-           плюс Иванов» читается именно в таком порядке. -->
+      <!-- Отделы и группы впереди людей: мазок шире, и «весь склад плюс
+           Иванов» читается именно в таком порядке. Отдел первым: он часть
+           структуры компании, а группу собирают под случай. -->
+      <li v-for="department in departments" :key="`unit-${department.id}`" class="people__item">
+        <span class="people__group-mark people__group-mark--unit" aria-hidden="true">От</span>
+        <span class="people__name">
+          {{ department.name }}
+          <span class="people__email">
+            Отдел<template v-if="department.parent"> · {{ department.parent }}</template> · вместе с подотделами
+          </span>
+        </span>
+        <button
+          type="button"
+          class="people__remove"
+          :disabled="isSaving"
+          @click="emit('removeDepartment', department)"
+        >
+          Убрать
+        </button>
+      </li>
+
       <li v-for="group in groups" :key="`group-${group.id}`" class="people__item">
         <span class="people__group-mark" aria-hidden="true">Гр</span>
         <span class="people__name">
@@ -193,7 +233,7 @@ const inputId = useId()
       </li>
     </ul>
 
-    <p v-if="!isLoading && people.length === 0 && groups.length === 0" class="panel__note">
+    <p v-if="!isLoading && people.length === 0 && groups.length === 0 && departments.length === 0" class="panel__note">
       {{ emptyNote }}
     </p>
 
@@ -212,6 +252,18 @@ const inputId = useId()
       </div>
 
       <ul v-if="hasCandidates" class="finder__results">
+        <li v-for="department in departmentCandidates" :key="`unit-${department.id}`">
+          <button type="button" class="finder__option" @click="addDepartment(department)">
+            <span class="people__group-mark people__group-mark--unit" aria-hidden="true">От</span>
+            <span class="people__name">
+              {{ department.name }}
+              <span class="people__email">
+                Отдел<template v-if="department.parent"> · {{ department.parent }}</template>
+              </span>
+            </span>
+          </button>
+        </li>
+
         <li v-for="group in groupCandidates" :key="`group-${group.id}`">
           <button type="button" class="finder__option" @click="addGroup(group)">
             <span class="people__group-mark" aria-hidden="true">Гр</span>
@@ -328,6 +380,13 @@ const inputId = useId()
   color: var(--color-accent);
   font-size: 0.72rem;
   font-weight: 600;
+}
+
+/* Отдел отличается от группы не только буквами: в списке они стоят вперемешку,
+   и одинаковые кружки читались бы как одно и то же. */
+.people__group-mark--unit {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
 }
 
 .people__remove {

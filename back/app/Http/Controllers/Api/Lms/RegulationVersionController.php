@@ -50,7 +50,7 @@ final class RegulationVersionController extends Controller
         Gate::authorize('update', $regulation);
 
         return RegulationVersionResource::collection(
-            $regulation->versions()->with('groups:id,name')->get(),
+            $regulation->versions()->with(['groups:id,name', 'departments:id,name'])->get(),
         );
     }
 
@@ -91,11 +91,12 @@ final class RegulationVersionController extends Controller
             ]);
 
             $version->groups()->sync($request->groups());
+            $version->departments()->sync($request->departments());
 
             return $version;
         });
 
-        return RegulationVersionResource::make($version->load('groups:id,name'))
+        return RegulationVersionResource::make($version->load(['groups:id,name', 'departments:id,name']))
             ->response()
             ->setStatusCode(HttpResponse::HTTP_CREATED);
     }
@@ -121,9 +122,10 @@ final class RegulationVersionController extends Controller
         DB::transaction(function () use ($version, $attributes, $request): void {
             $version->fill($attributes)->save();
             $version->groups()->sync($request->groups());
+            $version->departments()->sync($request->departments());
         });
 
-        return RegulationVersionResource::make($version->load('groups:id,name'));
+        return RegulationVersionResource::make($version->load(['groups:id,name', 'departments:id,name']));
     }
 
     /**
@@ -155,7 +157,7 @@ final class RegulationVersionController extends Controller
         });
 
         return RegulationVersionResource::collection(
-            $regulation->versions()->with('groups:id,name')->get(),
+            $regulation->versions()->with(['groups:id,name', 'departments:id,name'])->get(),
         );
     }
 
@@ -183,7 +185,7 @@ final class RegulationVersionController extends Controller
     private function withBody(Regulation $regulation, RegulationVersion $version, User $reader): RegulationVersion
     {
         $version->load([
-            'groups:id,name',
+            'groups:id,name', 'departments:id,name',
             'attachments',
             'quiz.questions.options',
             'quiz.examiner:id,last_name,first_name,middle_name',

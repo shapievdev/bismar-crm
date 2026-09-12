@@ -2,6 +2,7 @@
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { MaterialSection, MaterialVersionSummary } from '~/types/lms'
 import type { Group } from '~/types/structure'
+import { type FlatDepartment, flattenDepartments } from '~/utils/departments'
 
 /**
  * Версии материала — то же правило, написанное для своих людей.
@@ -21,19 +22,28 @@ const props = defineProps<{
 const copy = useMaterialSection(props.section)
 const { createVersion, fetchVersions, reorderVersions, deleteVersion } = useMaterialsApi(props.section)
 const { fetchGroups } = useGroupsApi()
+const { fetchStructure } = useStructureApi()
 
 const versions = ref<MaterialVersionSummary[]>([])
 const groups = ref<Group[]>([])
+const departments = ref<FlatDepartment[]>([])
 const isLoading = ref(true)
 const isSaving = ref(false)
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    const [own, all] = await Promise.all([fetchVersions(props.slug), fetchGroups()])
+    // Половины независимы, и падать вместе им незачем: сломанный справочник
+    // групп не должен уносить с собой отделы.
+    const [own, all, structure] = await Promise.all([
+      fetchVersions(props.slug),
+      fetchGroups(),
+      fetchStructure(),
+    ])
 
     versions.value = own.data
     groups.value = all.data
+    departments.value = flattenDepartments(structure.data)
   }
   catch {
     errorMessage.value = 'Не удалось загрузить версии.'
@@ -46,12 +56,12 @@ onMounted(async () => {
 /* ---------- Новая версия ---------- */
 
 const isAdding = ref(false)
-const form = ref({ name: '', is_private: false, groups: [] as number[] })
+const form = ref({ name: '', is_private: false, groups: [] as number[], departments: [] as number[] })
 const errors = ref<ValidationErrors>({})
 
 function startAdding() {
   isAdding.value = true
-  form.value = { name: '', is_private: false, groups: [] }
+  form.value = { name: '', is_private: false, groups: [], departments: [] }
   errors.value = {}
 }
 
@@ -147,8 +157,18 @@ function toggleGroup(id: number) {
     : [...form.value.groups, id]
 }
 
+function toggleDepartment(id: number) {
+  form.value.departments = form.value.departments.includes(id)
+    ? form.value.departments.filter(one => one !== id)
+    : [...form.value.departments, id]
+}
+
+/** Кому версия адресована — одной строкой: сперва отделы, потом группы. */
 function namesOf(version: MaterialVersionSummary): string {
-  return (version.groups ?? []).map(group => group.name).join(', ')
+  return [
+    ...(version.departments ?? []).map(unit => `${unit.name} (отдел)`),
+    ...(version.groups ?? []).map(group => group.name),
+  ].join(', ')
 }
 </script>
 
@@ -183,7 +203,7 @@ function namesOf(version: MaterialVersionSummary): string {
             {{ version.name }}
             <span v-if="version.is_private" class="badge">закрытая</span>
           </span>
-          <span class="faint version__groups">{{ namesOf(version) || 'без групп' }}</span>
+          <span class="faint version__groups">{{ namesOf(version) || 'без адресатов' }}</span>
         </span>
 
         <span class="version__actions">
@@ -237,11 +257,30 @@ function namesOf(version: MaterialVersionSummary): string {
       </div>
 
       <div class="field">
-        <span class="field-label">Для кого</span>
-        <p v-if="!groups.length" class="faint">
-          Групп пока нет — заведите их в разделе «Сотрудники».
+        <span class="field-label">Для кого — отделы</span>
+        <p class="faint versions__note">
+          Отмеченный отдел охватывает и всё, что под ним.
         </p>
-        <ul v-else class="picker">
+        <ul v-if="departments.length" class="picker picker--tree">
+          <li v-for="unit in departments" :key="unit.id" :style="{ paddingLeft: `${unit.depth}rem` }">
+            <label class="choice">
+              <input
+                type="checkbox"
+                :checked="form.departments.includes(unit.id)"
+                @change="toggleDepartment(unit.id)"
+              >
+              {{ unit.name }}
+            </label>
+          </li>
+        </ul>
+        <p v-else class="faint">
+          Структура компании пока не заведена.
+        </p>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Для кого — группы</span>
+        <ul v-if="groups.length" class="picker">
           <li v-for="group in groups" :key="group.id">
             <label class="choice">
               <input
@@ -254,6 +293,9 @@ function namesOf(version: MaterialVersionSummary): string {
             </label>
           </li>
         </ul>
+        <p v-else class="faint">
+          Групп пока нет — заведите их в разделе «Сотрудники».
+        </p>
         <p v-if="errors.groups?.length" class="field-error">
           {{ errors.groups[0] }}
         </p>
@@ -263,7 +305,7 @@ function namesOf(version: MaterialVersionSummary): string {
            лишь то, кому она откроется первой. -->
       <label class="choice">
         <input v-model="form.is_private" type="checkbox">
-        Закрытая — видна только выбранным группам
+        Закрытая — видна только выбранным отделам и группам
       </label>
 
       <div class="adding__actions">
@@ -384,6 +426,17 @@ function namesOf(version: MaterialVersionSummary): string {
   margin: 0.25rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+/* Отделы — столбцом: отступ показывает, чей это отдел, а в строку вперемешку
+   вложенность не прочитать. Без переноса: с ограниченной высотой колоночный
+   flex сворачивает список во вторую колонку, и отступы начинают врать. */
+.picker--tree {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.2rem;
+  max-height: 12rem;
+  overflow-y: auto;
 }
 
 .adding__actions {

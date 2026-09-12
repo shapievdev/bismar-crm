@@ -235,10 +235,11 @@ export function useMaterialsApi(section: MaterialSection) {
       slug: string,
       members: number[],
       groups: number[],
+      departments: number[],
     ): Promise<ResourceResponse<MaterialAccess>> =>
       $api<ResourceResponse<MaterialAccess>>(`${base}/${slug}/access`, {
         method: 'PUT',
-        body: { members, groups },
+        body: { members, groups, departments },
       }),
 
     searchMemberCandidates: (slug: string, search: string): Promise<ResourceResponse<MaterialAccess>> =>

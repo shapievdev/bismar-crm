@@ -10,11 +10,13 @@ use App\Http\Requests\Lms\UpdateMaterialAccessRequest;
 use App\Http\Resources\GroupResource;
 use App\Http\Resources\Lms\CoursePersonResource;
 use App\Models\Course;
+use App\Models\Department;
 use App\Models\Group;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -50,7 +52,13 @@ final class CourseAccessController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        $syncAccess->handle($course, $request->members(), $request->groups(), $actor);
+        $syncAccess->handle(
+            $course,
+            $request->members(),
+            $request->groups(),
+            $request->departments(),
+            $actor,
+        );
 
         return $this->listing($course->refresh());
     }
@@ -91,10 +99,19 @@ final class CourseAccessController extends Controller
             ->limit(self::CANDIDATES)
             ->get();
 
+        $departments = Department::query()
+            ->whereNotIn('id', $course->memberDepartments()->select('departments.id'))
+            ->matching($search)
+            ->with('parent:id,name')
+            ->ordered()
+            ->limit(self::CANDIDATES)
+            ->get();
+
         return response()->json([
             'data' => [
                 'people' => CoursePersonResource::collection($people)->resolve(),
                 'groups' => GroupResource::collection($groups)->resolve(),
+                'departments' => $this->departments($departments),
             ],
         ]);
     }
@@ -114,12 +131,33 @@ final class CourseAccessController extends Controller
             ->get();
 
         $groups = $course->memberGroups()->withCount('people')->ordered()->get();
+        $departments = $course->memberDepartments()->with('parent:id,name')->ordered()->get();
 
         return response()->json([
             'data' => [
                 'people' => CoursePersonResource::collection($people)->resolve(),
                 'groups' => GroupResource::collection($groups)->resolve(),
+                'departments' => $this->departments($departments),
             ],
         ]);
+    }
+
+    /**
+     * Отделы — именем и тем, чей это отдел.
+     *
+     * Родитель приложен не для красоты: «Продажи» в рознице и «Продажи» в опте
+     * — разные отделы, и в списке из одних названий их не различить. Полного
+     * дерева здесь не нужно: его рисуют там, где отделы выбирают из структуры.
+     *
+     * @param  Collection<int, Department>  $departments
+     * @return list<array<string, mixed>>
+     */
+    private function departments(Collection $departments): array
+    {
+        return $departments->map(static fn (Department $department): array => [
+            'id' => (int) $department->getKey(),
+            'name' => $department->name,
+            'parent' => $department->parent?->name,
+        ])->values()->all();
     }
 }

@@ -38,12 +38,22 @@ final class RegulationVersionResource extends JsonResource
             'is_mine' => (bool) $this->is_mine,
 
             // Для кого версия написана — тому, кто документ ведёт. Читателю
-            // список групп ни о чём не говорит и в переключатель не едет.
+            // этот список ни о чём не говорит и в переключатель не едет.
             'groups' => $this->when(
                 $this->relationLoaded('groups'),
                 fn (): array => $this->groups->map(static fn ($group): array => [
                     'id' => $group->id,
                     'name' => $group->name,
+                ])->all(),
+            ),
+
+            // Отдел рядом с группой (2026-09-12): охватывает он и всё, что под
+            // ним, — см. MaterialVersions.
+            'departments' => $this->when(
+                $this->relationLoaded('departments'),
+                fn (): array => $this->departments->map(static fn ($department): array => [
+                    'id' => $department->id,
+                    'name' => $department->name,
                 ])->all(),
             ),
 

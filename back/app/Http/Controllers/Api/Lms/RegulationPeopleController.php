@@ -10,6 +10,7 @@ use App\Http\Requests\Lms\UpdateCourseAccessRequest;
 use App\Http\Requests\Lms\UpdateMaterialAccessRequest;
 use App\Http\Resources\GroupResource;
 use App\Http\Resources\Lms\CoursePersonResource;
+use App\Models\Department;
 use App\Models\Group;
 use App\Models\Regulation;
 use App\Models\User;
@@ -57,7 +58,13 @@ final class RegulationPeopleController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        $people->admit($regulation, $request->members(), $request->groups(), $actor);
+        $people->admit(
+            $regulation,
+            $request->members(),
+            $request->groups(),
+            $request->departments(),
+            $actor,
+        );
 
         return $this->listing($regulation->refresh());
     }
@@ -75,15 +82,25 @@ final class RegulationPeopleController extends Controller
 
         $people = $this->candidates($request, $regulation, 'regulation_members', excludeAuthor: true);
 
+        $search = trim((string) $request->query('search'));
+
         $groups = Group::query()
             ->whereNotIn('id', $regulation->memberGroups()->select('groups.id'))
-            ->matching(trim((string) $request->query('search')))
+            ->matching($search)
             ->withCount('people')
             ->ordered()
             ->limit(self::CANDIDATES)
             ->get();
 
-        return $this->both($people, $groups);
+        $departments = Department::query()
+            ->whereNotIn('id', $regulation->memberDepartments()->select('departments.id'))
+            ->matching($search)
+            ->with('parent:id,name')
+            ->ordered()
+            ->limit(self::CANDIDATES)
+            ->get();
+
+        return $this->both($people, $groups, $departments);
     }
 
     /* ---------- Ответственные: право редакторское ---------- */
@@ -132,22 +149,33 @@ final class RegulationPeopleController extends Controller
         return $this->both(
             $this->byName($regulation->members()),
             $regulation->memberGroups()->withCount('people')->ordered()->get(),
+            $regulation->memberDepartments()->with('parent:id,name')->ordered()->get(),
         );
     }
 
     /**
-     * Два списка одним ответом: порознь их не спрашивают — на экране это одна
+     * Три списка одним ответом: порознь их не спрашивают — на экране это одна
      * панель.
      *
      * @param  Collection<int, User>  $people
      * @param  Collection<int, Group>  $groups
+     * @param  Collection<int, Department>  $departments
      */
-    private function both(Collection $people, Collection $groups): JsonResponse
+    private function both(Collection $people, Collection $groups, Collection $departments): JsonResponse
     {
         return response()->json([
             'data' => [
                 'people' => CoursePersonResource::collection($people)->resolve(),
                 'groups' => GroupResource::collection($groups)->resolve(),
+
+                // Родитель приложен не для красоты: «Продажи» в рознице и
+                // «Продажи» в опте — разные отделы, и в списке из одних
+                // названий их не различить.
+                'departments' => $departments->map(static fn (Department $department): array => [
+                    'id' => (int) $department->getKey(),
+                    'name' => $department->name,
+                    'parent' => $department->parent?->name,
+                ])->values()->all(),
             ],
         ]);
     }

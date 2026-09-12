@@ -7,6 +7,7 @@ namespace App\Support\Lms;
 use App\Models\Regulation;
 use App\Models\RegulationVersion;
 use App\Models\User;
+use App\Support\Structure\DepartmentReach;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -48,6 +49,14 @@ final class MaterialVersions
     private array $groups = [];
 
     /**
+     * Отделы, которыми можно позвать человека, — вместе со стоящими над ними
+     * (2026-09-12). Спрашиваются там же и столько же раз, что и группы.
+     *
+     * @var array<int, list<int>>
+     */
+    private array $departments = [];
+
+    /**
      * «Моя версия» по каждому документу — тоже раз на человека: корпус
      * консультанта собирается несколькими запросами за один ответ, и каждый
      * спрашивает одно и то же.
@@ -63,16 +72,14 @@ final class MaterialVersions
      */
     public function visibleTo(Regulation $regulation, User $reader): Collection
     {
-        $versions = $regulation->versions()->with('groups:id,name')->get();
+        $versions = $regulation->versions()->with(['groups:id,name', 'departments:id,name'])->get();
 
         if ($this->seesEverything($regulation, $reader)) {
             return $versions;
         }
 
-        $mine = $this->groupsOf($reader);
-
         return $versions->filter(
-            fn (RegulationVersion $version): bool => ! $version->is_private || $this->matches($version, $mine),
+            fn (RegulationVersion $version): bool => ! $version->is_private || $this->matches($version, $reader),
         )->values();
     }
 
@@ -99,13 +106,11 @@ final class MaterialVersions
      */
     public function mineAmong(Collection $versions, User $reader): ?RegulationVersion
     {
-        $mine = $this->groupsOf($reader);
-
-        if ($mine === []) {
+        if ($this->groupsOf($reader) === [] && $this->departmentsOf($reader) === []) {
             return null;
         }
 
-        return $versions->first(fn (RegulationVersion $version): bool => $this->matches($version, $mine));
+        return $versions->first(fn (RegulationVersion $version): bool => $this->matches($version, $reader));
     }
 
     /**
@@ -124,7 +129,7 @@ final class MaterialVersions
             return true;
         }
 
-        return $this->matches($version, $this->groupsOf($reader));
+        return $this->matches($version, $reader);
     }
 
     /**
@@ -147,8 +152,9 @@ final class MaterialVersions
         }
 
         $groups = $this->groupsOf($reader);
+        $departments = $this->departmentsOf($reader);
 
-        if ($groups === []) {
+        if ($groups === [] && $departments === []) {
             return $this->mine[$id] = [];
         }
 
@@ -156,10 +162,31 @@ final class MaterialVersions
          * Первая по порядку из совпавших — то же правило, что и у одного
          * документа, только посчитанное разом. DISTINCT ON берёт по одной
          * строке на документ в том порядке, в каком их расставил автор.
+         *
+         * Группа и отдел складываются: версия «моя», если совпало хоть что-то.
+         * Не соединением, а двумя EXISTS — соединение по двум спискам разом
+         * размножило бы строки и заставило бы их различать.
          */
         $rows = DB::table('regulation_versions')
-            ->join('regulation_version_groups', 'regulation_version_groups.version_id', '=', 'regulation_versions.id')
-            ->whereIn('regulation_version_groups.group_id', $groups)
+            ->where(function ($query) use ($groups, $departments): void {
+                $query->whereRaw('false');
+
+                if ($groups !== []) {
+                    $query->orWhereExists(fn ($inner) => $inner
+                        ->selectRaw('1')
+                        ->from('regulation_version_groups')
+                        ->whereColumn('regulation_version_groups.version_id', 'regulation_versions.id')
+                        ->whereIn('regulation_version_groups.group_id', $groups));
+                }
+
+                if ($departments !== []) {
+                    $query->orWhereExists(fn ($inner) => $inner
+                        ->selectRaw('1')
+                        ->from('regulation_version_departments')
+                        ->whereColumn('regulation_version_departments.version_id', 'regulation_versions.id')
+                        ->whereIn('regulation_version_departments.department_id', $departments));
+                }
+            })
             ->orderBy('regulation_versions.regulation_id')
             ->orderBy('regulation_versions.position')
             ->orderBy('regulation_versions.id')
@@ -191,12 +218,19 @@ final class MaterialVersions
         }
 
         $groups = $this->groupsOf($reader);
+        $departments = $this->departmentsOf($reader);
 
         return DB::table('regulation_versions')
             ->where('is_private', true)
             ->when($groups !== [], fn ($query) => $query->whereNotIn(
                 'id',
                 DB::table('regulation_version_groups')->whereIn('group_id', $groups)->select('version_id'),
+            ))
+            ->when($departments !== [], fn ($query) => $query->whereNotIn(
+                'id',
+                DB::table('regulation_version_departments')
+                    ->whereIn('department_id', $departments)
+                    ->select('version_id'),
             ))
             ->pluck('id')
             ->map(intval(...))
@@ -214,19 +248,32 @@ final class MaterialVersions
     }
 
     /**
-     * @param  list<int>  $groups
+     * Написана ли версия для этого человека — группой или отделом.
+     *
+     * Способы складываются: совпало хоть что-то — версия его. Отдел при этом
+     * охватывает и всё, что под ним: сравнивается он не с отделами человека, а
+     * с теми, которыми до него можно дотянуться сверху (DepartmentReach).
      */
-    private function matches(RegulationVersion $version, array $groups): bool
+    private function matches(RegulationVersion $version, User $reader): bool
     {
-        if ($groups === []) {
+        return $this->intersects($version, 'groups', $this->groupsOf($reader))
+            || $this->intersects($version, 'departments', $this->departmentsOf($reader));
+    }
+
+    /**
+     * @param  list<int>  $mine
+     */
+    private function intersects(RegulationVersion $version, string $relation, array $mine): bool
+    {
+        if ($mine === []) {
             return false;
         }
 
-        $own = $version->relationLoaded('groups')
-            ? $version->groups->modelKeys()
-            : $version->groups()->pluck('groups.id')->all();
+        $own = $version->relationLoaded($relation)
+            ? $version->getRelation($relation)->modelKeys()
+            : $version->{$relation}()->pluck($relation.'.id')->all();
 
-        return array_intersect(array_map(intval(...), $own), $groups) !== [];
+        return array_intersect(array_map(intval(...), $own), $mine) !== [];
     }
 
     /**
@@ -240,5 +287,18 @@ final class MaterialVersions
             ->pluck('groups.id')
             ->map(intval(...))
             ->all();
+    }
+
+    /**
+     * Отделы, которыми можно позвать этого человека, — его собственные и все,
+     * что стоят над ними.
+     *
+     * @return list<int>
+     */
+    private function departmentsOf(User $reader): array
+    {
+        $id = (int) $reader->getKey();
+
+        return $this->departments[$id] ??= app(DepartmentReach::class)->reaching($reader);
     }
 }
