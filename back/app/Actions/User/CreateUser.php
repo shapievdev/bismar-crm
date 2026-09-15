@@ -24,6 +24,8 @@ final readonly class CreateUser
             'email' => $data->email,
             'phone' => $data->phone,
             'job_title' => $data->jobTitle,
+            'hired_at' => $data->hiredAt,
+            'work_mode' => $data->workMode,
             'password' => $data->password,
         ]);
     }

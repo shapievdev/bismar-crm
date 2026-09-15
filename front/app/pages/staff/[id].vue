@@ -26,6 +26,26 @@ const { confirm } = useAppDialog()
 const canManage = computed(() => can('users.manage'))
 
 /**
+ * Вешать теги — своё право, не право на людей.
+ *
+ * Кадровик размечает штат, не получая при этом власти над учётными записями: то
+ * и другое — разные работы, и делают их разные люди.
+ */
+const canTag = computed(() => can('staff-tags.manage'))
+
+/**
+ * Теги сохранились — карточка обновляется на месте, без повторного запроса.
+ *
+ * Сервер возвращает человека целиком, и перечитывать страницу ради галочки
+ * значило бы свернуть открытый план обучения и форму правки заодно.
+ */
+function onTagsChanged(updated: User): void {
+  if (data.value) {
+    data.value = { ...data.value, member: updated }
+  }
+}
+
+/**
  * Чужой план открывает тот, кому доверено обучение (`enrollments.manage`);
  * должность администратора это право включает. Сам сотрудник видит свой план
  * у себя, на «Моём плане».
@@ -106,7 +126,10 @@ const formErrors = ref<ValidationErrors>({})
 const account = ref<StaffAccountDraft>(blankAccount())
 
 function blankAccount(): StaffAccountDraft {
-  return { last_name: '', first_name: '', middle_name: '', email: '', phone: '', job_title: '', password: '' }
+  return {
+    last_name: '', first_name: '', middle_name: '', email: '', phone: '', job_title: '',
+    hired_at: '', employment_status: 'working', work_mode: '', mentor_id: '', password: '',
+  }
 }
 
 function openAccountForm() {
@@ -127,6 +150,14 @@ function openAccountForm() {
     // Хранится «+79990009977», а правится в том же виде, в каком набирается.
     phone: maskPhone(person.phone ?? ''),
     job_title: person.job_title ?? '',
+
+    // Кадровое. Положение «уволен» формой не правится — в списке его нет, и
+    // уволенного она открывает как работающего, пока его не вернут в строй.
+    hired_at: person.hired_at ?? '',
+    employment_status: person.status === 'dismissed' ? 'working' : person.status,
+    work_mode: person.work_mode ?? '',
+    mentor_id: person.mentor ? String(person.mentor.id) : '',
+
     // Left blank means "leave the current one alone".
     password: '',
   }
@@ -154,6 +185,14 @@ async function saveAccount() {
       // Скобки и дефисы — дело показа: на сервер уходит одно число.
       phone: phoneForApi(account.value.phone),
       job_title: account.value.job_title || null,
+
+      // Пустое здесь тоже значит «убрать»: дату приёма и наставника снимают
+      // тем же движением, каким ставят.
+      hired_at: account.value.hired_at || null,
+      employment_status: account.value.employment_status,
+      work_mode: account.value.work_mode || null,
+      mentor_id: account.value.mentor_id ? Number(account.value.mentor_id) : null,
+
       ...(account.value.password ? { password: account.value.password } : {}),
     })
 
@@ -228,6 +267,16 @@ const levels = computed(() => {
     appointable.value.includes(level.value) || level.value === draft.value.level)
 })
 
+/**
+ * Кого можно поставить наставником: работающие, кроме самого правимого.
+ *
+ * Тот же список коллег, что и у переноса прав, но отобран иначе: наставником
+ * бывает и администратор, а правами делится кто угодно.
+ */
+const mentorOptions = computed(() => (data.value?.colleagues ?? [])
+  .filter(person => person.id !== memberId && !person.dismissed_at)
+  .map(person => ({ id: person.id, name: person.name })))
+
 /** Коллеги — как готовый набор прав, который можно перенести целиком. */
 const copyOptions = computed(() => (data.value?.colleagues ?? [])
   .filter(person => person.id !== memberId && person.level === 'user' && !person.dismissed_at)
@@ -285,6 +334,25 @@ async function saveAccess() {
  * Кого этот человек вправе уволить: всех, кроме себя, а суперадминистратора —
  * только другой суперадминистратор. Та же лестница, что и у назначений.
  */
+/**
+ * Почему человек уходит — выбирается до нажатия «Уволить».
+ *
+ * Список закрытый: текстом причины не складываются в доли, а ради них отчёт о
+ * движении персонала и смотрят. Пустое значение допустимо — увольнение не
+ * должно упираться в невыбранный пункт.
+ */
+const dismissalReason = ref('')
+
+const DISMISSAL_REASONS = [
+  { value: '', label: 'Причина не указана' },
+  { value: 'own', label: 'По собственному' },
+  { value: 'agreement', label: 'По соглашению' },
+  { value: 'employer', label: 'Инициатива работодателя' },
+  { value: 'probation-failed', label: 'Не прошёл испытательный срок' },
+  { value: 'no-show', label: 'Не вышел после найма' },
+  { value: 'other', label: 'Другое' },
+]
+
 const mayDismiss = computed(() => {
   const person = member.value
 
@@ -294,6 +362,19 @@ const mayDismiss = computed(() => {
 
   return isSuperAdmin.value || person.level !== 'super-admin'
 })
+
+/** Стаж словами: «1 год 4 месяца» читается, «16» — нет. */
+function tenure(months: number): string {
+  const years = Math.floor(months / 12)
+  const rest = months % 12
+
+  const parts = [
+    years > 0 ? `${years} ${pluralise(years, 'год', 'года', 'лет')}` : null,
+    rest > 0 || years === 0 ? `${rest} ${pluralise(rest, 'месяц', 'месяца', 'месяцев')}` : null,
+  ].filter(Boolean)
+
+  return parts.join(' ')
+}
 
 async function dismiss() {
   const person = member.value
@@ -310,7 +391,9 @@ async function dismiss() {
   })
 
   if (confirmed) {
-    await act(() => dismissUser(person), 'Не удалось уволить сотрудника.')
+    await act(() => dismissUser(person, dismissalReason.value), 'Не удалось уволить сотрудника.')
+
+    dismissalReason.value = ''
   }
 }
 
@@ -452,9 +535,14 @@ async function afterChange() {
             <!-- Себя не увольняют, а суперадминистратора увольняет один
                  суперадминистратор. API проверяет то же самое — здесь кнопка
                  просто не предлагает того, чего нельзя. -->
-            <button v-if="mayDismiss" type="button" class="button-secondary" :disabled="isBusy" @click="dismiss">
-              Уволить
-            </button>
+            <!-- Причина стоит перед кнопкой, а не в окне подтверждения: окно
+                 задаёт вопрос «точно?», а не собирает данные. -->
+            <template v-if="mayDismiss">
+              <UiSelect v-model="dismissalReason" :options="DISMISSAL_REASONS" auto />
+              <button type="button" class="button-secondary" :disabled="isBusy" @click="dismiss">
+                Уволить
+              </button>
+            </template>
           </template>
         </div>
       </header>
@@ -491,6 +579,56 @@ async function afterChange() {
               <dd>
                 <span v-if="member.job_title">{{ member.job_title }}</span>
                 <span v-else class="muted">не указана</span>
+              </dd>
+            </div>
+
+            <!--
+              Кадровое стоит рядом с должностью, а не отдельной панелью: это
+              ответы на один вопрос — кто этот человек в компании.
+            -->
+            <div class="facts__row">
+              <dt>Принят</dt>
+              <dd>
+                <template v-if="member.hired_at">
+                  {{ formatDate(member.hired_at) }}
+                  <span v-if="member.tenure_months !== null" class="muted">· {{ tenure(member.tenure_months) }}</span>
+                </template>
+                <span v-else class="muted">не указан — не попадёт в отчёт о движении персонала</span>
+              </dd>
+            </div>
+
+            <div v-if="member.status !== 'working'" class="facts__row">
+              <dt>Положение</dt>
+              <dd>
+                <span class="badge" :class="member.status === 'dismissed' ? 'badge--warning' : 'badge--accent'">
+                  {{ member.status_label }}
+                </span>
+                <span v-if="member.dismissal_reason_label" class="muted">· {{ member.dismissal_reason_label }}</span>
+              </dd>
+            </div>
+
+            <div v-if="member.work_mode_label" class="facts__row">
+              <dt>Режим работы</dt>
+              <dd>{{ member.work_mode_label }}</dd>
+            </div>
+
+            <!-- Теги стоят среди кадрового, а не среди прав: «кадровый резерв»
+                 описывает человека, а не то, что ему открыто. -->
+            <div v-if="canTag || member.tags?.length" class="facts__row">
+              <dt>Теги</dt>
+              <dd>
+                <StaffTagPicker
+                  :person="member"
+                  :editable="canTag"
+                  @changed="onTagsChanged"
+                />
+              </dd>
+            </div>
+
+            <div v-if="member.mentor" class="facts__row">
+              <dt>Наставник</dt>
+              <dd>
+                <NuxtLink :to="`/staff/${member.mentor.id}`">{{ member.mentor.name }}</NuxtLink>
               </dd>
             </div>
 
@@ -560,7 +698,7 @@ async function afterChange() {
           Учётная запись
         </h2>
 
-        <StaffAccountFields v-model="account" mode="edit" :errors="formErrors" />
+        <StaffAccountFields v-model="account" mode="edit" :errors="formErrors" :colleagues="mentorOptions" />
 
         <p class="muted">
           Права меняются отдельно — кнопкой «Доступ».

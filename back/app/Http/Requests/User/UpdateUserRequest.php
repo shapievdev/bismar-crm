@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\User;
 
+use App\Enums\EmploymentStatus;
+use App\Enums\WorkMode;
 use App\Models\User;
 use App\Support\Email;
 use App\Support\Phone;
@@ -46,6 +48,37 @@ final class UpdateUserRequest extends FormRequest
 
             // Должность — по-прежнему необязательная: пустое поле значит «убрать».
             'job_title' => ['nullable', 'string', 'max:255'],
+
+            /*
+             * Кадровое: приём, положение, режим работы, наставник.
+             *
+             * Дата приёма необязательна, хотя без неё не считается ни стаж, ни
+             * текучесть: в базе есть люди, заведённые до того, как её начали
+             * спрашивать, и требовать её здесь значило бы не дать сохранить
+             * карточку, пока кадровик не выяснит день пятилетней давности.
+             * Отчёт называет незаполненных поимённо — см. StaffReport.
+             *
+             * Будущим днём приём не отмечают: человек либо принят, либо ещё нет.
+             */
+            'hired_at' => ['nullable', 'date', 'before_or_equal:today'],
+
+            // Уволенного этим списком не сделать: увольнение идёт своим
+            // действием — с проверкой прав, обрывом сессий и причиной ухода.
+            'employment_status' => [
+                'nullable',
+                Rule::enum(EmploymentStatus::class)->only(EmploymentStatus::assignable()),
+            ],
+
+            'work_mode' => ['nullable', Rule::enum(WorkMode::class)],
+
+            // Наставником ставят работающего и не самого себя: вести себя
+            // самому не получится, а ушедший уже никого не ведёт.
+            'mentor_id' => [
+                'nullable',
+                'integer',
+                Rule::notIn([$this->route('user')?->getKey()]),
+                Rule::exists(User::class, 'id')->whereNull('dismissed_at'),
+            ],
 
             // Optional: sent only when the administrator is resetting it.
             'password' => ['nullable', 'string', Password::defaults()],

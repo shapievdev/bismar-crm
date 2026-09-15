@@ -4,6 +4,15 @@ import { formatCompactMoney, formatMoney, formatNumber } from '~/utils/numbers'
 export interface BarRow {
   name: string
   value: number
+  /**
+   * Своё «из скольких» — когда строка меряется не соседями, а собственным
+   * знаменателем.
+   *
+   * Так читается охват: три прошедших из трёх — это полная полоса, а пять из
+   * сорока — четверть, хотя пять больше трёх. Меряй такие строки по соседям, и
+   * лучший курс компании выглядел бы худшим.
+   */
+  total?: number
   /** Вторая величина строки: маржа, число документов, доля просрочки. */
   meta?: string
   /** Доля выручки с известной себестоимостью — приглушает недостоверную маржу. */
@@ -24,8 +33,14 @@ const props = withDefaults(defineProps<{
  */
 const maximum = computed(() => Math.max(1, ...props.rows.map(row => Math.abs(row.value))))
 
-function share(value: number): number {
-  return (Math.abs(value) / maximum.value) * 100
+/**
+ * Длина полосы: доля от своего знаменателя, если он задан, иначе — от самой
+ * длинной строки списка.
+ */
+function share(row: BarRow): number {
+  const whole = row.total !== undefined ? Math.max(1, row.total) : maximum.value
+
+  return Math.min(100, (Math.abs(row.value) / whole) * 100)
 }
 
 function formatValue(value: number): string {
@@ -36,8 +51,16 @@ function preciseValue(value: number): string {
   return props.format === 'money' ? formatMoney(value, 2) : formatNumber(value)
 }
 
-/** Лидер отмечается, только если он и правда впереди — а не один в списке. */
-const leaderIndex = computed(() => (props.rows.length > 1 ? 0 : -1))
+/**
+ * Лидер отмечается, только если он и правда впереди — а не один в списке.
+ *
+ * И только там, где список — рейтинг по величине. Когда у строк свой
+ * знаменатель, порядок задаёт не размер, а что-то другое (например, где хуже
+ * всего идут дела), и лайм на первой строке хвалил бы худшую.
+ */
+const leaderIndex = computed(() => (props.rows.length > 1 && props.rows.every(row => row.total === undefined)
+  ? 0
+  : -1))
 </script>
 
 <template>
@@ -59,7 +82,7 @@ const leaderIndex = computed(() => (props.rows.length > 1 ? 0 : -1))
             'bar__fill--leader': index === leaderIndex && row.value > 0,
             'bar__fill--negative': row.value < 0,
           }"
-          :style="{ width: `${share(row.value)}%` }"
+          :style="{ width: `${share(row)}%` }"
         />
       </div>
 

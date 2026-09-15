@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Analytics;
 
+use App\Enums\AttestationStatus;
 use App\Enums\Permission;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Enrollment;
+use App\Models\LearningPlanItem;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
@@ -74,8 +77,8 @@ final class LearningAnalyticsTest extends TestCase
 
         $this->assertSame(1, $summary['courses']);
         $this->assertSame(1, $summary['published_courses']);
-        $this->assertSame(2, $summary['regulations']);
-        $this->assertSame(1, $summary['published_regulations']);
+        $this->assertSame(2, $summary['documents']);
+        $this->assertSame(1, $summary['published_documents']);
         $this->assertSame(4, $summary['lessons']);
 
         $this->assertSame(1, $summary['enrollments']);
@@ -182,7 +185,7 @@ final class LearningAnalyticsTest extends TestCase
         )->keyBy('id');
 
         $lessonRow = $quizzes[$lessonQuiz->id];
-        $this->assertSame('lesson', $lessonRow['kind']);
+        $this->assertSame('lesson', $lessonRow['owner']);
         $this->assertSame('Первый звонок', $lessonRow['material']);
         $this->assertSame('Работа с клиентом', $lessonRow['course_title']);
         $this->assertSame(2, $lessonRow['questions']);
@@ -192,7 +195,7 @@ final class LearningAnalyticsTest extends TestCase
         $this->assertSame(50, $lessonRow['average_score']);
 
         $documentRow = $quizzes[$documentQuiz->id];
-        $this->assertSame('regulation', $documentRow['kind']);
+        $this->assertSame('regulation', $documentRow['owner']);
         $this->assertSame('Кассовая дисциплина', $documentRow['material']);
         $this->assertSame($document->slug, $documentRow['document_slug']);
         $this->assertSame(1, $documentRow['passed']);
@@ -232,6 +235,235 @@ final class LearningAnalyticsTest extends TestCase
         $this->assertTrue($people[1]['passed']);
         $this->assertSame('Ёлкина Мария', $people[1]['name']);
         $this->assertSame(1, $people[1]['attempts']);
+    }
+
+    /* ---------- Разделы, охват и аттестации ---------- */
+
+    /**
+     * Документы и справочники считаются врозь.
+     *
+     * Разделы разные и права у них свои (2026-09-11); сложенные в одно число,
+     * они отвечают на вопрос, которого никто не задавал.
+     */
+    public function test_documents_and_handbooks_are_counted_apart(): void
+    {
+        Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        Regulation::factory()->create(['title' => 'Черновик документа']);
+        Regulation::factory()->handbook()->published()->create(['title' => 'Справочник по кассе']);
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk();
+
+        $summary = $response->json('data.summary');
+
+        $this->assertSame(2, $summary['documents']);
+        $this->assertSame(1, $summary['published_documents']);
+        $this->assertSame(1, $summary['handbooks']);
+        $this->assertSame(1, $summary['published_handbooks']);
+
+        $this->assertSame(
+            ['Кассовая дисциплина', 'Черновик документа'],
+            collect($response->json('data.documents'))->pluck('title')->sort()->values()->all(),
+        );
+
+        $this->assertSame(
+            ['Справочник по кассе'],
+            collect($response->json('data.handbooks'))->pluck('title')->all(),
+        );
+    }
+
+    /**
+     * Круг допущенных — записанные плюс те, кому курс назначен планом.
+     *
+     * Ради этого числа отчёт и переписывали: «прошли семеро» ничего не значит,
+     * пока не сказано, из скольких, — а назначенный планом допущен, даже если
+     * записи у него ещё нет.
+     */
+    public function test_the_circle_counts_those_the_course_is_planned_for(): void
+    {
+        $course = Course::factory()->published()->create();
+        $enrolled = $this->learner();
+        $planned = $this->learner();
+
+        Enrollment::factory()->create(['course_id' => $course->id, 'user_id' => $enrolled->id]);
+
+        LearningPlanItem::query()->create([
+            'user_id' => $planned->id,
+            'plannable_type' => $course->getMorphClass(),
+            'plannable_id' => $course->id,
+            'position' => 1,
+        ]);
+
+        $card = collect(
+            $this->actingAs($this->trainer())
+                ->getJson(route('analytics.learning'))
+                ->assertOk()
+                ->json('data.courses'),
+        )->firstWhere('id', $course->id);
+
+        // Записан один, а допущены двое: второму курс назначен планом.
+        $this->assertSame(1, $card['enrolled']);
+        $this->assertSame(2, $card['audience']);
+        $this->assertSame(0, $card['completed']);
+    }
+
+    /**
+     * Назначено и начато — разные числа.
+     *
+     * Запись, к которой не приступали, это не «медленно идёт», а «не открывали
+     * вовсе», и разговаривать по ней надо иначе.
+     */
+    public function test_untouched_enrollments_are_counted_apart(): void
+    {
+        $course = Course::factory()->published()->create();
+        $module = CourseModule::factory()->create(['course_id' => $course->id]);
+        Lesson::factory()->create(['module_id' => $module->id]);
+
+        Enrollment::factory()->create([
+            'course_id' => $course->id,
+            'user_id' => $this->learner()->id,
+            'started_at' => now(),
+        ]);
+
+        Enrollment::factory()->create([
+            'course_id' => $course->id,
+            'user_id' => $this->learner()->id,
+            'started_at' => null,
+        ]);
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk();
+
+        $this->assertSame(2, $response->json('data.summary.enrollments'));
+        $this->assertSame(1, $response->json('data.summary.not_started'));
+
+        $card = collect($response->json('data.courses'))->firstWhere('id', $course->id);
+
+        $this->assertSame(2, $card['enrolled']);
+        $this->assertSame(1, $card['started']);
+    }
+
+    /**
+     * Аттестация, ждущая человека, — не «не сдал».
+     *
+     * Работа отправлена, а проверяющий до неё ещё не дошёл: спрашивать надо не
+     * с отправившего. Это и есть число, ради которого отчёт открывают утром.
+     */
+    public function test_an_attestation_awaiting_review_is_not_a_failure(): void
+    {
+        $course = Course::factory()->published()->create();
+        $module = CourseModule::factory()->create(['course_id' => $course->id]);
+        $lesson = Lesson::factory()->create(['module_id' => $module->id]);
+
+        $quiz = Quiz::factory()->attestation()->withQuestions(1)->forLesson($lesson)->create();
+        $waiting = $this->learner();
+
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id,
+            'user_id' => $waiting->id,
+            'score' => 0,
+            'passed' => false,
+            'answers' => [],
+            'completed_at' => now(),
+            'review_status' => AttestationStatus::Pending,
+        ]);
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk();
+
+        $this->assertSame(1, $response->json('data.summary.attestations'));
+        $this->assertSame(1, $response->json('data.summary.attestations_pending'));
+
+        $row = collect($response->json('data.quizzes'))->firstWhere('id', $quiz->id);
+
+        $this->assertTrue($row['is_attestation']);
+        $this->assertSame(1, $row['attempted']);
+        $this->assertSame(0, $row['passed']);
+        $this->assertSame(1, $row['pending']);
+
+        $person = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.quiz', $quiz))
+            ->assertOk()
+            ->json('data.people.0');
+
+        $this->assertTrue($person['awaiting']);
+        $this->assertFalse($person['passed']);
+    }
+
+    /**
+     * Проверка при версии документа — тоже проверка.
+     *
+     * Версии завелись позже отчёта, и висящие на них проверки не показывались
+     * нигде: заведённая аттестация была невидима и для того, кто её проверяет.
+     */
+    public function test_a_quiz_on_a_document_version_is_reported(): void
+    {
+        $document = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+
+        $version = RegulationVersion::query()->create([
+            'regulation_id' => $document->id,
+            'name' => 'Для кассиров',
+            'position' => 1,
+        ]);
+
+        $quiz = Quiz::factory()->withQuestions(1)->forVersion($version)->create(['title' => 'Проверка кассира']);
+
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id,
+            'user_id' => $this->learner()->id,
+            'score' => 100,
+            'passed' => true,
+            'answers' => [],
+            'completed_at' => now(),
+        ]);
+
+        $row = collect(
+            $this->actingAs($this->trainer())
+                ->getJson(route('analytics.learning'))
+                ->assertOk()
+                ->json('data.quizzes'),
+        )->firstWhere('id', $quiz->id);
+
+        $this->assertNotNull($row, 'Проверка версии в отчёт не попала.');
+        $this->assertSame('regulation_version', $row['owner']);
+        $this->assertSame('Кассовая дисциплина', $row['material']);
+        $this->assertSame('Для кассиров', $row['version_name']);
+        $this->assertSame($document->slug, $row['document_slug']);
+        $this->assertSame(1, $row['passed']);
+    }
+
+    /**
+     * Проходивший проверку документа попадает в круг допущенных.
+     *
+     * Не сдавший не ознакомлен, но к документу он приходил, и не считать его
+     * значит потерять ровно того, с кем надо разговаривать.
+     */
+    public function test_someone_who_only_tried_the_check_is_still_in_the_circle(): void
+    {
+        $document = Regulation::factory()->published()->create();
+        $quiz = Quiz::factory()->withQuestions(1)->forRegulation($document)->create();
+
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id,
+            'user_id' => $this->learner()->id,
+            'score' => 0,
+            'passed' => false,
+            'answers' => [],
+            'completed_at' => now(),
+        ]);
+
+        $card = collect(
+            $this->actingAs($this->trainer())
+                ->getJson(route('analytics.learning'))
+                ->assertOk()
+                ->json('data.documents'),
+        )->firstWhere('id', $document->id);
+
+        $this->assertSame(1, $card['audience']);
+        $this->assertSame(0, $card['acknowledged']);
     }
 
     public function test_the_results_of_a_quiz_are_closed_without_the_right(): void

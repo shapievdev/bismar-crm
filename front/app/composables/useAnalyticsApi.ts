@@ -11,6 +11,12 @@ import type {
   ProductsPayload,
   SalesDimension,
   SalesPayload,
+  SharedStaffReport,
+  StaffExportRequest,
+  StaffLink,
+  StaffPayload,
+  StaffPerson,
+  StaffQuery,
 } from '~/types/analytics'
 
 /**
@@ -20,6 +26,20 @@ import type {
  * ждёт списки как `warehouses[]`, и собирать их в каждом вызове заново значит
  * однажды собрать по-разному.
  */
+/**
+ * Срез штата в том виде, в каком его понимает адресная строка.
+ *
+ * Пустое не отправляется вовсе: `?job_title=` сервер прочёл бы как «должность
+ * — пустая строка», а не «любая».
+ */
+function staffQuery(query: StaffQuery): Record<string, string | number[]> {
+  return Object.fromEntries(
+    Object.entries(query).filter(([, value]) => value !== undefined
+      && value !== ''
+      && !(Array.isArray(value) && value.length === 0)),
+  ) as Record<string, string | number[]>
+}
+
 export function useAnalyticsApi() {
   const { $api } = useNuxtApp()
 
@@ -86,6 +106,61 @@ export function useAnalyticsApi() {
       people: LearningQuizResult[]
     }>> =>
       $api(`/api/analytics/learning/quizzes/${quizId}`),
+
+    /**
+     * Движение персонала за срез.
+     *
+     * Срез уходит запросом целиком: сервер процеживает его правами — директор
+     * направления, спросивший чужое подразделение, получит своё.
+     */
+    fetchStaff: (query: StaffQuery = {}): Promise<AnalyticsResponse<StaffPayload>> =>
+      $api<AnalyticsResponse<StaffPayload>>('/api/analytics/staff', { query: staffQuery(query) }),
+
+    /** Люди за цифрой — отдельным запросом: это персональные данные. */
+    fetchStaffPeople: (
+      query: StaffQuery,
+      slice: string,
+    ): Promise<AnalyticsResponse<{ slice: string, people: StaffPerson[] }>> =>
+      $api('/api/analytics/staff/people', { query: { ...staffQuery(query), slice } }),
+
+    /**
+     * Выгрузка файлом.
+     *
+     * Через `$api`, а не переходом по адресу: переход уводит со страницы и
+     * теряет срез, а заодно и признаётся браузеру как обычная навигация — с
+     * отказом вместо файла, если сессия успела истечь. Здесь же отказ приходит
+     * ошибкой, которую есть кому показать.
+     */
+    downloadStaffReport: (
+      query: StaffQuery,
+      request: StaffExportRequest,
+    ): Promise<Blob> =>
+      $api<Blob>('/api/analytics/staff/export', {
+        responseType: 'blob',
+        query: {
+          ...staffQuery(query),
+          format: request.format,
+          names: request.names ? 1 : 0,
+          ...(request.names && request.slice ? { slice: request.slice } : {}),
+        },
+      }),
+
+    fetchStaffLinks: (): Promise<AnalyticsResponse<StaffLink[]>> =>
+      $api<AnalyticsResponse<StaffLink[]>>('/api/analytics/staff/links'),
+
+    /** Выдать ссылку. Срез замораживается таким, каким его видит выдающий. */
+    createStaffLink: (query: StaffQuery, days: number): Promise<AnalyticsResponse<StaffLink>> =>
+      $api<AnalyticsResponse<StaffLink>>('/api/analytics/staff/links', {
+        method: 'POST',
+        body: { ...staffQuery(query), days },
+      }),
+
+    revokeStaffLink: (id: number): Promise<AnalyticsResponse<StaffLink>> =>
+      $api<AnalyticsResponse<StaffLink>>(`/api/analytics/staff/links/${id}`, { method: 'DELETE' }),
+
+    /** Отчёт по токену — единственное обращение, которому не нужен вход. */
+    fetchSharedStaffReport: (token: string): Promise<AnalyticsResponse<SharedStaffReport>> =>
+      $api<AnalyticsResponse<SharedStaffReport>>(`/api/shared/staff-report/${token}`),
 
     fetchProducts: (filters: AnalyticsFilters): Promise<AnalyticsResponse<ProductsPayload>> =>
       $api<AnalyticsResponse<ProductsPayload>>('/api/analytics/products', { query: query(filters) }),

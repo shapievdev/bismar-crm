@@ -4,6 +4,9 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\AccessLevel;
+use App\Enums\DismissalReason;
+use App\Enums\EmploymentStatus;
+use App\Enums\WorkMode;
 use App\Support\Authorization;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,7 +22,10 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['last_name', 'first_name', 'middle_name', 'email', 'phone', 'job_title', 'password', 'avatar_path'])]
+#[Fillable([
+    'last_name', 'first_name', 'middle_name', 'email', 'phone', 'job_title', 'password', 'avatar_path',
+    'hired_at', 'employment_status', 'work_mode', 'mentor_id',
+])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -72,6 +78,72 @@ class User extends Authenticatable
     public function dismissedBy(): BelongsTo
     {
         return $this->belongsTo(self::class, 'dismissed_by_id');
+    }
+
+    /**
+     * В каком положении человек числится.
+     *
+     * Уволен — по дате увольнения, остальное — по колонке. Дата главнее: на неё
+     * смотрит половина приложения, и если бы «уволен» лежало ещё и словом, эти
+     * двое однажды разошлись бы.
+     */
+    public function employmentStatus(): EmploymentStatus
+    {
+        return $this->isDismissed()
+            ? EmploymentStatus::Dismissed
+            : ($this->employment_status ?? EmploymentStatus::Working);
+    }
+
+    /**
+     * Сколько человек проработал, в полных месяцах.
+     *
+     * У работающего — до сегодня, у ушедшего — до дня ухода: стаж уволенного
+     * перестал расти вместе с ним. Даты приёма может не быть вовсе — в базе
+     * есть люди, заведённые до того, как её начали спрашивать; у таких стажа
+     * нет, и это не ноль, а «неизвестно».
+     */
+    public function tenureMonths(): ?int
+    {
+        if ($this->hired_at === null) {
+            return null;
+        }
+
+        return (int) $this->hired_at->diffInMonths($this->dismissed_at ?? now());
+    }
+
+    /**
+     * Кто ведёт этого человека.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function mentor(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'mentor_id');
+    }
+
+    /**
+     * Кого ведёт этот человек.
+     *
+     * @return HasMany<User, $this>
+     */
+    public function mentees(): HasMany
+    {
+        return $this->hasMany(self::class, 'mentor_id');
+    }
+
+    /**
+     * Ручные теги: «Кадровый резерв», «Испытательный срок продлён».
+     *
+     * Только ручные. Тег по стажу сюда не попадает и попасть не может — он
+     * считается из даты приёма и нигде не лежит (см. App\Enums\TenureTag).
+     *
+     * @return BelongsToMany<StaffTag, $this>
+     */
+    public function staffTags(): BelongsToMany
+    {
+        return $this->belongsToMany(StaffTag::class, 'staff_tag_user')
+            ->withPivot('assigned_by_id')
+            ->withTimestamps();
     }
 
     /**
@@ -279,6 +351,12 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'dismissed_at' => 'datetime',
             'password' => 'hashed',
+
+            // Приём — дата, а не мгновение: кадровик знает день, а не час.
+            'hired_at' => 'date',
+            'employment_status' => EmploymentStatus::class,
+            'work_mode' => WorkMode::class,
+            'dismissal_reason' => DismissalReason::class,
         ];
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\User;
 
 use App\Data\User\NewUserData;
+use App\Enums\WorkMode;
 use App\Models\User;
 use App\Support\Email;
 use App\Support\Phone;
@@ -35,6 +36,15 @@ final class StoreUserRequest extends FormRequest
             // Должность по-прежнему необязательна: под рукой она бывает не
             // всегда, а завести человека нужно сегодня.
             'job_title' => ['nullable', 'string', 'max:255'],
+
+            /*
+             * День приёма спрашивается здесь, при заведении, — и это лучшее
+             * место: заполненная задним числом, она не заполняется почти
+             * никогда. Необязателен, потому что человека иногда заводят до
+             * того, как кадровик оформил приём.
+             */
+            'hired_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'work_mode' => ['nullable', Rule::enum(WorkMode::class)],
 
             // The administrator sets the first password and passes it on; the
             // same strength rules apply as when someone registers themselves.
@@ -69,7 +79,7 @@ final class StoreUserRequest extends FormRequest
 
     public function toData(): NewUserData
     {
-        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email?: string|null, phone: string, job_title?: string|null, password: string} $validated */
+        /** @var array{last_name: string, first_name: string, middle_name?: string|null, email?: string|null, phone: string, job_title?: string|null, hired_at?: string|null, work_mode?: string|null, password: string} $validated */
         $validated = $this->validated();
 
         return NewUserData::fromArray($validated);

@@ -12,6 +12,10 @@ use App\Http\Controllers\Api\Analytics\DirectoryController as AnalyticsDirectory
 use App\Http\Controllers\Api\Analytics\LearningController as AnalyticsLearningController;
 use App\Http\Controllers\Api\Analytics\ProductController as AnalyticsProductController;
 use App\Http\Controllers\Api\Analytics\SalesController as AnalyticsSalesController;
+use App\Http\Controllers\Api\Analytics\SharedStaffReportController;
+use App\Http\Controllers\Api\Analytics\StaffController;
+use App\Http\Controllers\Api\Analytics\StaffExportController;
+use App\Http\Controllers\Api\Analytics\StaffLinkController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Chat\ContactController;
@@ -61,6 +65,8 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\Push\BroadcastController;
 use App\Http\Controllers\Api\PushSubscriptionController;
+use App\Http\Controllers\Api\Staff\StaffTagController;
+use App\Http\Controllers\Api\Staff\UserStaffTagController;
 use App\Http\Controllers\Api\Structure\DepartmentController;
 use App\Http\Controllers\Api\Structure\DepartmentMemberController;
 use App\Http\Controllers\Api\UserController;
@@ -697,6 +703,10 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
     Route::middleware('can:'.Permission::ViewUsers->value)->group(function (): void {
         Route::get('users', [UserController::class, 'index'])->name('users.index');
 
+        // Справочник тегов читает всякий, кто видит людей: без названий теги в
+        // карточке были бы набором номеров. Правит его — кадровик, ниже.
+        Route::get('staff-tags', [StaffTagController::class, 'index'])->name('staff-tags.index');
+
         // Профиль сотрудника отвечает тому же праву, что и список: открыть
         // карточку — то же чтение, только об одном человеке.
         Route::get('users/{user}', [UserController::class, 'show'])->name('users.show');
@@ -719,6 +729,23 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
         // удаляет один суперадминистратор и только уволенного — DeleteUser.
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     });
+
+    /*
+     * Ручные теги.
+     *
+     * Своё право, а не право на людей: заводить ярлыки и раздавать доступ —
+     * разные работы, и делают их разные люди. Кадровик правит справочник и
+     * вешает теги, не получая при этом власти над учётными записями.
+     */
+    Route::middleware('can:'.Permission::ManageStaffTags->value)->group(function (): void {
+        Route::post('staff-tags', [StaffTagController::class, 'store'])->name('staff-tags.store');
+        Route::put('staff-tags/{tag}', [StaffTagController::class, 'update'])->name('staff-tags.update');
+        Route::delete('staff-tags/{tag}', [StaffTagController::class, 'destroy'])->name('staff-tags.destroy');
+
+        // Теги на одном человеке — отдельным адресом: их вешают по ходу
+        // разговора, а не отправкой всей карточки.
+        Route::put('users/{user}/tags', [UserStaffTagController::class, 'update'])->name('users.tags.update');
+    });
 });
 
 /*
@@ -740,6 +767,53 @@ Route::middleware([
     Route::get('analytics/learning/quizzes/{quiz}', [AnalyticsLearningController::class, 'results'])
         ->name('analytics.learning.quiz');
 });
+
+/*
+ * Аналитика штата: движение персонала.
+ *
+ * Права на маршруте нет намеренно, хотя обычно оно тут стоит: прав два — на всю
+ * компанию и на своё направление, — и проверка «хоть одно из двух» в строке
+ * маршрута читалась бы хуже, чем в контроллере, где рядом же считается и
+ * область видимости. Пускает и отмеряет одно место — StaffScope.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
+    Route::get('analytics/staff', StaffController::class)->name('analytics.staff');
+
+    // Люди за цифрой — отдельным адресом: это персональные данные, и присылать
+    // их всякому, кто открыл сводку, незачем.
+    Route::get('analytics/staff/people', [StaffController::class, 'people'])
+        ->name('analytics.staff.people');
+
+    // Выгрузка файлом. Тот же срез и та же область видимости, что на экране, —
+    // и запись в журнале на каждую.
+    Route::get('analytics/staff/export', StaffExportController::class)
+        ->name('analytics.staff.export');
+
+    // Сам журнал — тому, кто отвечает за компанию целиком.
+    Route::get('analytics/staff/exports', [StaffExportController::class, 'journal'])
+        ->name('analytics.staff.exports');
+
+    // Ссылки наружу: выдать, посмотреть выданные, отозвать.
+    Route::get('analytics/staff/links', [StaffLinkController::class, 'index'])
+        ->name('analytics.staff.links.index');
+    Route::post('analytics/staff/links', [StaffLinkController::class, 'store'])
+        ->name('analytics.staff.links.store');
+    Route::delete('analytics/staff/links/{link}', [StaffLinkController::class, 'destroy'])
+        ->name('analytics.staff.links.destroy');
+});
+
+/*
+ * Отчёт по токену — без входа.
+ *
+ * Единственный открытый адрес приложения, и оттого с ограничением по частоте:
+ * токен угадывают перебором, и перебор должен упираться в отказ раньше, чем во
+ * что-либо ещё. Фамилий здесь нет ни в каком виде — см.
+ * SharedStaffReportController.
+ */
+Route::get('shared/staff-report/{token}', SharedStaffReportController::class)
+    ->middleware('throttle:30,1')
+    ->whereAlphaNumeric('token')
+    ->name('shared.staff-report');
 
 /*
  * Уведомления на устройство.

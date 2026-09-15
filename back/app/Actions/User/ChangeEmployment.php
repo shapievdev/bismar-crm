@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\User;
 
 use App\Enums\AccessLevel;
+use App\Enums\DismissalReason;
 use App\Exceptions\ConflictException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -27,9 +28,14 @@ use Illuminate\Support\Facades\DB;
 final readonly class ChangeEmployment
 {
     /**
+     * @param  DismissalReason|null  $reason  почему ушёл: без неё доли в отчёте
+     *                                        не сложатся, но и требовать её от
+     *                                        старых увольнений задним числом
+     *                                        нечем
+     *
      * @throws ConflictException
      */
-    public function dismiss(User $user, User $actor): User
+    public function dismiss(User $user, User $actor, ?DismissalReason $reason = null): User
     {
         if ($user->isDismissed()) {
             throw new ConflictException('Сотрудник уже уволен.');
@@ -47,6 +53,7 @@ final readonly class ChangeEmployment
         $user->forceFill([
             'dismissed_at' => now(),
             'dismissed_by_id' => $actor->getKey(),
+            'dismissal_reason' => $reason,
         ])->save();
 
         $this->signOutEverywhere($user);
@@ -74,6 +81,10 @@ final readonly class ChangeEmployment
         $user->forceFill([
             'dismissed_at' => null,
             'dismissed_by_id' => null,
+
+            // Причина уходит вместе с увольнением: вернувшийся не «ушедший по
+            // собственному, который передумал», а работающий сотрудник.
+            'dismissal_reason' => null,
         ])->save();
 
         return $user->load('roles', 'permissions');

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\QuestionType;
+use App\Enums\QuizKind;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\Regulation;
+use App\Models\RegulationVersion;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -52,6 +54,26 @@ final class QuizFactory extends Factory
             'quizzable_type' => $regulation->getMorphClass(),
             'quizzable_id' => $regulation->getKey(),
         ]);
+    }
+
+    /**
+     * Проверка при версии документа, а не при самом документе.
+     *
+     * Версий у документа бывает несколько, и проверка у каждой своя: каждый
+     * проходит ту, что адресована его группе.
+     */
+    public function forVersion(RegulationVersion $version): self
+    {
+        return $this->state([
+            'quizzable_type' => $version->getMorphClass(),
+            'quizzable_id' => $version->getKey(),
+        ]);
+    }
+
+    /** Аттестация: её читает человек, а не считает приложение. */
+    public function attestation(): self
+    {
+        return $this->state(['kind' => QuizKind::Attestation]);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Analytics;
 
+use App\Enums\MaterialKind;
 use App\Http\Controllers\Controller;
 use App\Models\Quiz;
 use App\Support\Analytics\LearningReport;
@@ -12,10 +13,10 @@ use Illuminate\Http\JsonResponse;
 /**
  * Аналитика обучения: сколько материала собрано и как его проходят.
  *
- * Одним ответом, а не четырьмя: экран показывает сводку, два рейтинга и отчёт
- * по тестам вместе, и четыре запроса ради одной страницы дали бы четыре разных
- * мгновения на одном экране. Отдельно спрашивается только состав одного
- * теста — его раскрывают у одной строки из пятнадцати.
+ * Одним ответом, а не пятью: экран показывает сводку, рейтинги и отчёт по
+ * проверкам вместе, и пять запросов ради одной страницы дали бы пять разных
+ * мгновений на одном экране. Отдельно спрашивается только состав одной
+ * проверки — его раскрывают у одной строки из пятнадцати.
  *
  * Право — «вести обучение»: кому доверено решать, что людям проходить, тому и
  * смотреть, как это идёт. Продажной аналитике это ортогонально — она про
@@ -29,7 +30,13 @@ final class LearningController extends Controller
             'data' => [
                 'summary' => $report->summary(),
                 'courses' => $report->courses(),
-                'regulations' => $report->regulations(),
+
+                // Документы и справочники — двумя списками: разделы разные, и
+                // пятнадцать строк на двоих означали бы, что один вытеснит
+                // другой.
+                'documents' => $report->materials(MaterialKind::Document),
+                'handbooks' => $report->materials(MaterialKind::Handbook),
+
                 'quizzes' => $report->quizzes(),
             ],
         ]);

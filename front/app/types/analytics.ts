@@ -59,52 +59,88 @@ export interface Freshness {
  */
 export interface LearningSummary {
   staff: number
+
+  /* Материал: сколько его собрано и сколько из этого опубликовано. */
   courses: number
   published_courses: number
-  regulations: number
-  published_regulations: number
   lessons: number
+  /** Документы и справочники — разные разделы со своими правами. */
+  documents: number
+  published_documents: number
+  handbooks: number
+  published_handbooks: number
+  /** Версий у документов: каждый читает свою, и это разные тексты. */
+  versions: number
+
+  /* Курсы: назначено, начато, пройдено. */
   enrollments: number
   learners: number
+  /** Записей, к которым не приступали: это не «медленно», а «не открывали». */
+  not_started: number
   completed: number
   average_progress: number
+
+  /* Проверки. */
   quiz_attempts: number
   quiz_passed: number
   quiz_average_score: number
+  attestations: number
+  /** Работ, ждущих проверки человеком. */
+  attestations_pending: number
+
+  /* Документы. */
   acknowledgements: number
   acknowledged_by: number
+
+  /* План обучения. */
   plan_people: number
   plan_steps: number
   plan_done: number
 }
 
+/**
+ * Курс в рейтинге.
+ *
+ * `audience` — круг допущенных: записанные плюс те, кому курс назначен планом.
+ * Главная величина строки: «прошли семеро» ничего не значит, пока не сказано,
+ * из скольких.
+ */
 export interface LearningCourseRow {
   id: number
   title: string
   slug: string
   is_published: boolean
   lessons: number
+  audience: number
   enrolled: number
+  started: number
   completed: number
   average_progress: number
 }
 
-export interface LearningRegulationRow {
+/** Документ или справочник в рейтинге — с тем же кругом допущенных. */
+export interface LearningMaterialRow {
   id: number
   title: string
   slug: string
   is_published: boolean
+  audience: number
+  /** Сколько версий: у документа с версиями каждый читает свою. */
+  versions: number
   acknowledged: number
 }
 
 /**
- * Строка отчёта по тестам — один тест, где бы он ни висел: при уроке или при
- * документе. `attempted` и `passed` считаются по людям, а не по попыткам.
+ * Строка отчёта по проверкам — одна проверка, где бы она ни висела: при уроке,
+ * при документе или при его версии. `attempted` и `passed` считаются по людям,
+ * а не по попыткам.
  */
 export interface LearningQuizRow {
   id: number
   title: string
-  kind: 'lesson' | 'regulation'
+  /** Аттестацию читает человек: «не сдал» у неё до проверки ничего не значит. */
+  is_attestation: boolean
+  owner: 'lesson' | 'regulation' | 'regulation_version'
   /** Документ или справочник — по нему строится ссылка. */
   document_kind?: 'document' | 'handbook' | null
   material: string | null
@@ -112,27 +148,168 @@ export interface LearningQuizRow {
   course_slug: string | null
   lesson_id: number | null
   document_slug: string | null
+  /** Чья версия, если проверка висит на версии документа. */
+  version_name: string | null
   questions: number
   attempted: number
   passed: number
+  /** Сколько работ по этой проверке ждут человека. */
+  pending: number
   average_score: number
 }
 
-/** Кто и как прошёл один тест. */
+/** Кто и как прошёл одну проверку. */
 export interface LearningQuizResult {
   id: number
   name: string
   attempts: number
   best_score: number
   passed: boolean
+  /** Ждёт проверки: спрашивать надо не с него. */
+  awaiting: boolean
   last_at: string | null
 }
 
 export interface LearningPayload {
   summary: LearningSummary
   courses: LearningCourseRow[]
-  regulations: LearningRegulationRow[]
+  documents: LearningMaterialRow[]
+  handbooks: LearningMaterialRow[]
   quizzes: LearningQuizRow[]
+}
+
+
+/* ---------- Аналитика штата ---------- */
+
+/**
+ * Движение персонала за период.
+ *
+ * `null` там, где считать не из чего: без единого уволенного средний срок
+ * работы ушедших — не ноль, а «некого спросить», и ноль на экране соврал бы.
+ */
+export interface StaffSummary {
+  headcount_start: number
+  headcount_end: number
+  hired: number
+  left: number
+  /** Среднее по дням периода — знаменатель текучести. */
+  average_headcount: number
+  turnover: number
+  /** Ушедшие в первые 90 дней к принятым за тот же период. */
+  early_turnover: number
+  early_left: number
+  average_tenure: number | null
+  average_life: number | null
+  /** Доля новичков, сдавших аттестацию. `null` — аттестаций не заведено. */
+  onboarding: number | null
+  /** Сколько карточек ещё без даты приёма: мера доверия ко всему отчёту. */
+  without_hire_date: number
+}
+
+export interface StaffDepartmentRow {
+  id: number
+  name: string
+  headcount: number
+  hired: number
+  left: number
+  turnover: number
+}
+
+export interface StaffReasonRow {
+  reason: string
+  label: string
+  count: number
+  share: number
+}
+
+export interface StaffTenureRow {
+  tag: string
+  label: string
+  range: string
+  count: number
+}
+
+/** Человек в списке, в который проваливаются из цифры. */
+export interface StaffPerson {
+  id: number
+  name: string
+  job_title: string | null
+  departments: string[]
+  hired_at: string | null
+  dismissed_at: string | null
+  status: string
+  status_label: string
+  work_mode_label: string | null
+  tenure_months: number | null
+  dismissal_reason_label: string | null
+  tenure_tag: string | null
+  tenure_tag_label: string | null
+  tags: string[]
+}
+
+export interface StaffPayload {
+  summary: StaffSummary
+  movement: { month: string, hired: number, left: number }[]
+  departments: StaffDepartmentRow[]
+  reasons: { total: number, unknown: number, rows: StaffReasonRow[] }
+  tenure: StaffTenureRow[]
+  filters: {
+    period: { from: string, to: string }
+    departments: { id: number, name: string }[]
+    job_titles: string[]
+    work_modes: { value: string, label: string }[]
+    reasons: { value: string, label: string }[]
+    tags: { id: number, name: string }[]
+    /** Видит ли человек компанию целиком или только своё направление. */
+    sees_everything: boolean
+  }
+}
+
+/**
+ * Ссылка на отчёт для того, у кого нет учётной записи.
+ *
+ * Сам токен приходит один раз — в ответе на создание. Дальше от него остаётся
+ * только хвост: ссылку показывают однажды, как и положено секрету.
+ */
+export interface StaffLink {
+  id: number
+  hint: string
+  created_at: string | null
+  created_by: string | null
+  expires_at: string
+  revoked_at: string | null
+  live: boolean
+  period: { from: string | null, to: string | null }
+  token?: string
+}
+
+/** Что именно выгружают файлом. */
+export interface StaffExportRequest {
+  format: 'xlsx' | 'csv'
+  /** Со списком людей или только цифрами — от этого зависит запись в журнале. */
+  names: boolean
+  slice?: string
+}
+
+/** Отчёт, каким его видит открывший ссылку: цифры и ни одной фамилии. */
+export interface SharedStaffReport {
+  period: { from: string, to: string }
+  expires_at: string
+  summary: Omit<StaffSummary, 'without_hire_date'>
+  movement: { month: string, hired: number, left: number }[]
+  departments: StaffDepartmentRow[]
+  reasons: { total: number, unknown: number, rows: StaffReasonRow[] }
+  tenure: StaffTenureRow[]
+}
+
+/** Срез, в котором смотрят движение персонала. */
+export interface StaffQuery {
+  from?: string
+  to?: string
+  departments?: number[]
+  job_title?: string
+  work_mode?: string
+  tags?: number[]
 }
 
 export interface Directory {

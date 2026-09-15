@@ -8,6 +8,8 @@ use App\Actions\User\ChangeEmployment;
 use App\Actions\User\CreateUser;
 use App\Actions\User\DeleteUser;
 use App\Actions\User\SyncUserAccess;
+use App\Enums\DismissalReason;
+use App\Enums\EmploymentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\User\StoreUserRequest;
 use App\Http\Requests\User\UpdateUserAccessRequest;
@@ -19,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class UserController extends Controller
@@ -65,7 +68,7 @@ final class UserController extends Controller
      */
     public function show(User $user): UserResource
     {
-        return UserResource::make($user->load('roles', 'permissions', 'departments'));
+        return UserResource::make($user->load('roles', 'permissions', 'departments', 'mentor', 'staffTags'));
     }
 
     /**
@@ -101,9 +104,19 @@ final class UserController extends Controller
             // Почта тоже среди них: она давно не логин, и стёртое поле значит
             // «адреса нет», а не «оставить прежний».
             'email' => $request->validated('email'),
+
+            // Кадровое — там же: дату приёма и наставника снимают тем же
+            // движением, каким ставят.
+            'hired_at' => $request->validated('hired_at'),
+            'work_mode' => $request->validated('work_mode'),
+            'mentor_id' => $request->validated('mentor_id'),
+
+            // Положение, наоборот, не стирается: пустое поле значит «работает»,
+            // а не «неизвестно» — уволенных сюда не пускает сам запрос.
+            'employment_status' => $request->validated('employment_status') ?? EmploymentStatus::Working,
         ]);
 
-        return UserResource::make($user->refresh()->load('roles', 'permissions'));
+        return UserResource::make($user->refresh()->load('roles', 'permissions', 'mentor'));
     }
 
     /**
@@ -131,7 +144,21 @@ final class UserController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        return UserResource::make($employment->dismiss($user, $actor));
+        /*
+         * Причина — необязательная, и это осознанно: увольнение не должно
+         * упираться в невыбранный пункт списка, когда человека надо отключить
+         * сейчас. Отчёт о причинах при этом считает доли от тех, у кого она
+         * проставлена, и называет число тех, у кого её нет.
+         */
+        $reason = $request->validate([
+            'reason' => ['nullable', Rule::enum(DismissalReason::class)],
+        ])['reason'] ?? null;
+
+        return UserResource::make($employment->dismiss(
+            $user,
+            $actor,
+            $reason === null ? null : DismissalReason::from((string) $reason),
+        ));
     }
 
     /**

@@ -8,6 +8,15 @@ const props = defineProps<{
   autocomplete?: string
   inputmode?: 'text' | 'tel' | 'email' | 'numeric'
   placeholder?: string
+  /** Верхняя граница у даты и числа: приём будущим днём не отмечают. */
+  max?: string
+  /**
+   * Строка под полем — когда подписи мало, чтобы объяснить, зачем оно.
+   *
+   * Показывается, пока поле не отказало: отказ говорит о том же месте и
+   * важнее, а два сообщения подряд читаются как одно длинное.
+   */
+  hint?: string
   errors?: string[]
   /**
    * Маска: как показать набранное. Поле хранит уже приведённое значение, так
@@ -45,13 +54,18 @@ function onInput(event: Event) {
       :autocomplete="autocomplete"
       :inputmode="inputmode"
       :placeholder="placeholder"
+      :max="max"
       :aria-invalid="Boolean(errors?.length)"
-      :aria-describedby="errors?.length ? `${id}-error` : undefined"
+      :aria-describedby="errors?.length ? `${id}-error` : (hint ? `${id}-hint` : undefined)"
       @input="onInput"
     >
 
     <p v-if="errors?.length" :id="`${id}-error`" class="field__error">
       {{ errors[0] }}
+    </p>
+
+    <p v-else-if="hint" :id="`${id}-hint`" class="field__hint">
+      {{ hint }}
     </p>
   </div>
 </template>
@@ -66,6 +80,13 @@ function onInput(event: Event) {
 .field label {
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+.field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .field input {

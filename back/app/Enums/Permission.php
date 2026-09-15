@@ -84,6 +84,25 @@ enum Permission: string
     case ViewAnalytics = 'analytics.view';
 
     /**
+     * Аналитика штата: движение персонала, стаж, текучесть.
+     *
+     * Два права, а не одно, и дробление здесь не прихоть — это персональные
+     * данные. Кадровик и директор видят одно и то же движение, но по-разному
+     * широко: одному нужна вся компания, второму — своё направление, и дать
+     * второму первое значит показать зарплатную кухню соседних отделов.
+     *
+     * Область считается не этим правом, а местом человека в структуре
+     * (App\Support\Structure\DepartmentReach): право отвечает «пускать ли»,
+     * структура — «куда».
+     */
+    case ViewStaffReport = 'staff-report.view';
+
+    case ViewWholeStaffReport = 'staff-report.view-all';
+
+    /** Ручные теги сотрудников: справочник и кому что повешено. */
+    case ManageStaffTags = 'staff-tags.manage';
+
+    /**
      * Human-readable label for permission management screens.
      */
     public function label(): string
@@ -119,6 +138,9 @@ enum Permission: string
             self::ViewUsers => 'Просмотр пользователей',
             self::ManageUsers => 'Управление пользователями',
             self::ViewAnalytics => 'Просмотр аналитики',
+            self::ViewStaffReport => 'Аналитика штата по своим подразделениям',
+            self::ViewWholeStaffReport => 'Аналитика штата по всей компании',
+            self::ManageStaffTags => 'Ведение тегов сотрудников',
         };
     }
 
@@ -145,6 +167,8 @@ enum Permission: string
             'news' => 'Новости',
             'users' => 'Пользователи',
             'analytics' => 'Аналитика',
+            'staff-report' => 'Аналитика штата',
+            'staff-tags' => 'Теги сотрудников',
             default => $this->group(),
         };
     }

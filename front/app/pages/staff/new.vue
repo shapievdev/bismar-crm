@@ -16,6 +16,10 @@ const draft = ref<StaffAccountDraft>({
   email: '',
   phone: '',
   job_title: '',
+  hired_at: '',
+  employment_status: 'working',
+  work_mode: '',
+  mentor_id: '',
   password: '',
 })
 
@@ -42,6 +46,12 @@ async function save() {
       // Скобки и дефисы — дело показа: на сервер уходит одно число.
       phone: phoneForApi(draft.value.phone),
       job_title: draft.value.job_title || null,
+
+      // День приёма спрашивается сразу: заполненный потом, задним числом, он не
+      // заполняется почти никогда.
+      hired_at: draft.value.hired_at || null,
+      work_mode: draft.value.work_mode || null,
+
       password: draft.value.password,
     })
 

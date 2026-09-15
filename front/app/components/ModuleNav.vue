@@ -146,19 +146,32 @@ const links = computed<NavLink[]>(() => {
   }
 
   if (path.startsWith('/analytics')) {
-    // Продажные вкладки — под одним правом и на одной витрине: цифры приходят
-    // из одного источника, и разделять «кто видит выручку» и «кто видит
-    // клиентов» здесь нечем. Обучение — право другое: там курсы, не деньги.
+    /*
+     * Обучение стоит первым и живёт в корне раздела: курсы и документы
+     * касаются всей компании и меняются каждую неделю, а витрина продаж —
+     * отдельный разговор и отдельное право.
+     *
+     * Продажные вкладки — под одним правом и на одной витрине: цифры приходят
+     * из одного источника, и разделять «кто видит выручку» и «кто видит
+     * клиентов» здесь нечем.
+     */
     return [
       {
         to: '/analytics',
-        label: 'Продажи',
-        visible: can('analytics.view'),
+        label: 'Обучение',
+        visible: can('enrollments.manage'),
         matches: (p: string) => p === '/analytics',
       },
+      {
+        to: '/analytics/staff',
+        label: 'Штат',
+        // Два права на одну вкладку: кадровику — вся компания, директору — его
+        // направление. Что именно человек увидит, решает не это, а структура.
+        visible: can('staff-report.view-all') || can('staff-report.view'),
+      },
+      { to: '/analytics/sales', label: 'Продажи', visible: can('analytics.view') },
       { to: '/analytics/customers', label: 'Клиенты', visible: can('analytics.view') },
       { to: '/analytics/products', label: 'Товары', visible: can('analytics.view') },
-      { to: '/analytics/learning', label: 'Обучение', visible: can('enrollments.manage') },
     ].filter(link => link.visible)
   }
 
