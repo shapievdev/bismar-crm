@@ -28,6 +28,17 @@ export interface MessageAttachment {
   /** Показывать ли прямо в переписке: картинку показываем, архив нет. */
   opens_inline: boolean
   url: string | null
+  /**
+   * Надиктовано здесь же, а не приложено файлом.
+   *
+   * Признак, а не тип: присланная почтой запись совещания — тоже звук, но
+   * показывать её волной с кнопкой неправильно, это документ.
+   */
+  is_voice: boolean
+  /** Длительность записи; у обычного файла пусто. */
+  duration_ms: number | null
+  /** Высоты столбиков волны, 0–100. */
+  waveform: number[]
 }
 
 /**
@@ -63,6 +74,34 @@ export interface MessageAbout {
 }
 
 /**
+ * Откуда переслано — снимком на день пересылки.
+ *
+ * Снимком, а не связью: исходную реплику могут удалить, автора уволить, а
+ * группу, из которой её взяли, стереть целиком. Подпись «Переслано от Иванова»
+ * обязана пережить всё это.
+ */
+export interface ForwardedFrom {
+  author_id: number | null
+  author_name: string
+  /** Когда это было сказано впервые. */
+  said_at: string | null
+}
+
+/**
+ * Отклик под репликой: знак, сколько и кто.
+ *
+ * «Своё» здесь не приходит: тот же набор уходит всем участникам сразу, и
+ * вкладка узнаёт себя по номерам откликнувшихся.
+ */
+export interface MessageReaction {
+  emoji: string
+  count: number
+  user_ids: number[]
+  /** Короткие имена откликнувшихся — для подсказки «кто именно». */
+  people: string[]
+}
+
+/**
  * Чем материал назван в запросе: вид и номер, и только.
  *
  * Название и адрес собирает сервер — экран их не придумывает и не носит в
@@ -88,6 +127,12 @@ export interface ChatMessage {
   edited_at: string | null
   /** На что отвечали; null — ни на что. */
   reply_to: QuotedMessage | null
+  /** Откуда переслано; null — сказано здесь. */
+  forwarded: ForwardedFrom | null
+  /** Отклики под репликой; пустой массив — их нет. */
+  reactions: MessageReaction[]
+  /** Когда подняли наверх переписки; null — не поднимали. */
+  pinned_at: string | null
 }
 
 /**
@@ -120,6 +165,16 @@ export interface Sending {
    * и видна в ленте, а серверу при повторе нужен всё тот же вид с номером.
    */
   aboutRef?: MaterialRef | null
+  /** Кого позвали по имени — их номера уходят вместе с текстом. */
+  mentions?: number[]
+  /** Числа надиктованной записи: сервер их не считает, а браузер уже знает. */
+  voice?: VoiceNumbers | null
+}
+
+/** Длительность и волна записи — то, что о ней знает только браузер. */
+export interface VoiceNumbers {
+  duration_ms: number
+  waveform: number[]
 }
 
 /** Строка ленты: пришедшая с сервера либо своя, пока она уходит. */
@@ -137,6 +192,42 @@ export interface Conversation {
   last_message?: ChatMessage
   last_message_at: string | null
   unread_count: number
+  /**
+   * Сколько из непрочитанного зовёт по имени.
+   *
+   * Отдельной цифрой: сорок непрочитанных в рабочей группе можно прочесть
+   * вечером, вопрос лично тебе — нельзя.
+   */
+  unread_mentions: number
   /** Завёл ли группу этот человек: состав и название ведёт он. */
   is_owner: boolean
+  /** Приглушена ли — уведомления по ней не приходят. */
+  is_muted: boolean
+  /** Поднята ли наверх списка. */
+  is_pinned: boolean
+}
+
+/**
+ * Карточка ссылки: чем страница себя назвала.
+ *
+ * В самом сообщении её нет — она читается по требованию и живёт в общем кэше
+ * сутки. Ссылка — единственное, что сказал человек; заголовок и картинка
+ * принадлежат сайту и завтра могут стать другими.
+ */
+export interface LinkCard {
+  url: string
+  host: string
+  title: string
+  description: string | null
+  site_name: string | null
+  image: string | null
+}
+
+/** Находка поиска — строка списка, а не сообщение: вложений в ней нет. */
+export interface MessageHit {
+  id: number
+  conversation_id: number
+  body: string | null
+  author: ChatPerson | null
+  created_at: string | null
 }

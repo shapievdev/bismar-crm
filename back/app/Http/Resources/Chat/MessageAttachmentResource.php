@@ -27,6 +27,14 @@ final class MessageAttachmentResource extends JsonResource
             'size' => $this->size,
             'opens_inline' => $this->opensInline(),
             'url' => $this->signedUrl(),
+
+            // Надиктованное показывается волной с кнопкой, а не строкой с
+            // именем файла: имя у него всё равно машинное.
+            'is_voice' => $this->isVoice(),
+            'duration_ms' => $this->duration_ms,
+
+            // Высоты столбиков волны, 0–100. У обычного файла пусто.
+            'waveform' => $this->waveform ?? [],
         ];
     }
 

@@ -29,9 +29,11 @@ class Conversation extends Model
             'kind' => ConversationKind::class,
             'last_message_at' => 'datetime',
 
-            // Не колонка этой таблицы, а отметка читателя, приставленная
-            // подзапросом, — см. scopeWithClearing().
+            // Не колонки этой таблицы, а отметки читателя, приставленные
+            // подзапросами, — см. scopeWithReaderMarks().
             'cleared_at' => 'datetime',
+            'muted_at' => 'datetime',
+            'pinned_at' => 'datetime',
         ];
     }
 
@@ -56,7 +58,7 @@ class Conversation extends Model
     {
         return $this->belongsToMany(User::class, 'conversation_participants')
             ->using(ConversationParticipant::class)
-            ->withPivot(['last_read_at', 'left_at'])
+            ->withPivot(['last_read_at', 'left_at', 'cleared_at', 'muted_at', 'pinned_at'])
             ->withTimestamps();
     }
 
@@ -152,20 +154,40 @@ class Conversation extends Model
     }
 
     /**
-     * Приставляет к переписке отметку о том, когда читатель удалил её у себя.
+     * Приставляет к переписке личные отметки читателя: когда он удалил её у
+     * себя, приглушил и поднял наверх списка.
      *
-     * Одним подзапросом на весь список, а не обращением на строчку: список
-     * переписок открывают в мессенджере чаще всего.
+     * Подзапросами на весь список, а не обращением на строчку: список переписок
+     * открывают в мессенджере чаще всего. Строка участия у пары «переписка и
+     * человек» одна, поэтому три подзапроса читают одну и ту же строку и
+     * обходятся Postgres в один проход по уникальному ключу.
      *
      * @param  Builder<$this>  $query
      */
-    public function scopeWithClearing(Builder $query, User $reader): void
+    public function scopeWithReaderMarks(Builder $query, User $reader): void
     {
-        $query->addSelect(['cleared_at' => ConversationParticipant::query()
-            ->select('cleared_at')
-            ->whereColumn('conversation_participants.conversation_id', 'conversations.id')
-            ->where('conversation_participants.user_id', $reader->getKey())
-            ->limit(1),
-        ]);
+        foreach (['cleared_at', 'muted_at', 'pinned_at'] as $mark) {
+            $query->addSelect([$mark => ConversationParticipant::query()
+                ->select($mark)
+                ->whereColumn('conversation_participants.conversation_id', 'conversations.id')
+                ->where('conversation_participants.user_id', $reader->getKey())
+                ->limit(1),
+            ]);
+        }
+    }
+
+    /**
+     * Закреплённые реплики — последняя закреплённая первой.
+     *
+     * Удалённые сюда не попадают: закрепление переживает правку, но не удаление
+     * — на полосе наверху нечего было бы показать.
+     *
+     * @return HasMany<Message, $this>
+     */
+    public function pinnedMessages(): HasMany
+    {
+        return $this->messages()
+            ->whereNotNull('pinned_at')
+            ->orderByDesc('pinned_at');
     }
 }

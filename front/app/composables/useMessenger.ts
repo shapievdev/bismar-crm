@@ -1,10 +1,11 @@
+import type { SendExtras } from '~/composables/useChatApi'
 import type {
   ChatMessage,
   ChatPerson,
   Conversation,
   DeletionScope,
-  MaterialRef,
   MessageAbout,
+  MessageReaction,
   QuotedMessage,
   Sending,
   ThreadMessage,
@@ -22,6 +23,9 @@ const transfers = new Map<number, AbortController>()
 
 /** Свои неотправленные строки нумеруются вниз: настоящих id у них ещё нет. */
 let nextLocalId = -1
+
+/** Сколько сообщений приезжает за раз — столько же отдаёт сервер. */
+const PAGE = 40
 
 /**
  * Живое состояние мессенджера — одно на всё приложение.
@@ -49,9 +53,32 @@ export function useMessenger() {
   const activeId = useState<number | null>('chat.active', () => null)
   const messages = useState<ThreadMessage[]>('chat.messages', () => [])
   const typing = useState<ChatPerson[]>('chat.typing', () => [])
-  const hasMore = useState<boolean>('chat.has-more', () => false)
+
+  /** Закреплённое наверху разговора — последнее поднятое первым. */
+  const pinned = useState<ChatMessage[]>('chat.pinned', () => [])
+
+  /**
+   * С какой реплики начинается непрочитанное.
+   *
+   * Запоминается на всё время, пока переписка открыта, хотя прочитанной она
+   * становится сразу: отбивка «непрочитанные» должна остаться на месте, пока
+   * человек читает, — иначе она исчезает в тот же миг, в который появилась.
+   */
+  const firstUnreadId = useState<number | null>('chat.first-unread', () => null)
+
+  /**
+   * Есть ли что догружать вверх и вниз.
+   *
+   * Вниз — не всегда «нет»: с поиска попадают в середину разговора, и под
+   * перенесённой репликой лежит не конец ленты, а такой же догружаемый кусок.
+   */
+  const hasOlder = useState<boolean>('chat.has-older', () => false)
+  const hasNewer = useState<boolean>('chat.has-newer', () => false)
 
   const active = computed(() => conversations.value.find(one => one.id === activeId.value) ?? null)
+
+  /** Участники открытой переписки — по ним узнаются упоминания в тексте. */
+  const participants = computed<ChatPerson[]>(() => active.value?.participants ?? [])
 
   /* ---------- Подключение ---------- */
 
@@ -88,6 +115,12 @@ export function useMessenger() {
       })
       .listen('.message.deleted', (event: { conversation_id: number, message_id: number }) => {
         forget(event.conversation_id, event.message_id)
+      })
+      .listen('.message.reacted', (event: { conversation_id: number, message_id: number, reactions: MessageReaction[] }) => {
+        restack(event.conversation_id, event.message_id, event.reactions)
+      })
+      .listen('.message.pinned', (event: { conversation_id: number, message: ChatMessage, pinned: boolean }) => {
+        repin(event.conversation_id, event.message, event.pinned)
       })
       // Переписку удалили — у всех или нами же во второй вкладке. Приходит
       // только сюда: канала самой переписки к этому времени может уже не быть.
@@ -129,7 +162,9 @@ export function useMessenger() {
    */
   function absorb(conversationId: number, message: ChatMessage): void {
     const mine = message.author?.id === user.value?.id
-    const isOpen = activeId.value === conversationId
+    // Открытая лента, показанная до конца: в середине разговора, куда попали с
+    // поиска, новому сообщению места нет — под ним ещё лежит непрочитанный кусок.
+    const isOpen = activeId.value === conversationId && !hasNewer.value
 
     if (isOpen && mine) {
       // Своё приходит эхом раньше, чем ответ на сам запрос: вещание идёт без
@@ -165,20 +200,37 @@ export function useMessenger() {
     conversation.last_message = message
     conversation.last_message_at = message.created_at
 
-    if (!mine && !isOpen) {
+    if (!mine && activeId.value !== conversationId) {
       conversation.unread_count += 1
       unreadTotal.value += 1
     }
 
-    // Свежая переписка — наверх: список читается сверху вниз.
-    conversations.value = [
-      conversation,
-      ...conversations.value.filter(one => one.id !== conversationId),
-    ]
+    resort()
 
     if (isOpen && !mine) {
       void markRead(conversationId)
     }
+  }
+
+  /**
+   * Порядок списка: закреплённые сверху, дальше по свежести.
+   *
+   * Тот же порядок, что у сервера, — иначе после первого же пришедшего
+   * сообщения список на экране разошёлся бы с тем, каким он приедет при
+   * следующей загрузке.
+   */
+  function resort(): void {
+    conversations.value = [...conversations.value].sort((left, right) => {
+      if (left.is_pinned !== right.is_pinned) {
+        return left.is_pinned ? -1 : 1
+      }
+
+      return stamp(right.last_message_at) - stamp(left.last_message_at)
+    })
+  }
+
+  function stamp(iso: string | null): number {
+    return iso ? new Date(iso).getTime() : 0
   }
 
   /**
@@ -191,6 +243,7 @@ export function useMessenger() {
   function replace(conversationId: number, message: ChatMessage): void {
     if (activeId.value === conversationId) {
       messages.value = messages.value.map(one => (one.id === message.id ? message : one))
+      pinned.value = pinned.value.map(one => (one.id === message.id ? message : one))
     }
 
     const conversation = conversations.value.find(one => one.id === conversationId)
@@ -216,6 +269,10 @@ export function useMessenger() {
         .map(one => (one.reply_to?.id === messageId
           ? { ...one, reply_to: { ...one.reply_to, deleted: true, excerpt: null } }
           : one))
+
+      // С полосы наверху удалённое уходит вместе с лентой: показывать там было
+      // бы нечего.
+      pinned.value = pinned.value.filter(one => one.id !== messageId)
     }
 
     const conversation = conversations.value.find(one => one.id === conversationId)
@@ -225,6 +282,30 @@ export function useMessenger() {
     if (conversation?.last_message?.id === messageId) {
       void refreshConversations()
     }
+  }
+
+  /** Отклики под репликой сменились — набором целиком, а не по одному. */
+  function restack(conversationId: number, messageId: number, reactions: MessageReaction[]): void {
+    if (activeId.value !== conversationId) {
+      return
+    }
+
+    messages.value = messages.value.map(one => (one.id === messageId ? { ...one, reactions } : one))
+  }
+
+  /** Реплику подняли наверх или сняли оттуда. */
+  function repin(conversationId: number, message: ChatMessage, isPinned: boolean): void {
+    if (activeId.value !== conversationId) {
+      return
+    }
+
+    messages.value = messages.value.map(one => (one.id === message.id
+      ? { ...one, pinned_at: message.pinned_at }
+      : one))
+
+    pinned.value = isPinned
+      ? [message, ...pinned.value.filter(one => one.id !== message.id)]
+      : pinned.value.filter(one => one.id !== message.id)
   }
 
   /**
@@ -261,6 +342,55 @@ export function useMessenger() {
     dismiss(conversationId)
   }
 
+  /* ---------- Личные отметки на разговоре ---------- */
+
+  /**
+   * Приглушает и возвращает звук.
+   *
+   * Отметка встаёт на месте, не дожидаясь ответа: она личная, менять её больше
+   * некому, а нажавший «без звука» должен увидеть это сразу.
+   */
+  async function mute(conversationId: number, muted: boolean): Promise<void> {
+    const conversation = conversations.value.find(one => one.id === conversationId)
+
+    if (!conversation) {
+      return
+    }
+
+    conversation.is_muted = muted
+
+    try {
+      await api.muteConversation(conversationId, muted)
+    }
+    catch (error) {
+      conversation.is_muted = !muted
+
+      throw error
+    }
+  }
+
+  /** Поднимает разговор наверх списка и опускает обратно. */
+  async function pinChat(conversationId: number, isPinned: boolean): Promise<void> {
+    const conversation = conversations.value.find(one => one.id === conversationId)
+
+    if (!conversation) {
+      return
+    }
+
+    conversation.is_pinned = isPinned
+    resort()
+
+    try {
+      await api.pinConversation(conversationId, isPinned)
+    }
+    catch (error) {
+      conversation.is_pinned = !isPinned
+      resort()
+
+      throw error
+    }
+  }
+
   /* ---------- Открытая переписка ---------- */
 
   let thread: ReturnType<NonNullable<typeof $echo>['private']> | null = null
@@ -276,15 +406,74 @@ export function useMessenger() {
     activeId.value = id
     messages.value = []
     typing.value = []
+    pinned.value = []
 
-    const { data } = await api.fetchMessages(id)
+    const answer = await api.fetchMessages(id)
 
-    messages.value = data
-    hasMore.value = data.length >= 40
+    messages.value = answer.data
+    pinned.value = answer.meta.pinned
+    firstUnreadId.value = answer.meta.first_unread_id
+    hasOlder.value = answer.data.length >= PAGE
+    hasNewer.value = false
 
     await markRead(id)
 
-    if (!$echo) {
+    listen(id)
+  }
+
+  /**
+   * Открывает переписку на конкретной реплике — так попадают с поиска.
+   *
+   * Лента при этом читается с двух сторон: то, что было до, и то, что после.
+   * Иначе под перенесённой репликой оставалась бы пустота, а прокрутка вниз
+   * упиралась бы в неё же.
+   */
+  async function openAt(id: number, messageId: number): Promise<void> {
+    if (activeId.value !== id) {
+      closeThread()
+
+      activeId.value = id
+      typing.value = []
+    }
+
+    messages.value = []
+    pinned.value = []
+
+    const [before, after] = await Promise.all([
+      api.fetchMessages(id, { before: messageId + 1 }),
+      api.fetchMessages(id, { after: messageId }),
+    ])
+
+    messages.value = [...before.data, ...after.data]
+    pinned.value = before.meta.pinned
+    firstUnreadId.value = before.meta.first_unread_id
+    hasOlder.value = before.data.length >= PAGE
+    hasNewer.value = after.data.length >= PAGE
+
+    await markRead(id)
+
+    listen(id)
+  }
+
+  /** Возвращает ленту к концу разговора — из середины, куда попали с поиска. */
+  async function returnToEnd(): Promise<void> {
+    const id = activeId.value
+
+    if (!id || !hasNewer.value) {
+      return
+    }
+
+    const answer = await api.fetchMessages(id)
+
+    messages.value = answer.data
+    pinned.value = answer.meta.pinned
+    hasOlder.value = answer.data.length >= PAGE
+    hasNewer.value = false
+  }
+
+  /** Подписка на ленту — отдельно от чтения: открывают её двумя способами. */
+  function listen(id: number): void {
+    if (!$echo || thread) {
       return
     }
 
@@ -299,6 +488,12 @@ export function useMessenger() {
       })
       .listen('.message.deleted', (event: { conversation_id: number, message_id: number }) => {
         forget(event.conversation_id, event.message_id)
+      })
+      .listen('.message.reacted', (event: { conversation_id: number, message_id: number, reactions: MessageReaction[] }) => {
+        restack(event.conversation_id, event.message_id, event.reactions)
+      })
+      .listen('.message.pinned', (event: { conversation_id: number, message: ChatMessage, pinned: boolean }) => {
+        repin(event.conversation_id, event.message, event.pinned)
       })
       .listen('.messages.read', (event: { user_id: number, read_at: string }) => {
         const conversation = conversations.value.find(one => one.id === id)
@@ -328,14 +523,29 @@ export function useMessenger() {
     const id = activeId.value
     const oldest = messages.value[0]
 
-    if (!id || !oldest || !hasMore.value) {
+    if (!id || !oldest || !hasOlder.value) {
       return
     }
 
-    const { data } = await api.fetchMessages(id, oldest.id)
+    const { data } = await api.fetchMessages(id, { before: oldest.id })
 
-    hasMore.value = data.length >= 40
+    hasOlder.value = data.length >= PAGE
     messages.value = [...data, ...messages.value]
+  }
+
+  /** Догружает то, что было позже, — когда лента открыта в середине. */
+  async function loadNewer(): Promise<void> {
+    const id = activeId.value
+    const newest = messages.value[messages.value.length - 1]
+
+    if (!id || !newest || !hasNewer.value) {
+      return
+    }
+
+    const { data } = await api.fetchMessages(id, { after: newest.id })
+
+    hasNewer.value = data.length >= PAGE
+    messages.value = [...messages.value, ...data]
   }
 
   /* ---------- Отправка ---------- */
@@ -348,21 +558,25 @@ export function useMessenger() {
    * видны, а сколько байт ушло — написано на самой реплике. Прежде страница
    * ждала ответа с заблокированной формой, и отправка тяжёлого выглядела так,
    * будто мессенджер повис.
-   */
-  /**
+   *
    * @param about Материал, с которого пишут: карточка для ленты и ссылка для
    *              сервера. Приходит с «Написать» на странице материала.
    */
   async function send(
     body: string,
     files: File[] = [],
-    replyToId: number | null = null,
-    about: { ref: MaterialRef, card: MessageAbout } | null = null,
+    extras: SendExtras & { card?: MessageAbout | null } = {},
   ): Promise<void> {
     const id = activeId.value
 
     if (!id) {
       return
+    }
+
+    // Отправив из середины разговора, человек ждёт увидеть своё сообщение — а
+    // оно ляжет в конец, которого сейчас на экране нет.
+    if (hasNewer.value) {
+      await returnToEnd()
     }
 
     const previews = files.map(file => URL.createObjectURL(file))
@@ -384,18 +598,26 @@ export function useMessenger() {
         size: file.size,
         opens_inline: file.type.startsWith('image/') || file.type.startsWith('video/'),
         url: previews[at] ?? null,
+        is_voice: Boolean(extras.voice) && at === 0,
+        duration_ms: at === 0 ? extras.voice?.duration_ms ?? null : null,
+        waveform: at === 0 ? extras.voice?.waveform ?? [] : [],
       })),
       created_at: new Date().toISOString(),
       edited_at: null,
-      reply_to: quote(replyToId),
+      reply_to: quote(extras.replyToId ?? null),
       // Карточка встаёт над репликой сразу, вместе с ней: то же, что увидит
       // адресат, — и то же, что человек видел над полем ввода.
-      about: about?.card ?? null,
+      about: extras.card ?? null,
+      forwarded: null,
+      reactions: [],
+      pinned_at: null,
       sending: true,
       progress: 0,
       files,
       previews,
-      aboutRef: about?.ref ?? null,
+      aboutRef: extras.about ?? null,
+      mentions: extras.mentions ?? [],
+      voice: extras.voice ?? null,
     }
 
     messages.value = [...messages.value, pending]
@@ -460,8 +682,12 @@ export function useMessenger() {
           signal: controller.signal,
           onProgress: ({ percent }) => patch(localId, { progress: percent }),
         },
-        pending.reply_to?.id ?? null,
-        pending.aboutRef ?? null,
+        {
+          replyToId: pending.reply_to?.id ?? null,
+          about: pending.aboutRef ?? null,
+          mentions: pending.mentions ?? [],
+          voice: pending.voice ?? null,
+        },
       )
 
       const arrived = messages.value.some(one => one.id === data.id)
@@ -503,10 +729,7 @@ export function useMessenger() {
 
     conversation.last_message = message
     conversation.last_message_at = message.created_at
-    conversations.value = [
-      conversation,
-      ...conversations.value.filter(one => one.id !== conversationId),
-    ]
+    resort()
   }
 
   /**
@@ -598,6 +821,117 @@ export function useMessenger() {
     forget(id, messageId)
   }
 
+  /** Убирает выделенное — всё разом или ничего. */
+  async function removeMany(messageIds: number[]): Promise<void> {
+    const id = activeId.value
+
+    if (!id || messageIds.length === 0) {
+      return
+    }
+
+    await api.deleteMessages(id, messageIds)
+
+    messageIds.forEach(messageId => forget(id, messageId))
+  }
+
+  /**
+   * Ставит, меняет и снимает отклик.
+   *
+   * Знак встаёт под репликой сразу, до ответа сервера: нажатие по отклику —
+   * самое частое движение во всём мессенджере, и полсекунды ожидания на нём
+   * чувствуются сильнее, чем где угодно ещё. Сорвалось — возвращаем как было.
+   */
+  async function react(messageId: number, emoji: string): Promise<void> {
+    const id = activeId.value
+    const target = messages.value.find(one => one.id === messageId)
+
+    if (!id || !target) {
+      return
+    }
+
+    const was = target.reactions
+
+    restack(id, messageId, guessReactions(was, emoji))
+
+    try {
+      const { data } = await api.react(id, messageId, emoji)
+
+      restack(id, messageId, data.reactions)
+    }
+    catch (error) {
+      restack(id, messageId, was)
+
+      throw error
+    }
+  }
+
+  /**
+   * Каким станет набор откликов, если нажать этот знак.
+   *
+   * Повторяет правило сервера: тем же знаком отклик снимается, другим —
+   * заменяется. Настоящий набор приедет ответом и встанет на место этого; здесь
+   * важно лишь, чтобы промежуточная догадка не отличалась от него на глаз.
+   */
+  function guessReactions(current: MessageReaction[], emoji: string): MessageReaction[] {
+    const mine = user.value?.id
+
+    if (!mine) {
+      return current
+    }
+
+    const withoutMe = current
+      .map(one => ({ ...one, user_ids: one.user_ids.filter(id => id !== mine) }))
+      .map(one => ({ ...one, count: one.user_ids.length }))
+      .filter(one => one.count > 0)
+
+    const had = current.find(one => one.user_ids.includes(mine))?.emoji === emoji
+
+    if (had) {
+      return withoutMe
+    }
+
+    const standing = withoutMe.find(one => one.emoji === emoji)
+
+    return standing
+      ? withoutMe.map(one => (one.emoji === emoji
+        ? { ...one, count: one.count + 1, user_ids: [...one.user_ids, mine] }
+        : one))
+      : [...withoutMe, { emoji, count: 1, user_ids: [mine], people: [] }]
+  }
+
+  /** Поднимает реплику наверх переписки и снимает оттуда. */
+  async function pinMessage(messageId: number, isPinned: boolean): Promise<void> {
+    const id = activeId.value
+
+    if (!id) {
+      return
+    }
+
+    const { data } = isPinned
+      ? await api.pinMessage(id, messageId)
+      : await api.unpinMessage(id, messageId)
+
+    repin(id, data, isPinned)
+  }
+
+  /**
+   * Пересылает выделенное в другой разговор.
+   *
+   * Список переписок после этого перечитывается: пересланное стало последним
+   * сказанным в получателе, и его строчка обязана подняться наверх — даже когда
+   * сокет-сервер не поднят.
+   */
+  async function forward(messageIds: number[], toId: number): Promise<void> {
+    const id = activeId.value
+
+    if (!id || messageIds.length === 0) {
+      return
+    }
+
+    await api.forwardMessages(id, messageIds, toId)
+    await refreshConversations()
+  }
+
   /** Сообщает собеседнику, что мы печатаем. */
   function announceTyping(): void {
     if (!thread || !user.value) {
@@ -617,6 +951,7 @@ export function useMessenger() {
 
     if (conversation) {
       conversation.unread_count = 0
+      conversation.unread_mentions = 0
     }
 
     unreadTotal.value = Math.max(0, unreadTotal.value - seen)
@@ -633,6 +968,10 @@ export function useMessenger() {
     activeId.value = null
     messages.value = []
     typing.value = []
+    pinned.value = []
+    firstUnreadId.value = null
+    hasOlder.value = false
+    hasNewer.value = false
   }
 
   /** Пишем этому человеку: заводим переписку либо открываем прежнюю. */
@@ -649,24 +988,38 @@ export function useMessenger() {
   return {
     conversations,
     unreadTotal,
+    online,
     messages,
     typing,
-    hasMore,
+    pinned,
+    firstUnreadId,
+    hasOlder,
+    hasNewer,
     activeId,
     active,
+    participants,
     isOnline,
     connect,
     refreshConversations,
     open,
+    openAt,
+    returnToEnd,
     closeThread,
     dismiss,
     erase,
+    mute,
+    pinChat,
     loadOlder,
+    loadNewer,
     send,
     resend,
     cancelSending,
     edit,
     remove,
+    removeMany,
+    react,
+    pinMessage,
+    forward,
     announceTyping,
     markRead,
     writeTo,

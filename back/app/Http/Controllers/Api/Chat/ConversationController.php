@@ -47,9 +47,16 @@ final class ConversationController extends Controller
 
         $conversations = Conversation::query()
             ->of($reader)
-            ->withClearing($reader)
+            ->withReaderMarks($reader)
             ->with(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->withCount('activeParticipants')
+            /*
+             * Закреплённые читателем — всегда наверху, и только потом свежие.
+             * Сортировка идёт по имени из `withReaderMarks`: Postgres умеет
+             * упорядочивать по псевдониму выборки, и повторять подзапрос здесь
+             * второй раз незачем.
+             */
+            ->orderByRaw('pinned_at desc nulls last')
             // Пустая переписка — только что заведённая: её место наверху, пока
             // в ней не сказали ни слова.
             ->orderByRaw('coalesce(last_message_at, created_at) desc')
@@ -178,13 +185,17 @@ final class ConversationController extends Controller
     /**
      * Одна переписка глазами читателя.
      *
-     * Отметку об удалении у себя здесь приходится доставать отдельно: подзапрос
-     * из scopeWithClearing() выгоден списку, а не одной строке, которую и так
+     * Личные отметки здесь приходится доставать отдельно: подзапросы из
+     * scopeWithReaderMarks() выгодны списку, а не одной строке, которую и так
      * уже нашли по адресу.
      */
     private function loaded(Conversation $conversation, User $reader): Conversation
     {
-        $conversation->setAttribute('cleared_at', $conversation->membershipOf($reader)?->cleared_at);
+        $membership = $conversation->membershipOf($reader);
+
+        $conversation->setAttribute('cleared_at', $membership?->cleared_at);
+        $conversation->setAttribute('muted_at', $membership?->muted_at);
+        $conversation->setAttribute('pinned_at', $membership?->pinned_at);
 
         return $conversation->load(['activeParticipants', 'lastMessage.author', 'lastMessage.attachments'])
             ->loadCount('activeParticipants');
@@ -201,7 +212,10 @@ final class ConversationController extends Controller
         $counts = $this->unread->forConversations($reader, $conversations->modelKeys());
 
         return $conversations->each(function (Conversation $conversation) use ($counts): void {
-            $conversation->setAttribute('unread_count', $counts[$conversation->getKey()] ?? 0);
+            $count = $counts[$conversation->getKey()] ?? ['total' => 0, 'mentions' => 0];
+
+            $conversation->setAttribute('unread_count', $count['total']);
+            $conversation->setAttribute('unread_mentions', $count['mentions']);
         });
     }
 }

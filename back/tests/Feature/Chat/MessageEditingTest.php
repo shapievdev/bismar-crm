@@ -8,6 +8,7 @@ use App\Enums\ConversationKind;
 use App\Enums\MessageKind;
 use App\Events\Chat\MessageDeleted;
 use App\Events\Chat\MessageEdited;
+use App\Events\Chat\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -265,7 +266,7 @@ final class MessageEditingTest extends TestCase
      */
     public function test_a_message_still_goes_through_when_broadcasting_fails(): void
     {
-        Event::listen(function (\App\Events\Chat\MessageSent $event): void {
+        Event::listen(function (MessageSent $event): void {
             throw new \RuntimeException('сокет-сервер недоступен');
         });
 

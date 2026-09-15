@@ -6,6 +6,7 @@ namespace App\Http\Resources\Chat;
 
 use App\Models\Message;
 use App\Support\Chat\MaterialCard;
+use App\Support\Chat\ReactionSummary;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -41,7 +42,41 @@ final class MessageResource extends JsonResource
 
             // Материал, с которого написали, — карточкой над репликой.
             'about' => $this->materialCard(),
+
+            // Откуда переслано: имя автора и день, когда это было сказано.
+            // Снимком — исходной реплики может уже не быть.
+            'forwarded' => $this->forwardedFrom(),
+
+            /*
+             * Отклики — набором, а не «мой и остальные».
+             *
+             * Тот же набор уходит в эфир всем участникам сразу, и вычислять в
+             * нём «своё» значило бы рассылать по сообщению на человека. Вкладка
+             * узнаёт себя по номерам откликнувшихся — см. ReactionSummary.
+             */
+            'reactions' => $this->relationLoaded('reactions')
+                ? ReactionSummary::of($this->resource)
+                : [],
+
+            // Поднято ли наверх переписки.
+            'pinned_at' => $this->pinned_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Подпись «переслано от».
+     *
+     * Пустое поле приводится к `null`, а не отдаётся как есть: пустой массив в
+     * JSON выглядит объектом, и экран проверял бы его на длину вместо того,
+     * чтобы спросить, есть ли подпись вообще.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function forwardedFrom(): ?array
+    {
+        $origin = $this->forwarded;
+
+        return is_array($origin) && $origin !== [] ? $origin : null;
     }
 
     /**

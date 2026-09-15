@@ -29,6 +29,13 @@ final readonly class AttachmentDelivery
         'audio/mpeg',
         'audio/wav',
         'audio/mp4',
+
+        // What browsers record voice messages as: Chrome and Firefox produce
+        // webm/opus, Safari mp4. They are audio containers, no different in
+        // risk from the ones above.
+        'audio/webm',
+        'audio/ogg',
+
         'text/plain',
     ];
 

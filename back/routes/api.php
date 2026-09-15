@@ -16,9 +16,15 @@ use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
+use App\Http\Controllers\Api\Chat\ConversationMarkController;
+use App\Http\Controllers\Api\Chat\ForwardController;
+use App\Http\Controllers\Api\Chat\LinkPreviewController;
 use App\Http\Controllers\Api\Chat\MaterialCardController;
 use App\Http\Controllers\Api\Chat\MessageController;
+use App\Http\Controllers\Api\Chat\MessageSearchController;
 use App\Http\Controllers\Api\Chat\ParticipantController;
+use App\Http\Controllers\Api\Chat\PinnedMessageController;
+use App\Http\Controllers\Api\Chat\ReactionController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
@@ -835,14 +841,46 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('chat')->as('
     Route::post('conversations/{conversation}/leave', [ConversationController::class, 'leave'])
         ->name('conversations.leave');
 
+    // Личные отметки на разговоре: приглушить звук, поднять наверх списка.
+    // Обе ставятся и снимаются одной точкой — что именно, говорит тело запроса.
+    Route::post('conversations/{conversation}/mute', [ConversationMarkController::class, 'mute'])
+        ->name('conversations.mute');
+    Route::post('conversations/{conversation}/pin', [ConversationMarkController::class, 'pin'])
+        ->name('conversations.pin');
+
     Route::get('conversations/{conversation}/messages', [MessageController::class, 'index'])
         ->name('messages.index');
     Route::post('conversations/{conversation}/messages', [MessageController::class, 'store'])
         ->name('messages.store');
+
+    // Удаление выделенного. Стоит выше поштучного: иначе «messages» из адреса
+    // попадает в {message} и разбирается как номер.
+    Route::delete('conversations/{conversation}/messages', [MessageController::class, 'destroyMany'])
+        ->name('messages.destroy-many');
+
     Route::patch('conversations/{conversation}/messages/{message}', [MessageController::class, 'update'])
         ->name('messages.update');
     Route::delete('conversations/{conversation}/messages/{message}', [MessageController::class, 'destroy'])
         ->name('messages.destroy');
+
+    // Отклик: поставить, сменить и снять — одним обращением, потому что для
+    // человека это одно нажатие по знаку.
+    Route::post('conversations/{conversation}/messages/{message}/reactions', [ReactionController::class, 'store'])
+        ->name('messages.react');
+
+    Route::post('conversations/{conversation}/messages/{message}/pin', [PinnedMessageController::class, 'store'])
+        ->name('messages.pin');
+    Route::delete('conversations/{conversation}/messages/{message}/pin', [PinnedMessageController::class, 'destroy'])
+        ->name('messages.unpin');
+
+    // Пересылка: берут отсюда, кладут в переписку из тела запроса.
+    Route::post('conversations/{conversation}/forward', [ForwardController::class, 'store'])
+        ->name('messages.forward');
+
+    // Поиск по сказанному: в этой переписке и во всех своих сразу.
+    Route::get('conversations/{conversation}/search', [MessageSearchController::class, 'inConversation'])
+        ->name('messages.search');
+    Route::get('search', [MessageSearchController::class, 'everywhere'])->name('search');
 
     Route::post('conversations/{conversation}/participants', [ParticipantController::class, 'store'])
         ->name('participants.store');
@@ -858,4 +896,8 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('chat')->as('
     // Карточка материала, с которого собираются написать: экран показывает её
     // над полем ввода, а к отправленной реплике ту же карточку ставит сервер.
     Route::get('about', [MaterialCardController::class, 'show'])->name('about');
+
+    // Карточка ссылки, сказанной в переписке. Спрашивается по мере показа
+    // реплик и кэшируется на сутки — в самом сообщении её нет.
+    Route::get('link-preview', [LinkPreviewController::class, 'show'])->name('link-preview');
 });

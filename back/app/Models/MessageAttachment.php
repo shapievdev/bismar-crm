@@ -17,9 +17,23 @@ use Illuminate\Support\Facades\Storage;
  * Всё как у вложений урока — тот же бакет, те же подписанные ссылки, та же
  * оговорка про диск в строке.
  */
-#[Fillable(['message_id', 'disk', 'path', 'name', 'mime_type', 'size'])]
+#[Fillable(['message_id', 'disk', 'path', 'name', 'mime_type', 'size', 'is_voice', 'duration_ms', 'waveform'])]
 class MessageAttachment extends Model
 {
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'is_voice' => 'boolean',
+            'duration_ms' => 'integer',
+
+            // Огибающая записи: по числу на столбик волны.
+            'waveform' => 'array',
+        ];
+    }
+
     /**
      * @return BelongsTo<Message, $this>
      */
@@ -49,6 +63,17 @@ class MessageAttachment extends Model
     public function opensInline(): bool
     {
         return app(AttachmentDelivery::class)->isInline($this->mime_type);
+    }
+
+    /**
+     * Голосовое — то, что записали здесь же, а не приложили файлом.
+     *
+     * Признак, а не тип: присланная почтой запись совещания — тоже звук, но
+     * показывать её волной с кнопкой «играть» неправильно, это документ.
+     */
+    public function isVoice(): bool
+    {
+        return $this->is_voice === true;
     }
 
     public function deleteFromStorage(): void

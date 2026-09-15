@@ -21,8 +21,15 @@ use Illuminate\Support\Facades\DB;
 final readonly class Unread
 {
     /**
+     * Непрочитанное по переписками — и отдельно то, где человека позвали.
+     *
+     * Обе цифры одним проходом, через `filter`: упоминания — подмножество
+     * непрочитанного, и второй запрос читал бы те же строки ради другого
+     * счётчика. В списке они стоят рядом: общая цифра и значок «@», как в
+     * телеграме, — и появляются они тоже вместе.
+     *
      * @param  list<int>  $conversationIds
-     * @return array<int, int> номер переписки => сколько непрочитанного
+     * @return array<int, array{total: int, mentions: int}>
      */
     public function forConversations(User $reader, array $conversationIds): array
     {
@@ -30,13 +37,29 @@ final readonly class Unread
             return [];
         }
 
-        return $this->query($reader)
+        $rows = $this->query($reader)
             ->whereIn('messages.conversation_id', $conversationIds)
             ->groupBy('messages.conversation_id')
-            ->selectRaw('messages.conversation_id, count(*) as total')
-            ->pluck('total', 'messages.conversation_id')
-            ->map(intval(...))
-            ->all();
+            ->selectRaw('messages.conversation_id')
+            ->selectRaw('count(*) as total')
+            // Номер читателя внутри списка позванных. Containment по jsonb, а не
+            // разбор массива: так это один оператор, который Postgres умеет
+            // считать по индексу, если он однажды понадобится.
+            ->selectRaw('count(*) filter (where messages.mentions @> ?::jsonb) as mentions', [
+                json_encode([$reader->getKey()], JSON_THROW_ON_ERROR),
+            ])
+            ->get();
+
+        $counts = [];
+
+        foreach ($rows as $row) {
+            $counts[(int) $row->conversation_id] = [
+                'total' => (int) $row->total,
+                'mentions' => (int) $row->mentions,
+            ];
+        }
+
+        return $counts;
     }
 
     /** Общий счётчик — тот, что висит в навигации. */

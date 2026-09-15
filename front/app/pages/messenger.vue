@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import type { ChatMessage, ChatPerson, MaterialRef, MessageAbout, MessageAttachment, ThreadMessage } from '~/types/chat'
+import type { MenuAction } from '~/components/chat/BubbleMenu.vue'
+import type {
+  ChatMessage,
+  Conversation,
+  MaterialRef,
+  MessageAbout,
+  MessageAttachment,
+  ThreadMessage,
+  VoiceNumbers,
+} from '~/types/chat'
+import { plainMessageText } from '~/utils/messageText'
 
 // `fills`: страница занимает ровно экран и не растёт с содержимым — оболочка
-// объявляет себя в `100dvh` и снимает нижний отступ. См. «Высота» ниже.
+// объявляет себя в `100dvh` и снимает нижний отступ.
 definePageMeta({ middleware: 'auth', fills: true })
 useHead({ title: 'Сообщения' })
 
@@ -10,17 +20,25 @@ const { user } = useAuth()
 const { confirm } = useAppDialog()
 const api = useChatApi()
 const messenger = useMessenger()
+const route = useRoute()
+const router = useRouter()
+
 const {
   conversations,
   messages,
   typing,
-  hasMore,
+  pinned,
+  firstUnreadId,
+  hasOlder,
+  hasNewer,
   activeId,
   active,
+  participants,
 } = messenger
 
-const route = useRoute()
-const router = useRouter()
+const me = computed(() => user.value?.id ?? null)
+
+/* ---------- Куда ведёт адрес ---------- */
 
 /*
  * Переписка выбирается адресом: ?id=12.
@@ -29,19 +47,134 @@ const router = useRouter()
  * консультанта, — и так работает кнопка «назад» в браузере, которой на двух
  * панелях пользуются постоянно.
  */
-/*
- * Материал, с которого сюда пришли.
+const thread = ref<{ scrollToEnd: (smooth?: boolean) => Promise<void>, scrollTo: (id: number, smooth?: boolean) => Promise<boolean> } | null>(null)
+
+const highlighted = ref<number | null>(null)
+const atBottom = ref(true)
+
+/**
+ * Сколько чужих реплик пришло, пока человек читал прошлое.
  *
+ * Своя цифра, а не та, что в списке: открытая переписка отмечается прочитанной
+ * сразу, и её счётчик непрочитанного к этому времени уже погашен. А вопрос
+ * «сколько я пропустил, пока листал вверх» никуда не делся — на него и отвечает
+ * цифра на кнопке «вниз».
+ */
+const missed = ref(0)
+
+async function openConversation(id: number, atMessage: number | null = null): Promise<void> {
+  missed.value = 0
+
+  if (atMessage) {
+    await messenger.openAt(id, atMessage)
+    await thread.value?.scrollTo(atMessage, false)
+    flash(atMessage)
+
+    return
+  }
+
+  await messenger.open(id)
+
+  /*
+   * Открываем на последнем сказанном — всегда.
+   *
+   * Была попытка умнее: вставать на первом непрочитанном, как в телеграме. На
+   * деле это значило открыть переписку и увидеть позавчерашнее, а сегодняшнее
+   * искать прокруткой вниз — переписку открывают, чтобы прочесть последнее и
+   * ответить. Где кончается прочитанное, по-прежнему видно: в ленте стоит
+   * отбивка «Непрочитанные», и до неё долистывают вверх, когда это правда
+   * нужно.
+   */
+  await thread.value?.scrollToEnd()
+}
+
+function select(id: number): void {
+  void router.push({ query: { id } })
+}
+
+onMounted(async () => {
+  await messenger.connect()
+
+  // ?write=7 — «написать вот этому человеку»: так сюда ведут карточки
+  // ответственных за курс и совет консультанта.
+  const addressee = Number(route.query.write)
+
+  if (addressee) {
+    const asked = materialFrom(route.query.about)
+    const id = await messenger.writeTo(addressee)
+
+    await noteMaterial(asked, id)
+    await router.replace({ query: { id } })
+    await openConversation(id)
+
+    return
+  }
+
+  const wanted = Number(route.query.id)
+
+  if (wanted) {
+    await openConversation(wanted)
+  }
+})
+
+watch(() => route.query.id, async (value) => {
+  const wanted = Number(value)
+
+  if (!wanted) {
+    // Адрес без переписки — значит, вернулись к списку. На телефоне панель одна,
+    // и без этого кнопка «назад» меняла адрес, не закрывая ленту.
+    messenger.closeThread()
+
+    return
+  }
+
+  if (wanted !== activeId.value) {
+    await openConversation(wanted)
+  }
+})
+
+/*
+ * Открытый разговор забирает телефон целиком.
+ *
+ * Нижняя полоса разделов при этом уходит — как во всяком мессенджере. Она съедает
+ * те самые восемьдесят точек, которых не хватает ленте, и ставит второй ряд
+ * кнопок вплотную под полем ввода: палец, промахнувшись мимо «отправить», уходит
+ * в другой раздел. Убирает её сама полоса и только на узком экране — на планшете
+ * список и лента стоят рядом, и разделы там никому не мешают.
+ */
+const { hideDock, restoreChrome } = useShellChrome()
+
+watch(activeId, (id) => {
+  hideDock.value = id !== null
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  restoreChrome()
+  messenger.closeThread()
+})
+
+/*
+ * Открытой переписки не стало — её удалили у всех, пока мы в неё смотрели, либо
+ * убрали мы сами. Возвращаемся к списку: адрес указывает на разговор, которого
+ * больше нет, и кнопка «назад» привела бы обратно в пустоту.
+ */
+watch(conversations, (list) => {
+  const shown = Number(route.query.id)
+
+  if (shown && !list.some(one => one.id === shown)) {
+    void router.replace({ query: {} })
+  }
+})
+
+/* ---------- Материал, с которого пришли ---------- */
+
+/*
  * С карточки ответственного в документе или курсе уходят «написать», и без
  * этого адресат читает вопрос, не понимая, о чём он. Адрес несёт только вид и
- * номер — `?about=document:12`, — а название и ссылку отдаёт сервер: он же
- * приложит карточку к отправленной реплике, и человек ещё до отправки видит
- * ровно то, что увидит адресат.
+ * номер — `?about=document:12`, — а название и ссылку отдаёт сервер.
  */
 const material = ref<MessageAbout | null>(null)
 const materialRef = ref<MaterialRef | null>(null)
-
-/** К какой переписке относится карточка: в соседней ей делать нечего. */
 const materialFor = ref<number | null>(null)
 
 const KINDS: MessageAbout['kind'][] = ['course', 'lesson', 'document', 'handbook']
@@ -69,15 +202,13 @@ async function noteMaterial(asked: MaterialRef | null, conversationId: number): 
     materialFor.value = conversationId
   }
   catch {
-    material.value = null
-    materialRef.value = null
-    materialFor.value = null
+    dropMaterial()
   }
 }
 
 /** Карточка стоит над полем ввода, пока открыт тот разговор, ради которого пришли. */
 const composingAbout = computed(() =>
-  material.value !== null && materialFor.value === activeId.value ? material.value : null,
+  (material.value !== null && materialFor.value === activeId.value ? material.value : null),
 )
 
 function dropMaterial(): void {
@@ -85,91 +216,6 @@ function dropMaterial(): void {
   materialRef.value = null
   materialFor.value = null
 }
-
-onMounted(async () => {
-  await messenger.connect()
-
-  // ?write=7 — «написать вот этому человеку»: так сюда ведут карточки
-  // ответственных за курс и совет консультанта. Переписка заводится или
-  // находится прежняя, и адрес тут же подменяется на её номер.
-  const addressee = Number(route.query.write)
-
-  if (addressee) {
-    const asked = materialFrom(route.query.about)
-    const id = await messenger.writeTo(addressee)
-
-    await noteMaterial(asked, id)
-    await router.replace({ query: { id } })
-    await openConversation(id)
-
-    return
-  }
-
-  const wanted = Number(route.query.id)
-
-  if (wanted) {
-    await openConversation(wanted)
-  }
-})
-
-watch(() => route.query.id, async (value) => {
-  const wanted = Number(value)
-
-  if (!wanted) {
-    // Адрес без переписки — значит, вернулись к списку. На телефоне панель одна,
-    // и без этого кнопка «назад» меняла адрес, не закрывая ленту: нажатие
-    // выглядело как не сработавшее.
-    messenger.closeThread()
-
-    return
-  }
-
-  if (wanted !== activeId.value) {
-    await openConversation(wanted)
-  }
-})
-
-onBeforeUnmount(() => messenger.closeThread())
-
-const isOpening = ref(false)
-
-async function openConversation(id: number): Promise<void> {
-  isOpening.value = true
-
-  try {
-    await messenger.open(id)
-    await scrollToEnd()
-  }
-  finally {
-    isOpening.value = false
-  }
-}
-
-function select(id: number): void {
-  void router.push({ query: { id } })
-}
-
-/* ---------- Отправка ---------- */
-
-const draft = ref('')
-const files = ref<File[]>([])
-const isSending = ref(false)
-const attachOpen = ref(false)
-const attachError = ref<string | null>(null)
-
-/**
- * Пределы — те же, что у сервера (SendMessageRequest): пять файлов, двадцать
- * мегабайт на каждый.
- *
- * Проверяются здесь, а не только там: отправить видео с телефона и узнать через
- * минуту загрузки, что оно вдвое тяжелее допустимого, — худшее из возможных
- * сообщений об ошибке.
- */
-const MAX_FILES = 5
-const MAX_FILE_BYTES = 20 * 1024 * 1024
-
-const mediaPicker = useTemplateRef<HTMLInputElement>('mediaPicker')
-const paperPicker = useTemplateRef<HTMLInputElement>('paperPicker')
 
 /* ---------- Ответ и правка ---------- */
 
@@ -181,482 +227,122 @@ const paperPicker = useTemplateRef<HTMLInputElement>('paperPicker')
 const replyTo = ref<ChatMessage | null>(null)
 const editing = ref<ChatMessage | null>(null)
 
-/** У какого сообщения открыто меню действий. */
-const menuFor = ref<number | null>(null)
-
-/**
- * Куда раскрывать меню — вниз или вверх.
- *
- * Лента прокручивается, а меню лежит внутри неё, и её нижний край его срезает:
- * у последних сообщений — а именно с ними чаще всего что-то делают — нижние
- * пункты оказывались за краем и не нажимались вовсе. Поэтому у реплики из
- * нижней половины меню раскрывается вверх, и целиком остаётся внутри.
- */
-const menuUp = ref(false)
-
-function toggleMenu(message: ChatMessage, event: MouseEvent): void {
-  if (menuFor.value === message.id) {
-    menuFor.value = null
-
-    return
-  }
-
-  const bubble = (event.currentTarget as HTMLElement).closest('.bubble')
-  const box = thread.value?.getBoundingClientRect()
-
-  if (bubble && box) {
-    const top = bubble.getBoundingClientRect().top
-    menuUp.value = top > box.top + box.height / 2
-  }
-
-  menuFor.value = message.id
-}
-
-// Клик мимо закрывает всплывающее — и меню реплики, и выбор вложения. Нажатия
-// по самим кнопкам до документа не доходят (`@click.stop`), иначе меню
-// закрывалось бы тем же щелчком, которым открылось.
-function closeMenu(): void {
-  menuFor.value = null
-  attachOpen.value = false
-}
-
-onMounted(() => document.addEventListener('click', closeMenu))
-onBeforeUnmount(() => document.removeEventListener('click', closeMenu))
-
-/* ---------- Просмотр вложений ---------- */
-
-/**
- * Снимки и записи открываются здесь же, поверх переписки.
- *
- * Раньше вложение было ссылкой и уводило в новую вкладку: человек терял место в
- * разговоре и возвращался кнопкой браузера. В мессенджере смотрят не выходя, и
- * из открытого снимка листают соседние — поэтому просматриваемое ищется не в
- * одном сообщении, а во всей загруженной ленте.
- */
-function isViewable(file: MessageAttachment): boolean {
-  return isImage(file) || isVideo(file)
-}
-
-function isImage(file: MessageAttachment): boolean {
-  return file.mime_type?.startsWith('image/') === true
-}
-
-function isVideo(file: MessageAttachment): boolean {
-  return file.mime_type?.startsWith('video/') === true
-}
-
-/* ---------- Снимки и записи в ленте ---------- */
-
-/** Снимки и записи одного сообщения — то, что уходит в сетку. */
-function mediaOf(message: ChatMessage): MessageAttachment[] {
-  return (message.attachments ?? []).filter(isViewable)
-}
-
-/** Всё остальное — документы, архивы: они остаются строкой с именем. */
-function papersOf(message: ChatMessage): MessageAttachment[] {
-  return (message.attachments ?? []).filter(file => !isViewable(file))
-}
-
-/**
- * Сообщение из одних снимков и записей.
- *
- * Такой пузырь показывается без полей: снимок занимает его целиком, а время и
- * галочки ложатся поверх снимка — иначе под ним остаётся полоса подложки,
- * которой нечего обрамлять. Появились рядом слова, документ или цитата — полям
- * снова есть что держать, и пузырь возвращается к обычному виду.
- */
-function isMediaOnly(message: ChatMessage): boolean {
-  const files = message.attachments ?? []
-
-  return files.length > 0
-    && !message.body
-    && !message.reply_to
-    && files.every(isViewable)
-}
-
-/**
- * Длительность записи — та, что подписана в углу кадра.
- *
- * Узнаётся в браузере, из самой записи: сервер её не хранит, и добавить это в
- * ответ значит разбирать видео на стороне PHP. Браузер и так тянет заголовок
- * файла, чтобы показать первый кадр (`preload="metadata"`), — длительность
- * приходит вместе с ним, бесплатно. Пока заголовок не пришёл, подписи нет: врать
- * про «0:00» хуже, чем промолчать полсекунды.
- */
-const durations = ref<Record<number, number>>({})
-
-function noteDuration(file: MessageAttachment, event: Event): void {
-  const seconds = (event.target as HTMLVideoElement).duration
-
-  // У потоковой записи длительность бывает бесконечной, у битой — NaN.
-  if (Number.isFinite(seconds) && seconds > 0) {
-    durations.value = { ...durations.value, [file.id]: seconds }
-  }
-}
-
-/** «0:53», «12:07», «1:04:30» — как на плеере. */
-function clock(seconds: number): string {
-  const total = Math.round(seconds)
-  const parts = [Math.floor(total / 60) % 60, total % 60]
-
-  if (total >= 3600) {
-    parts.unshift(Math.floor(total / 3600))
-  }
-
-  return parts
-    .map((part, at) => (at === 0 ? String(part) : String(part).padStart(2, '0')))
-    .join(':')
-}
-
-/**
- * Раскладка сетки — по числу снимков, как в мессенджерах.
- *
- * Один — во всю ширину и без обрезки: вертикальный кадр телефона на квадратной
- * плитке потерял бы половину. Дальше плитки: два в ряд, три и четыре — большой
- * слева и остальные столбиком справа, пять — три сверху, два снизу. Сервер
- * больше пяти файлов не берёт, поэтому раскладок ровно столько.
- */
-function albumShape(message: ChatMessage): string {
-  return String(Math.min(mediaOf(message).length, 5))
-}
-
-const viewable = computed(() => messages.value.flatMap(one => one.attachments ?? []).filter(isViewable))
-const viewingId = ref<number | null>(null)
-const viewing = computed(() => viewable.value.find(one => one.id === viewingId.value) ?? null)
-const viewingAt = computed(() => viewable.value.findIndex(one => one.id === viewingId.value))
-
-function view(file: MessageAttachment): void {
-  viewingId.value = file.id
-}
-
-/**
- * Вложение остаётся ссылкой, и это намеренно: обычный файл так и скачивается,
- * а средний щелчок по снимку по-прежнему открывает его отдельно, для тех, кому
- * так удобнее. Перехватывается только обычное нажатие по тому, что можно
- * показать здесь же.
- */
-function openAttachment(file: MessageAttachment, event: MouseEvent): void {
-  if (!isViewable(file)) {
-    return
-  }
-
-  event.preventDefault()
-  view(file)
-}
-
-function closeViewer(): void {
-  viewingId.value = null
-}
-
-/** Листание соседних: -1 назад, +1 вперёд. За краями ничего не происходит. */
-function stepViewer(by: number): void {
-  const next = viewable.value[viewingAt.value + by]
-
-  if (next) {
-    viewingId.value = next.id
-  }
-}
-
-function onViewerKey(event: KeyboardEvent): void {
-  if (viewingId.value === null) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    closeViewer()
-  }
-  else if (event.key === 'ArrowLeft') {
-    stepViewer(-1)
-  }
-  else if (event.key === 'ArrowRight') {
-    stepViewer(1)
-  }
-}
-
-onMounted(() => document.addEventListener('keydown', onViewerKey))
-onBeforeUnmount(() => document.removeEventListener('keydown', onViewerKey))
-
-/** Править можно только своё и только сказанное словами. */
-function canEdit(message: ChatMessage): boolean {
-  return message.kind === 'text' && isMine(message)
-}
-
-/** Удалять — своё, а в группе ещё и чужое, если группу завёл ты. */
-function canDelete(message: ChatMessage): boolean {
-  return message.kind === 'text' && (isMine(message) || active.value?.is_owner === true)
-}
-
 function startReply(message: ChatMessage): void {
   editing.value = null
   replyTo.value = message
-  menuFor.value = null
-  field.value?.focus()
 }
 
 function startEditing(message: ChatMessage): void {
   replyTo.value = null
   editing.value = message
-  // Высоту поля подгонит наблюдатель за draft — здесь только фокус.
-  draft.value = message.body ?? ''
-  menuFor.value = null
-
-  void nextTick(() => field.value?.focus())
 }
 
-/** Отмена возвращает поле к тому, что в нём было до правки, — то есть к пустому. */
 function cancelComposing(): void {
-  if (editing.value) {
-    draft.value = ''
-  }
-
   replyTo.value = null
   editing.value = null
 }
 
-async function removeMessage(message: ChatMessage): Promise<void> {
-  menuFor.value = null
+/* ---------- Отправка ---------- */
 
-  await messenger.remove(message.id)
-
-  // Правили или отвечали именно на неё — теперь не на что.
-  if (editing.value?.id === message.id) {
-    cancelComposing()
-  }
-
-  if (replyTo.value?.id === message.id) {
-    replyTo.value = null
-  }
-}
-
-const canSend = computed(() => {
-  if (isSending.value) {
-    return false
-  }
-
-  // При правке пустой текст — это удаление, а его делают иначе: у пустого поля
-  // кнопка просто неактивна.
-  return editing.value
-    ? draft.value.trim().length > 0
-    : draft.value.trim().length > 0 || files.value.length > 0
-})
-
-async function submit(): Promise<void> {
-  if (!canSend.value) {
-    return
-  }
-
-  if (editing.value) {
-    isSending.value = true
-
-    try {
-      await messenger.edit(editing.value.id, draft.value.trim())
-      editing.value = null
-      draft.value = ''
-    }
-    finally {
-      isSending.value = false
-    }
-
-    return
-  }
-
-  const body = draft.value.trim()
-  const chosen = files.value
-  const answering = replyTo.value?.id ?? null
-
-  /*
-   * Поле освобождается сразу, до отправки, и это главное здесь.
-   *
-   * Реплика уже встала в ленту и сама показывает, сколько байт ушло, — а
-   * двадцатимегабайтное видео едет минуту. Прежде страница ждала ответа с
-   * заблокированной формой, и это выглядело как «всё зависло».
-   */
-  draft.value = ''
-  files.value = []
-  replyTo.value = null
-  attachError.value = null
-  void nextTick(fitField)
-
-  // Ошибку отправки показывает сама реплика, вместе с «повторить», поэтому
-  // ждать здесь нечего: send не отказывает.
+async function onSend(payload: { body: string, files: File[], mentions: number[], voice: VoiceNumbers | null }): Promise<void> {
   // Карточка достаётся первой реплике — той, ради которой сюда пришли:
   // повторять её у каждого следующего сообщения незачем, разговор уже начат.
-  const about = composingAbout.value && materialRef.value
-    ? { ref: materialRef.value, card: composingAbout.value }
-    : null
+  const card = composingAbout.value
+  const ref = materialRef.value
 
-  if (about) {
+  if (card) {
     dropMaterial()
   }
 
-  void messenger.send(body, chosen, answering, about)
+  const answering = replyTo.value?.id ?? null
+  replyTo.value = null
 
-  await scrollToEnd()
+  // Ошибку отправки показывает сама реплика, вместе с «повторить», поэтому
+  // ждать здесь нечего: send не отказывает.
+  void messenger.send(payload.body, payload.files, {
+    replyToId: answering,
+    about: card ? ref : null,
+    card,
+    mentions: payload.mentions,
+    voice: payload.voice,
+  })
+
+  await thread.value?.scrollToEnd(true)
 }
 
-/**
- * Поле растёт под сообщение.
- *
- * На телефоне это важнее, чем на столе: строка в одну высоту прячет от
- * пишущего всё, кроме последних слов, а ручку растягивания там не ухватить.
- */
-const field = useTemplateRef<HTMLTextAreaElement>('field')
+async function onSave(body: string): Promise<void> {
+  const message = editing.value
 
-function fitField(): void {
-  const element = field.value
-
-  if (element) {
-    element.style.height = 'auto'
-    element.style.height = `${Math.min(element.scrollHeight, 128)}px`
-  }
-}
-
-watch(draft, () => nextTick(fitField))
-
-/**
- * Добавляет выбранное к тому, что уже приложено.
- *
- * Добавляет, а не подменяет: снимки выбирают из галереи, документ — из файлов, и
- * это два разных выбора в одном сообщении. Поле выбора после этого очищается,
- * иначе второй раз тот же файл не выбрать — событие change не наступит.
- */
-function pickFiles(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const chosen = input.files ? [...input.files] : []
-
-  input.value = ''
-  attachOpen.value = false
-  attachError.value = null
-
-  const heavy = chosen.find(file => file.size > MAX_FILE_BYTES)
-
-  if (heavy) {
-    attachError.value = `«${heavy.name}» тяжелее ${MAX_FILE_BYTES / 1024 / 1024} МБ — такое кладут в файлы урока.`
-
+  if (!message) {
     return
   }
 
-  const room = MAX_FILES - files.value.length
-
-  if (chosen.length > room) {
-    attachError.value = `За раз уходит не больше ${MAX_FILES} файлов.`
-  }
-
-  files.value = [...files.value, ...chosen.slice(0, Math.max(0, room))]
+  editing.value = null
+  await messenger.edit(message.id, body)
 }
-
-function dropFile(index: number): void {
-  files.value = files.value.filter((_, at) => at !== index)
-  attachError.value = null
-}
-
-/**
- * Что написано на уходящей реплике.
- *
- * Сто процентов — не «готово»: байты ушли, а сервер ещё раскладывает их по
- * хранилищу, и для крупного файла это отдельное ожидание. Поэтому на этом месте
- * не «100 %», а прямая речь о том, что происходит.
- */
-function sendingLabel(message: ThreadMessage): string {
-  if (!message.files?.length) {
-    return 'Отправляется…'
-  }
-
-  const percent = Math.round(message.progress ?? 0)
-
-  return percent >= 100 ? 'Сохраняем…' : `Отправляется… ${percent} %`
-}
-
-/**
- * Enter отправляет, Shift+Enter переносит строку — как во всяком чате.
- */
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    void submit()
-
-    return
-  }
-
-  // Escape бросает начатую правку или ответ — там же, где их и начали.
-  if (event.key === 'Escape' && (editing.value || replyTo.value)) {
-    event.preventDefault()
-    cancelComposing()
-
-    return
-  }
-
-  announce()
-}
-
-/**
- * Оповещение о наборе — не чаще раза в две секунды.
- *
- * Каждое нажатие клавиши уходило бы в сокет отдельным пакетом, а собеседнику
- * от этого ни теплее ни холоднее: надпись «печатает» и так висит три секунды.
- */
-let lastAnnounced = 0
-
-function announce(): void {
-  const now = Date.now()
-
-  if (now - lastAnnounced > 2000) {
-    lastAnnounced = now
-    messenger.announceTyping()
-  }
-}
-
-/* ---------- Высота ---------- */
 
 /*
- * Её здесь больше нет, и это осознанно.
+ * Новое сообщение в открытой ленте.
  *
- * Раньше высоту считал скрипт: мерил от своей верхней кромки до низа видимой
- * области и переписывал её на каждое событие. На телефоне это оборачивалось
- * гонкой с браузером — при прокрутке уезжает адресная строка, события идут
- * потоком, высота переписывается на каждом кадре, лента дёргается, а внизу
- * остаётся пустота.
- *
- * Теперь всё делает раскладка: оболочка страницы объявлена в `100dvh` и
- * растягивает эту строку сетки до низа (`shell--fills` в layouts/default.vue),
- * а мессенджер занимает её целиком. Клавиатуру берёт на себя
- * `interactive-widget=resizes-content` из viewport (nuxt.config.ts): с ним она
- * сжимает саму разметку, и `dvh` учитывает её наравне с адресной строкой.
+ * Едем вниз только если человек и так внизу: иначе лента дёргается под руками у
+ * того, кто читает прошлое. Не поехали — считаем пропущенное, чтобы написать
+ * цифру на кнопке «вниз».
  */
+watch(() => messages.value.length, async (now, was) => {
+  if (atBottom.value) {
+    missed.value = 0
+    await thread.value?.scrollToEnd(true)
 
-/* ---------- Прокрутка ленты ---------- */
-
-const thread = useTemplateRef<HTMLElement>('thread')
-
-async function scrollToEnd(): Promise<void> {
-  await nextTick()
-
-  if (thread.value) {
-    thread.value.scrollTop = thread.value.scrollHeight
-  }
-}
-
-/**
- * Перескок к процитированной реплике.
- *
- * Только если она уже загружена: догружать ради этого всё, что было между,
- * можно очень долго — цитата могла быть годичной давности. Не нашли — ничего не
- * делаем, цитата и так сказала главное.
- */
-const highlighted = ref<number | null>(null)
-
-function jumpTo(messageId: number): void {
-  const target = thread.value?.querySelector(`[data-message="${messageId}"]`)
-
-  if (!target) {
     return
   }
 
-  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const last = messages.value[messages.value.length - 1]
 
-  // Подсветка гаснет сама: она отвечает на «куда меня перенесло», а дальше
-  // только мешает читать.
+  if (now > was && last && last.author?.id !== me.value) {
+    missed.value += 1
+  }
+})
+
+watch(atBottom, (bottom) => {
+  if (bottom) {
+    missed.value = 0
+  }
+})
+
+/* ---------- Перескок ---------- */
+
+/**
+ * Переносит к реплике — и сходит за ней, если её в ленте ещё нет.
+ *
+ * Цитата или находка поиска может быть годичной давности: догружать всё, что
+ * было между, можно очень долго, а открыть ленту сразу вокруг нужного места —
+ * два запроса.
+ */
+async function jumpTo(messageId: number, conversationId = activeId.value): Promise<void> {
+  if (!conversationId) {
+    return
+  }
+
+  if (conversationId !== activeId.value) {
+    await router.push({ query: { id: conversationId } })
+    await openConversation(conversationId, messageId)
+
+    return
+  }
+
+  if (await thread.value?.scrollTo(messageId)) {
+    flash(messageId)
+
+    return
+  }
+
+  await openConversation(conversationId, messageId)
+}
+
+/** Подсветка гаснет сама: она отвечает на «куда меня перенесло». */
+function flash(messageId: number): void {
   highlighted.value = messageId
+
   setTimeout(() => {
     if (highlighted.value === messageId) {
       highlighted.value = null
@@ -664,152 +350,288 @@ function jumpTo(messageId: number): void {
   }, 1600)
 }
 
-/** Дочитали до верха — подгружаем то, что было раньше, сохраняя место. */
-async function onThreadScroll(): Promise<void> {
-  const element = thread.value
+/* ---------- Выделение ---------- */
 
-  if (!element || element.scrollTop > 60 || !hasMore.value || isOpening.value) {
-    return
-  }
+const selected = ref<number[]>([])
+const selecting = computed(() => selected.value.length > 0)
 
-  const before = element.scrollHeight
-
-  await messenger.loadOlder()
-  await nextTick()
-
-  element.scrollTop = element.scrollHeight - before
+function toggleSelect(message: ThreadMessage): void {
+  selected.value = selected.value.includes(message.id)
+    ? selected.value.filter(id => id !== message.id)
+    : [...selected.value, message.id]
 }
 
-// Новое сообщение в открытой ленте — прокручиваем, если человек и так внизу.
-watch(() => messages.value.length, async () => {
-  const element = thread.value
+function clearSelection(): void {
+  selected.value = []
+}
 
-  if (!element) {
+/** Удалять можно, если каждое выделенное можно удалить: сервер решает так же. */
+const canDeleteSelected = computed(() => selected.value.every((id) => {
+  const message = messages.value.find(one => one.id === id)
+
+  return message !== undefined && canDelete(message)
+}))
+
+async function removeSelected(): Promise<void> {
+  const count = selected.value.length
+
+  const confirmed = await confirm({
+    title: count === 1 ? 'Удалить сообщение?' : `Удалить ${count} сообщений?`,
+    message: 'У всех участников переписки они исчезнут — отменить это будет нельзя.',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+
+  if (!confirmed) {
     return
   }
 
-  const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 150
+  await messenger.removeMany(selected.value)
+  clearSelection()
+}
 
-  if (atBottom) {
-    await scrollToEnd()
+/**
+ * Копирует выделенное — текстом, в том порядке, в каком это говорили.
+ *
+ * С именами и без разметки: копируют обычно затем, чтобы переслать наружу — в
+ * почту или в отчёт, — и там ни звёздочки, ни «кто-то сказал» не нужны.
+ */
+async function copySelected(): Promise<void> {
+  const text = messages.value
+    .filter(one => selected.value.includes(one.id))
+    .map(one => `${one.author?.short_name ?? 'Бывший сотрудник'}: ${plainMessageText(one.body ?? '')}`)
+    .join('\n')
+
+  try {
+    await navigator.clipboard.writeText(text)
   }
+  catch {
+    // Буфер закрыт настройками браузера. Сказать об этом нечем — окно об ошибке
+    // копирования раздражает сильнее, чем несработавшая кнопка.
+  }
+
+  clearSelection()
+}
+
+/* ---------- Меню реплики ---------- */
+
+const menuFor = ref<ThreadMessage | null>(null)
+const menuAt = ref({ x: 0, y: 0 })
+
+/** Править можно только своё и только сказанное словами. */
+function canEdit(message: ThreadMessage): boolean {
+  return message.kind === 'text' && message.author?.id === me.value && !message.attachments?.some(f => f.is_voice)
+}
+
+/** Удалять — своё, а в группе ещё и чужое, если группу завёл ты. */
+function canDelete(message: ThreadMessage): boolean {
+  return message.kind === 'text' && (message.author?.id === me.value || active.value?.is_owner === true)
+}
+
+/** Закреплять в группе может только заведший её: полоса наверху одна на всех. */
+const canPin = computed(() => active.value !== null && (!active.value.is_group || active.value.is_owner))
+
+const menuActions = computed<MenuAction[]>(() => {
+  const message = menuFor.value
+
+  if (!message) {
+    return []
+  }
+
+  const actions: MenuAction[] = [
+    { key: 'reply', label: 'Ответить' },
+    { key: 'forward', label: 'Переслать' },
+    { key: 'select', label: 'Выбрать' },
+  ]
+
+  if (message.body) {
+    actions.push({ key: 'copy', label: 'Скопировать текст' })
+  }
+
+  if (canPin.value) {
+    actions.push({ key: 'pin', label: message.pinned_at ? 'Открепить' : 'Закрепить' })
+  }
+
+  if (canEdit(message)) {
+    actions.splice(1, 0, { key: 'edit', label: 'Изменить' })
+  }
+
+  if (canDelete(message)) {
+    actions.push({ key: 'delete', label: 'Удалить у всех', danger: true })
+  }
+
+  return actions
 })
 
-/* ---------- Новая переписка ---------- */
+function openMenu(message: ThreadMessage, at: { x: number, y: number }): void {
+  menuFor.value = message
 
-const isComposing = ref(false)
-const contactSearch = ref('')
-const contacts = ref<ChatPerson[]>([])
-const groupTitle = ref('')
-const groupMembers = ref<ChatPerson[]>([])
+  // Нажали по кнопке «⋯» — она сообщает нули: ставим меню там, где сама кнопка.
+  menuAt.value = at.x || at.y ? at : lastPointer
+}
 
-let searchTimer: ReturnType<typeof setTimeout> | undefined
+/** Где в последний раз был указатель — на случай меню, вызванного кнопкой. */
+let lastPointer = { x: 0, y: 0 }
 
-watch(contactSearch, (value) => {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(async () => {
-    contacts.value = (await api.searchContacts(value.trim())).data
-  }, 250)
+function trackPointer(event: PointerEvent): void {
+  lastPointer = { x: event.clientX, y: event.clientY }
+}
+
+onMounted(() => document.addEventListener('pointerdown', trackPointer, true))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', trackPointer, true))
+
+async function onMenuPick(key: string): Promise<void> {
+  const message = menuFor.value
+
+  menuFor.value = null
+
+  if (!message) {
+    return
+  }
+
+  if (key === 'reply') {
+    startReply(message)
+  }
+  else if (key === 'edit') {
+    startEditing(message)
+  }
+  else if (key === 'select') {
+    selected.value = [message.id]
+  }
+  else if (key === 'forward') {
+    selected.value = [message.id]
+    forwarding.value = true
+  }
+  else if (key === 'copy') {
+    try {
+      await navigator.clipboard.writeText(plainMessageText(message.body ?? ''))
+    }
+    catch {
+      // Буфер закрыт настройками браузера — молча обходимся.
+    }
+  }
+  else if (key === 'pin') {
+    await messenger.pinMessage(message.id, !message.pinned_at)
+  }
+  else if (key === 'delete') {
+    await removeOne(message)
+  }
+}
+
+/** Чем этот человек уже откликнулся: в подсказке такой знак отмечен. */
+function myReactionIn(message: ThreadMessage): string | null {
+  return message.reactions?.find(one => me.value !== null && one.user_ids.includes(me.value))?.emoji ?? null
+}
+
+async function reactFromMenu(emoji: string): Promise<void> {
+  const message = menuFor.value
+
+  menuFor.value = null
+
+  if (message) {
+    await messenger.react(message.id, emoji)
+  }
+}
+
+async function removeOne(message: ThreadMessage): Promise<void> {
+  const confirmed = await confirm({
+    title: 'Удалить сообщение?',
+    message: 'У всех участников переписки оно исчезнет — отменить это будет нельзя.',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  await messenger.remove(message.id)
+
+  // Правили или отвечали именно на неё — теперь не на что.
+  if (editing.value?.id === message.id || replyTo.value?.id === message.id) {
+    cancelComposing()
+  }
+}
+
+/* ---------- Пересылка ---------- */
+
+const forwarding = ref(false)
+
+async function forwardTo(conversationId: number): Promise<void> {
+  const ids = [...selected.value]
+
+  forwarding.value = false
+  clearSelection()
+
+  await messenger.forward(ids, conversationId)
+}
+
+/* ---------- Меню переписки ---------- */
+
+const chatMenuFor = ref<Conversation | null>(null)
+const chatMenuAt = ref({ x: 0, y: 0 })
+
+const chatMenuActions = computed<MenuAction[]>(() => {
+  const conversation = chatMenuFor.value
+
+  if (!conversation) {
+    return []
+  }
+
+  const actions: MenuAction[] = [
+    { key: 'pin', label: conversation.is_pinned ? 'Открепить' : 'Закрепить сверху' },
+    { key: 'mute', label: conversation.is_muted ? 'Включить уведомления' : 'Без уведомлений' },
+  ]
+
+  if (conversation.is_group) {
+    actions.push({ key: 'leave', label: 'Выйти из группы' })
+  }
+
+  actions.push({ key: 'clear', label: 'Удалить у себя', danger: true })
+
+  if (!conversation.is_group || conversation.is_owner) {
+    actions.push({
+      key: 'erase',
+      label: conversation.is_group ? 'Удалить группу у всех' : 'Удалить у всех',
+      danger: true,
+    })
+  }
+
+  return actions
 })
 
-async function startComposing(): Promise<void> {
-  isComposing.value = true
-  groupTitle.value = ''
-  groupMembers.value = []
-  contactSearch.value = ''
-  contacts.value = (await api.searchContacts()).data
+function openChatMenu(conversation: Conversation, at: { x: number, y: number }): void {
+  chatMenuFor.value = conversation
+  chatMenuAt.value = at.x || at.y ? at : lastPointer
 }
 
-/** Один человек — личная переписка, несколько — группа. */
-function toggleMember(person: ChatPerson): void {
-  groupMembers.value = groupMembers.value.some(one => one.id === person.id)
-    ? groupMembers.value.filter(one => one.id !== person.id)
-    : [...groupMembers.value, person]
-}
+async function onChatMenuPick(key: string): Promise<void> {
+  const conversation = chatMenuFor.value
 
-function isChosen(person: ChatPerson): boolean {
-  return groupMembers.value.some(one => one.id === person.id)
-}
+  chatMenuFor.value = null
 
-const canStart = computed(() =>
-  groupMembers.value.length === 1
-  || (groupMembers.value.length > 1 && groupTitle.value.trim().length > 0),
-)
-
-async function startConversation(): Promise<void> {
-  if (!canStart.value) {
+  if (!conversation) {
     return
   }
 
-  const single = groupMembers.value.length === 1 ? groupMembers.value[0] : null
-
-  const id = single
-    ? await messenger.writeTo(single.id)
-    : (await api.startGroup(groupTitle.value.trim(), groupMembers.value.map(one => one.id))).data.id
-
-  await messenger.refreshConversations()
-
-  isComposing.value = false
-  select(id)
-}
-
-/* ---------- Группа ---------- */
-
-const isManaging = ref(false)
-const inviteSearch = ref('')
-const invitees = ref<ChatPerson[]>([])
-const newTitle = ref('')
-
-let inviteTimer: ReturnType<typeof setTimeout> | undefined
-
-watch(inviteSearch, (value) => {
-  clearTimeout(inviteTimer)
-  inviteTimer = setTimeout(async () => {
-    invitees.value = (await api.searchContacts(value.trim())).data
-  }, 250)
-})
-
-function startManaging(): void {
-  isManaging.value = true
-  newTitle.value = active.value?.title ?? ''
-  inviteSearch.value = ''
-  invitees.value = []
-}
-
-async function invite(person: ChatPerson): Promise<void> {
-  if (!activeId.value) {
-    return
+  if (key === 'pin') {
+    await messenger.pinChat(conversation.id, !conversation.is_pinned)
   }
-
-  await api.addParticipants(activeId.value, [person.id])
-  await refreshActive()
-  inviteSearch.value = ''
-  invitees.value = []
+  else if (key === 'mute') {
+    await messenger.mute(conversation.id, !conversation.is_muted)
+  }
+  else if (key === 'leave') {
+    await leaveGroup(conversation)
+  }
+  else if (key === 'clear') {
+    await eraseChat(conversation, 'mine')
+  }
+  else if (key === 'erase') {
+    await eraseChat(conversation, 'everyone')
+  }
 }
 
-async function expel(person: ChatPerson): Promise<void> {
-  if (!activeId.value) {
-    return
-  }
-
-  await api.removeParticipant(activeId.value, person.id)
-  await refreshActive()
-}
-
-async function rename(): Promise<void> {
-  if (!activeId.value || newTitle.value.trim() === '' || newTitle.value.trim() === active.value?.title) {
-    return
-  }
-
-  await api.renameConversation(activeId.value, newTitle.value.trim())
-  await messenger.refreshConversations()
-}
-
-async function leave(): Promise<void> {
-  if (!activeId.value) {
-    return
-  }
-
+async function leaveGroup(conversation: Conversation): Promise<void> {
   const confirmed = await confirm({
     title: 'Выйти из группы?',
     message: 'Переписка останется у остальных, а ваши сообщения — в ленте.',
@@ -821,693 +643,294 @@ async function leave(): Promise<void> {
     return
   }
 
-  await api.leaveConversation(activeId.value)
-  isManaging.value = false
-  messenger.dismiss(activeId.value)
+  await api.leaveConversation(conversation.id)
+  messenger.dismiss(conversation.id)
 }
 
-async function refreshActive(): Promise<void> {
+async function eraseChat(conversation: Conversation, scope: 'mine' | 'everyone'): Promise<void> {
+  const what = conversation.is_group ? 'группу' : 'переписку'
+
+  const confirmed = scope === 'mine'
+    ? await confirm({
+        title: `Удалить ${what} у себя?`,
+        message: 'У остальных она останется, к вам вернётся с новым сообщением — но уже без прошлого.',
+        confirmLabel: 'Удалить у себя',
+        danger: true,
+      })
+    : await confirm({
+        title: conversation.is_group ? 'Удалить группу у всех?' : 'Удалить переписку у обоих?',
+        message: 'Сообщения и приложенные файлы исчезнут навсегда — отменить это будет нельзя.',
+        confirmLabel: 'Удалить у всех',
+        danger: true,
+      })
+
+  if (!confirmed) {
+    return
+  }
+
+  await messenger.erase(conversation.id, scope)
+}
+
+/* ---------- Состав группы ---------- */
+
+const managing = ref(false)
+
+watch(activeId, () => {
+  managing.value = false
+  searching.value = false
+  clearSelection()
+  cancelComposing()
+})
+
+async function rename(title: string): Promise<void> {
+  if (!activeId.value) {
+    return
+  }
+
+  await api.renameConversation(activeId.value, title)
   await messenger.refreshConversations()
 }
 
-/* ---------- Удаление переписки ---------- */
-
-/** Открыто ли меню самой переписки — то, что в заголовке. */
-const isChatMenuOpen = ref(false)
-
-function toggleChatMenu(): void {
-  isChatMenuOpen.value = !isChatMenuOpen.value
-}
-
-// Закрывается щелчком мимо — тем же слушателем, что и меню у сообщения.
-onMounted(() => document.addEventListener('click', closeChatMenu))
-onBeforeUnmount(() => document.removeEventListener('click', closeChatMenu))
-
-function closeChatMenu(): void {
-  isChatMenuOpen.value = false
-}
-
-/**
- * Удалить у всех может не всякий: личную — любой из двоих, группу — только тот,
- * кто её завёл. Остальным остаётся выход и удаление у себя.
- */
-const canEraseForEveryone = computed(() => active.value !== null
-  && (!active.value.is_group || active.value.is_owner))
-
-/**
- * Убирает переписку у себя.
- *
- * Из группы при этом не выходим: разговор убран с глаз, но человек в нём
- * остался — напишут снова, и группа вернётся, уже без прошлого.
- */
-async function eraseForMe(): Promise<void> {
-  const id = activeId.value
-
-  if (!id || !active.value) {
+async function invite(personId: number): Promise<void> {
+  if (!activeId.value) {
     return
   }
 
-  const what = active.value.is_group ? 'группу' : 'переписку'
-
-  const confirmed = await confirm({
-    title: `Удалить ${what} у себя?`,
-    message: 'У остальных она останется, к вам вернётся с новым сообщением — но уже без прошлого.',
-    confirmLabel: 'Удалить у себя',
-    danger: true,
-  })
-
-  if (!confirmed) {
-    return
-  }
-
-  closeChatMenu()
-  await messenger.erase(id, 'mine')
+  await api.addParticipants(activeId.value, [personId])
+  await messenger.refreshConversations()
 }
 
-/** Стирает разговор у всех — вместе с сообщениями и приложенными файлами. */
-async function eraseForEveryone(): Promise<void> {
-  const id = activeId.value
-
-  if (!id || !active.value) {
+async function expel(personId: number): Promise<void> {
+  if (!activeId.value) {
     return
   }
 
-  const confirmed = await confirm({
-    title: active.value.is_group ? 'Удалить группу у всех?' : 'Удалить переписку у обоих?',
-    message: 'Сообщения и приложенные файлы исчезнут навсегда — отменить это будет нельзя.',
-    confirmLabel: 'Удалить у всех',
-    danger: true,
-  })
-
-  if (!confirmed) {
-    return
-  }
-
-  closeChatMenu()
-  await messenger.erase(id, 'everyone')
+  await api.removeParticipant(activeId.value, personId)
+  await messenger.refreshConversations()
 }
 
-/*
- * Открытой переписки не стало — её удалили у всех, пока мы в неё смотрели, либо
- * убрали мы сами. Возвращаемся к списку: адрес указывает на разговор, которого
- * больше нет, и кнопка «назад» привела бы обратно в пустоту.
- */
-watch(conversations, (list) => {
-  const shown = Number(route.query.id)
+/* ---------- Поиск по ленте ---------- */
 
-  if (shown && !list.some(one => one.id === shown)) {
-    void router.replace({ query: {} })
+const searching = ref(false)
+
+/* ---------- Новая переписка ---------- */
+
+const composing = ref(false)
+
+async function startDirect(personId: number): Promise<void> {
+  composing.value = false
+
+  const id = await messenger.writeTo(personId)
+
+  await messenger.refreshConversations()
+  select(id)
+}
+
+async function startGroup(title: string, personIds: number[]): Promise<void> {
+  composing.value = false
+
+  const { data } = await api.startGroup(title, personIds)
+
+  await messenger.refreshConversations()
+  select(data.id)
+}
+
+/* ---------- Просмотр вложений ---------- */
+
+/** Просматриваемое ищется во всей ленте: из открытого снимка листают соседние. */
+const viewable = computed(() => messages.value
+  .flatMap(one => one.attachments ?? [])
+  .filter(file => !file.is_voice
+    && (file.mime_type?.startsWith('image/') === true || file.mime_type?.startsWith('video/') === true)))
+
+const viewingId = ref<number | null>(null)
+
+function view(file: MessageAttachment): void {
+  viewingId.value = file.id
+}
+
+function stepViewer(by: number): void {
+  const at = viewable.value.findIndex(one => one.id === viewingId.value)
+  const next = viewable.value[at + by]
+
+  if (next) {
+    viewingId.value = next.id
   }
+}
+
+/* ---------- Голосовые ---------- */
+
+/** Играет не больше одной записи: две одновременно не слушают. */
+const playingVoice = ref<number | null>(null)
+
+// Ушли из переписки — звук с собой не уносим.
+watch(activeId, () => {
+  playingVoice.value = null
 })
 
-/* ---------- Показ ---------- */
+/* ---------- Клавиатура ---------- */
 
-/** Собственные сообщения выравниваются по правому краю, как везде в чатах. */
-function isMine(message: ChatMessage): boolean {
-  return message.author?.id === user.value?.id
-}
-
-/** Прочитано ли сообщение собеседником — вторая галочка. */
-function isSeen(message: ChatMessage): boolean {
-  const others = (active.value?.participants ?? []).filter(one => one.id !== user.value?.id)
-
-  return others.length > 0 && others.every(one =>
-    one.last_read_at !== null
-    && one.last_read_at !== undefined
-    && message.created_at !== null
-    && new Date(one.last_read_at) >= new Date(message.created_at),
-  )
-}
-
-function time(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
-}
-
-/** Подпись в списке: кто и что сказал последним. */
-function preview(message: ChatMessage | undefined): string {
-  if (!message) {
-    return 'Пока ничего не сказано'
+function onPageKey(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') {
+    return
   }
 
-  if (message.body) {
-    return message.body
+  if (selecting.value) {
+    clearSelection()
+  }
+  else if (searching.value) {
+    searching.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('keydown', onPageKey))
+onBeforeUnmount(() => document.removeEventListener('keydown', onPageKey))
+
+/** Нажали по упоминанию — открываем переписку с этим человеком. */
+async function writeToMentioned(personId: number): Promise<void> {
+  if (personId === me.value) {
+    return
   }
 
-  // Через `?.`: строчка списка приходит без вложений, если их забыли догрузить,
-  // и одна недостающая мелочь не должна ронять весь мессенджер — а ронял.
-  return message.attachments?.length ? 'Файл' : ''
+  select(await messenger.writeTo(personId))
 }
-
-function day(iso: string | null): string {
-  if (!iso) {
-    return ''
-  }
-
-  const date = new Date(iso)
-  const today = new Date()
-
-  return date.toDateString() === today.toDateString()
-    ? 'Сегодня'
-    : date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-}
-
-/** Отбивка с датой ставится там, где день сменился. */
-function startsNewDay(message: ChatMessage, index: number): boolean {
-  const previous = messages.value[index - 1]
-
-  return !previous || day(previous.created_at) !== day(message.created_at)
-}
-
-function sizeOf(bytes: number): string {
-  return bytes < 1024 * 1024
-    ? `${Math.max(1, Math.round(bytes / 1024))} КБ`
-    : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
-
-const typingLabel = computed(() => {
-  if (typing.value.length === 0) {
-    return ''
-  }
-
-  return typing.value.length === 1
-    ? `${typing.value[0]?.name} печатает…`
-    : 'Печатают…'
-})
 </script>
 
 <template>
   <section class="messenger" :class="{ 'messenger--open': activeId !== null }">
     <!-- Слева переписки, справа лента. На узком экране показывается одна из
          двух: список, пока никто не выбран, и лента, когда выбран. -->
-    <aside class="list">
-      <header class="list__head">
-        <h1 class="page-title list__title">
-          Сообщения
-        </h1>
-        <button type="button" class="button-primary button-sm" @click="startComposing">
-          Написать
-        </button>
-      </header>
+    <ChatList
+      class="messenger__list"
+      :conversations="conversations"
+      :active-id="activeId"
+      :me="me"
+      :online-ids="messenger.online.value"
+      @open="select"
+      @menu="openChatMenu"
+      @compose="composing = true"
+      @write-to="writeToMentioned"
+      @jump="(conversationId, messageId) => jumpTo(messageId, conversationId)"
+    />
 
-      <p v-if="!conversations.length" class="muted list__empty">
-        Переписок пока нет. Напишите коллеге — например тому, кто отвечает за курс.
-      </p>
-
-      <button
-        v-for="conversation in conversations"
-        :key="conversation.id"
-        type="button"
-        class="row"
-        :class="{ 'row--active': conversation.id === activeId }"
-        @click="select(conversation.id)"
-      >
-        <span class="row__face">
-          <UserAvatar
-            :name="conversation.title"
-            :src="conversation.companion?.avatar_url ?? null"
-            :size="40"
-          />
-          <!-- Зелёная точка у собеседника: presence-канал знает, кто сейчас
-               подключён, и это не стоит ни запроса, ни строки в базе. -->
-          <span
-            v-if="!conversation.is_group && messenger.isOnline(conversation.companion?.id)"
-            class="row__online"
-            title="В сети"
-          />
-        </span>
-
-        <span class="row__body">
-          <span class="row__top">
-            <span class="row__name">{{ conversation.title }}</span>
-            <span class="row__time faint">{{ time(conversation.last_message_at) }}</span>
-          </span>
-          <span class="row__preview faint">{{ preview(conversation.last_message) }}</span>
-        </span>
-
-        <span v-if="conversation.unread_count" class="row__unread">{{ conversation.unread_count }}</span>
-      </button>
-    </aside>
-
-    <!-- Лента -->
     <div class="pane">
       <template v-if="active">
-        <header class="pane__head">
-          <button type="button" class="pane__back" aria-label="К списку" @click="router.push({ query: {} })">
-            ←
-          </button>
+        <ChatSelectionBar
+          v-if="selecting"
+          :count="selected.length"
+          :can-delete="canDeleteSelected"
+          @close="clearSelection"
+          @forward="forwarding = true"
+          @copy="copySelected"
+          @remove="removeSelected"
+        />
 
-          <div class="pane__who">
-            <span class="pane__name">{{ active.title }}</span>
-            <span class="faint pane__status">
-              <template v-if="typingLabel">{{ typingLabel }}</template>
-              <template v-else-if="active.is_group">{{ active.participants_count }} участника(ов)</template>
-              <template v-else-if="messenger.isOnline(active.companion?.id)">В сети</template>
-              <template v-else>Не в сети</template>
-            </span>
-          </div>
+        <ChatHeader
+          v-else
+          :conversation="active"
+          :typing="typing"
+          :online="messenger.isOnline(active.companion?.id)"
+          :managing="managing"
+          @back="router.push({ query: {} })"
+          @search="searching = !searching"
+          @toggle-crew="managing = !managing"
+          @menu="openChatMenu(active, $event)"
+        />
 
-          <button
-            v-if="active.is_group"
-            type="button"
-            class="button-ghost button-sm"
-            @click="isManaging ? isManaging = false : startManaging()"
-          >
-            {{ isManaging ? 'Готово' : 'Участники' }}
-          </button>
+        <ChatSearchBar
+          v-if="searching"
+          :conversation-id="active.id"
+          @close="searching = false"
+          @jump="jumpTo"
+        />
 
-          <!-- Что можно сделать с самим разговором: убрать у себя, стереть у
-               всех, выйти из группы. Меню, а не кнопки в ряд: заголовок и так
-               тесен, а действия эти делают раз в жизни. -->
-          <div class="pane__menu">
-            <button
-              type="button"
-              class="pane__more"
-              aria-label="Действия с перепиской"
-              :aria-expanded="isChatMenuOpen"
-              @click.stop="toggleChatMenu"
-            >
-              ⋯
-            </button>
+        <ChatPinnedBar
+          v-if="pinned.length"
+          :messages="pinned"
+          :can-unpin="canPin"
+          @jump="jumpTo"
+          @unpin="messenger.pinMessage($event, false)"
+        />
 
-            <!-- Щелчок по пункту меню до документа доходит: там он и закроет
-                 меню — в том числе когда от действия отказались. -->
-            <ul v-if="isChatMenuOpen" class="actions actions--chat">
-              <li v-if="active.is_group">
-                <button type="button" @click="leave">
-                  Выйти из группы
-                </button>
-              </li>
-              <li>
-                <button type="button" @click="eraseForMe">
-                  Удалить у себя
-                </button>
-              </li>
-              <li v-if="canEraseForEveryone">
-                <button type="button" class="actions__danger" @click="eraseForEveryone">
-                  {{ active.is_group ? 'Удалить группу у всех' : 'Удалить у всех' }}
-                </button>
-              </li>
-            </ul>
-          </div>
+        <ChatCrew
+          v-if="managing && active.is_group"
+          :conversation="active"
+          :me="me"
+          :online-ids="messenger.online.value"
+          @rename="rename"
+          @invite="invite"
+          @expel="expel"
+        />
 
-          <!-- Аватар последним в разметке: на телефоне он справа, как в
-               привычных мессенджерах. На столе его возвращает на место перед
-               именем `order` — там кнопки «назад» нет и центрировать нечего. -->
-          <UserAvatar
-            class="pane__avatar"
-            :name="active.title"
-            :src="active.companion?.avatar_url ?? null"
-            :size="40"
+        <div class="pane__thread">
+          <ChatThread
+            ref="thread"
+            :messages="messages"
+            :people="participants"
+            :me="me"
+            :is-group="active.is_group"
+            :first-unread-id="firstUnreadId"
+            :has-older="hasOlder"
+            :has-newer="hasNewer"
+            :highlighted="highlighted"
+            :selecting="selecting"
+            :selected="selected"
+            :readers="participants"
+            :playing-voice="playingVoice"
+            :load-older="messenger.loadOlder"
+            :load-newer="messenger.loadNewer"
+            @reply="startReply"
+            @menu="openMenu"
+            @react="(message, emoji) => messenger.react(message.id, emoji)"
+            @toggle-select="toggleSelect"
+            @jump="jumpTo"
+            @open-file="view"
+            @mention="writeToMentioned"
+            @play-voice="playingVoice = $event"
+            @pause-voice="playingVoice = null"
+            @retry="messenger.resend"
+            @cancel="messenger.cancelSending"
+            @at-bottom="atBottom = $event"
           />
-        </header>
 
-        <!-- Состав группы: правит владелец, выйти может любой. -->
-        <div v-if="isManaging && active.is_group" class="crew">
-          <div v-if="active.is_owner" class="crew__rename">
-            <input v-model="newTitle" class="input" maxlength="120" placeholder="Название группы">
-            <button type="button" class="button-secondary button-sm" @click="rename">
-              Переименовать
-            </button>
-          </div>
-
-          <ul class="crew__list">
-            <li v-for="person in active.participants" :key="person.id" class="crew__item">
-              <UserAvatar :name="person.name" :src="person.avatar_url" :size="28" />
-              <span class="crew__name">{{ person.name }}</span>
-              <button
-                v-if="active.is_owner && person.id !== user?.id"
-                type="button"
-                class="crew__remove"
-                @click="expel(person)"
-              >
-                Убрать
-              </button>
-            </li>
-          </ul>
-
-          <div v-if="active.is_owner" class="crew__invite">
-            <input v-model="inviteSearch" type="search" class="input" placeholder="Добавить: фамилия или почта">
-            <ul v-if="invitees.length" class="finder">
-              <li v-for="person in invitees" :key="person.id">
-                <button type="button" class="finder__option" @click="invite(person)">
-                  <UserAvatar :name="person.name" :src="person.avatar_url" :size="26" />
-                  <span>{{ person.name }}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Выхода здесь больше нет: он стоит в меню переписки, рядом с
-               удалением. Действия над самим разговором собраны в одном месте, а
-               эта панель — про состав. -->
-        </div>
-
-        <div ref="thread" class="thread" @scroll="onThreadScroll">
-          <p v-if="hasMore" class="thread__older faint">
-            Прокрутите вверх, чтобы догрузить прошлое
-          </p>
-
-          <template v-for="(message, index) in messages" :key="message.id">
-            <p v-if="startsNewDay(message, index)" class="thread__day">
-              {{ day(message.created_at) }}
-            </p>
-
-            <!-- Системная отметка: кто кого добавил, кто вышел. -->
-            <p v-if="message.kind === 'system'" class="system">
-              {{ message.body }}
-            </p>
-
-            <div
-              v-else
-              class="bubble"
-              :class="{
-                'bubble--mine': isMine(message),
-                'bubble--found': highlighted === message.id,
-                'bubble--photo': isMediaOnly(message),
-                'bubble--album': isMediaOnly(message) && mediaOf(message).length > 1,
-                'bubble--sending': message.sending && !message.error,
-                'bubble--failed': Boolean(message.error),
-              }"
-              :data-message="message.id"
-            >
-              <span v-if="active.is_group && !isMine(message)" class="bubble__author">
-                {{ message.author?.name ?? 'Бывший сотрудник' }}
-              </span>
-
-              <!-- Цитата: на что отвечали. Удалённая говорит об этом прямо,
-                   иначе ответ висел бы без того, с чем соглашались. -->
-              <button
-                v-if="message.reply_to"
-                type="button"
-                class="quote"
-                :class="{ 'quote--gone': message.reply_to.deleted }"
-                @click="jumpTo(message.reply_to.id)"
-              >
-                <span class="quote__author">
-                  {{ message.reply_to.author?.name ?? 'Бывший сотрудник' }}
-                </span>
-                <span class="quote__text">
-                  {{ message.reply_to.deleted ? 'Сообщение удалено' : message.reply_to.excerpt }}
-                </span>
-              </button>
-
-              <!-- С какого материала написали. Читается раньше самого текста:
-                   «здесь не хватило ответа» без названия того, где не хватило,
-                   заставляет автора переспрашивать. -->
-              <NuxtLink v-if="message.about" :to="message.about.url ?? '/lms'" class="about">
-                <span class="about__head">
-                  {{ message.about.kind_label }}
-                  <template v-if="message.about.reason_label">· {{ message.about.reason_label }}</template>
-                </span>
-                <span class="about__title">{{ message.about.title }}</span>
-                <span v-if="message.about.context" class="about__context">{{ message.about.context }}</span>
-              </NuxtLink>
-
-              <p v-if="message.body" class="bubble__text">
-                {{ message.body }}
-              </p>
-
-              <!--
-                Снимки и записи — сеткой, как в мессенджерах: три кадра в одном
-                сообщении читаются как одно целое, а не как три сообщения подряд.
-                Раскладку задаёт число кадров, см. albumShape().
-              -->
-              <div
-                v-if="mediaOf(message).length"
-                class="album"
-                :class="`album--${albumShape(message)}`"
-              >
-                <a
-                  v-for="file in mediaOf(message)"
-                  :key="file.id"
-                  :href="file.url ?? '#'"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="album__cell"
-                  @click="openAttachment(file, $event)"
-                >
-                  <img v-if="isImage(file)" :src="file.url ?? ''" :alt="file.name" class="album__media">
-
-                  <!-- У записи кадр берётся из неё самой: своих обложек сервер
-                       не делает, а имя файла в сетке ничего не показывает. -->
-                  <template v-else>
-                    <video
-                      class="album__media"
-                      :src="file.url ?? ''"
-                      preload="metadata"
-                      muted
-                      playsinline
-                      @loadedmetadata="noteDuration(file, $event)"
-                    />
-                    <span class="album__play" aria-hidden="true">▶</span>
-                    <span v-if="durations[file.id]" class="album__clock">
-                      {{ clock(durations[file.id]!) }}
-                    </span>
-                  </template>
-                </a>
-              </div>
-
-              <a
-                v-for="file in papersOf(message)"
-                :key="file.id"
-                :href="file.url ?? '#'"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="file"
-                @click="openAttachment(file, $event)"
-              >
-                <span class="file__name">{{ file.name }}</span>
-                <span class="faint file__size">{{ sizeOf(file.size) }}</span>
-              </a>
-
-              <!--
-                Пока реплика уходит, на месте времени — сколько байт ушло, и
-                кнопка «отменить»: время у неё пока и не наступило. Сорвалась —
-                причина и «повторить» тем же составом.
-              -->
-              <span v-if="message.sending" class="bubble__meta bubble__await">
-                <template v-if="message.error">
-                  <span class="bubble__why">{{ message.error }}</span>
-                  <button type="button" class="bubble__retry" @click="messenger.resend(message.id)">
-                    Повторить
-                  </button>
-                  <button type="button" class="bubble__retry" @click="messenger.cancelSending(message.id)">
-                    Убрать
-                  </button>
-                </template>
-                <template v-else>
-                  {{ sendingLabel(message) }}
-                  <button type="button" class="bubble__retry" @click="messenger.cancelSending(message.id)">
-                    Отменить
-                  </button>
-                </template>
-              </span>
-
-              <span v-else class="bubble__meta">
-                <!-- «изменено» стоит раньше времени: время относится к тому,
-                     когда сказали, а правка — к тому, что теперь написано. -->
-                <span v-if="message.edited_at" :title="`Изменено ${time(message.edited_at)}`">изменено</span>
-                {{ time(message.created_at) }}
-
-                <!-- Одна галочка — отправлено, две — собеседник дочитал до
-                     этого места. Обводка берёт цвет текста, поэтому знак виден
-                     и на своём пузыре, и на чужом. -->
-                <svg
-                  v-if="isMine(message) && isSeen(message)"
-                  class="tick"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  aria-label="Прочитано"
-                  role="img"
-                >
-                  <path
-                    d="M14.5 4L7.5 12L4.5 9M4.5 12L1.5 9M11.5 4L7.25 8.875"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-                <svg
-                  v-else-if="isMine(message)"
-                  class="tick"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  aria-label="Отправлено"
-                  role="img"
-                >
-                  <path
-                    d="M16 4L7.6 14L4 10.25"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </span>
-
-              <!-- Полоса ухода байтов. Только у того, где есть что грузить: у
-                   текста она мигнула бы и исчезла. -->
-              <span
-                v-if="message.sending && !message.error && message.files?.length"
-                class="bubble__progress"
-                :style="{ '--sent': `${message.progress ?? 0}%` }"
-              />
-
-              <!-- Действия над репликой. Кнопкой, а не долгим нажатием: долгое
-                   нажатие на телефоне уже занято выделением текста, и отнимать
-                   его у того, кто хочет скопировать сообщение, нельзя.
-
-                   У ещё не отправленной их нет: отвечать, править и удалять
-                   можно то, что на сервере уже есть. -->
-              <button
-                v-if="!message.sending"
-                type="button"
-                class="bubble__more"
-                :aria-label="`Действия с сообщением от ${time(message.created_at)}`"
-                @click.stop="toggleMenu(message, $event)"
-              >
-                ⋯
-              </button>
-
-              <ul
-                v-if="menuFor === message.id"
-                class="actions"
-                :class="{ 'actions--up': menuUp, 'actions--left': !isMine(message) }"
-              >
-                <li>
-                  <button type="button" @click="startReply(message)">
-                    Ответить
-                  </button>
-                </li>
-                <li v-if="canEdit(message)">
-                  <button type="button" @click="startEditing(message)">
-                    Изменить
-                  </button>
-                </li>
-                <li v-if="canDelete(message)">
-                  <button type="button" class="actions__danger" @click="removeMessage(message)">
-                    Удалить у всех
-                  </button>
-                </li>
-              </ul>
-            </div>
-          </template>
-        </div>
-
-        <form class="composer" @submit.prevent="submit">
-          <!-- Что сейчас делается с полем: отвечаем или переписываем. Без этой
-               полосы правка неотличима от нового сообщения, и человек
-               отправляет второе вместо исправления первого. -->
-          <!-- С какого материала сюда пришли. Та же карточка встанет над
-               отправленной репликой: адресат должен видеть, о чём вопрос. -->
-          <div v-if="composingAbout" class="composing">
-            <span class="composing__kind">{{ composingAbout.kind_label }}</span>
-            <span class="composing__text">{{ composingAbout.title }}</span>
+          <!-- Кнопка «вниз» появляется, когда человек ушёл от конца ленты: без
+               неё возвращаться к последнему сообщению приходится прокруткой. -->
+          <Transition name="pop">
             <button
+              v-if="!atBottom || hasNewer"
               type="button"
-              class="composing__cancel"
-              aria-label="Писать без материала"
-              @click="dropMaterial"
+              class="down"
+              aria-label="К последним сообщениям"
+              @click="hasNewer ? messenger.returnToEnd().then(() => thread?.scrollToEnd()) : thread?.scrollToEnd(true)"
             >
-              ✕
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
+              </svg>
+              <span v-if="missed" class="down__count">{{ missed > 99 ? '99+' : missed }}</span>
             </button>
-          </div>
+          </Transition>
+        </div>
 
-          <div v-if="replyTo || editing" class="composing">
-            <span class="composing__kind">{{ editing ? 'Изменение' : 'Ответ' }}</span>
-            <span class="composing__text">
-              {{ editing ? (editing.body ?? '') : (replyTo?.body ?? 'Вложение') }}
-            </span>
-            <button type="button" class="composing__cancel" aria-label="Отменить" @click="cancelComposing">
-              ✕
-            </button>
-          </div>
-
-          <p v-if="attachError" class="composer__warning">
-            {{ attachError }}
-          </p>
-
-          <ul v-if="files.length" class="composer__files">
-            <li v-for="(file, index) in files" :key="`${file.name}-${index}`">
-              <span class="composer__file-name">{{ file.name }}</span>
-              <span class="faint">{{ sizeOf(file.size) }}</span>
-              <button type="button" :aria-label="`Убрать ${file.name}`" @click="dropFile(index)">
-                ✕
-              </button>
-            </li>
-          </ul>
-
-          <div class="composer__row">
-            <!-- При правке скрепка убрана: правка меняет слова, а приложить
-                 файл задним числом — это новое сообщение. -->
-            <div v-if="!editing" class="composer__attach">
-              <button
-                type="button"
-                class="composer__clip"
-                :aria-expanded="attachOpen"
-                aria-label="Приложить"
-                @click.stop="attachOpen = !attachOpen"
-              >
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M15.1715 6.99992L8.58553 13.5859C8.39451 13.7704 8.24215 13.9911 8.13733 14.2351C8.03251 14.4791 7.97734 14.7416 7.97503 15.0071C7.97272 15.2727 8.02333 15.536 8.12389 15.7818C8.22445 16.0276 8.37296 16.2509 8.56074 16.4387C8.74853 16.6265 8.97183 16.775 9.21762 16.8756C9.46342 16.9761 9.72678 17.0267 9.99233 17.0244C10.2579 17.0221 10.5203 16.9669 10.7643 16.8621C11.0083 16.7573 11.229 16.6049 11.4135 16.4139L17.8275 9.82792C18.5562 9.07351 18.9593 8.0631 18.9502 7.01431C18.9411 5.96553 18.5204 4.96228 17.7788 4.22065C17.0372 3.47901 16.0339 3.05834 14.9851 3.04922C13.9363 3.04011 12.9259 3.44329 12.1715 4.17192L5.75653 10.7569C4.63122 11.8822 3.99902 13.4085 3.99902 14.9999C3.99902 16.5914 4.63122 18.1176 5.75653 19.2429C6.88184 20.3682 8.4081 21.0004 9.99953 21.0004C11.591 21.0004 13.1172 20.3682 14.2425 19.2429L20.4995 12.9999"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </button>
-
-              <!--
-                Два входа, а не один общий выбор файлов: на телефоне «фото или
-                видео» открывает галерею и камеру, а «файл» — хранилище, и это
-                разные места. Одна кнопка со всеми типами вела бы в файлы, где
-                снимок ещё надо найти.
-              -->
-              <div v-if="attachOpen" class="attach" @click.stop>
-                <button type="button" class="attach__option" @click="mediaPicker?.click()">
-                  Фото или видео
-                </button>
-                <button type="button" class="attach__option" @click="paperPicker?.click()">
-                  Файл
-                </button>
-              </div>
-
-              <!-- Пункты меню — кнопки, а сами поля выбора спрятаны здесь: до
-                   подписи над скрытым полем с клавиатуры не добраться, а до
-                   кнопки добраться. -->
-              <input ref="mediaPicker" type="file" accept="image/*,video/*" multiple hidden @change="pickFiles">
-              <input ref="paperPicker" type="file" multiple hidden @change="pickFiles">
-            </div>
-
-            <textarea
-              ref="field"
-              v-model="draft"
-              class="input composer__field"
-              rows="1"
-              maxlength="5000"
-              :placeholder="editing ? 'Изменить сообщение…' : 'Сообщение…'"
-              @keydown="onKeydown"
-            />
-
-            <!-- На телефоне подпись сворачивается в стрелку: со словом
-                 «Отправить» кнопка забирала треть строки, и поле ввода
-                 оставалось уже самой кнопки. -->
-            <button
-              type="submit"
-              class="button-primary composer__send"
-              :disabled="!canSend"
-              :aria-label="editing ? 'Сохранить' : 'Отправить'"
-            >
-              <span class="composer__send-word">
-                {{ isSending ? '…' : (editing ? 'Сохранить' : 'Отправить') }}
-              </span>
-              <span class="composer__send-sign" aria-hidden="true">
-                {{ isSending ? '…' : (editing ? '✓' : '↑') }}
-              </span>
-            </button>
-          </div>
-        </form>
+        <ChatComposer
+          :conversation-id="active.id"
+          :people="participants"
+          :me="me"
+          :reply-to="replyTo"
+          :editing="editing"
+          :about="composingAbout"
+          @send="onSend"
+          @save="onSave"
+          @cancel-composing="cancelComposing"
+          @drop-about="dropMaterial"
+          @typing="messenger.announceTyping"
+        />
       </template>
 
       <UiEmptyState
@@ -1517,103 +940,51 @@ const typingLabel = computed(() => {
       />
     </div>
 
-    <!-- Снимок или запись во весь экран, не выходя из разговора. Щелчок мимо
-         закрывает — как во всяком просмотрщике. -->
-    <div v-if="viewing" class="viewer" @click.self="closeViewer">
-      <button type="button" class="viewer__close" aria-label="Закрыть" @click="closeViewer">
-        ✕
-      </button>
+    <ChatBubbleMenu
+      v-if="menuFor"
+      :at="menuAt"
+      :actions="menuActions"
+      :mine="myReactionIn(menuFor)"
+      :can-react="menuFor.kind === 'text' && !menuFor.sending"
+      @pick="onMenuPick"
+      @react="reactFromMenu"
+      @close="menuFor = null"
+    />
 
-      <button
-        v-if="viewingAt > 0"
-        type="button"
-        class="viewer__step viewer__step--back"
-        aria-label="Предыдущее"
-        @click.stop="stepViewer(-1)"
-      >
-        ‹
-      </button>
+    <ChatBubbleMenu
+      v-if="chatMenuFor"
+      :at="chatMenuAt"
+      :actions="chatMenuActions"
+      :mine="null"
+      :can-react="false"
+      @pick="onChatMenuPick"
+      @react="() => {}"
+      @close="chatMenuFor = null"
+    />
 
-      <img
-        v-if="viewing.mime_type?.startsWith('image/')"
-        :src="viewing.url ?? ''"
-        :alt="viewing.name"
-        class="viewer__media"
-      >
-      <!-- `controls` и ничего сверх: свой проигрыватель здесь ничего не
-           добавит, а системный умеет полный экран и картинку-в-картинке. -->
-      <video
-        v-else
-        :src="viewing.url ?? ''"
-        class="viewer__media"
-        controls
-        playsinline
-      />
+    <ChatViewer
+      v-if="viewingId !== null"
+      :files="viewable"
+      :file-id="viewingId"
+      @close="viewingId = null"
+      @step="stepViewer"
+    />
 
-      <button
-        v-if="viewingAt < viewable.length - 1"
-        type="button"
-        class="viewer__step viewer__step--next"
-        aria-label="Следующее"
-        @click.stop="stepViewer(1)"
-      >
-        ›
-      </button>
+    <ChatForwardSheet
+      v-if="forwarding && activeId"
+      :conversations="conversations"
+      :from-id="activeId"
+      :count="selected.length"
+      @pick="forwardTo"
+      @close="forwarding = false"
+    />
 
-      <a :href="viewing.url ?? '#'" target="_blank" rel="noopener noreferrer" class="viewer__name">
-        {{ viewing.name }}
-      </a>
-    </div>
-
-    <!-- Новая переписка: один выбранный — личная, несколько — группа. -->
-    <div v-if="isComposing" class="sheet" @click.self="isComposing = false">
-      <div class="sheet__panel card">
-        <header class="sheet__head">
-          <h2 class="sheet__title">
-            Новая переписка
-          </h2>
-          <button type="button" class="button-ghost button-sm" @click="isComposing = false">
-            Закрыть
-          </button>
-        </header>
-
-        <input v-model="contactSearch" type="search" class="input" placeholder="Кому: фамилия или почта">
-
-        <p v-if="groupMembers.length > 1" class="muted sheet__hint">
-          Выбрано больше одного — получится группа, ей нужно название.
-        </p>
-
-        <input
-          v-if="groupMembers.length > 1"
-          v-model="groupTitle"
-          class="input"
-          maxlength="120"
-          placeholder="Название группы"
-        >
-
-        <ul class="sheet__people">
-          <li v-for="person in contacts" :key="person.id">
-            <button
-              type="button"
-              class="finder__option"
-              :class="{ 'finder__option--chosen': isChosen(person) }"
-              @click="toggleMember(person)"
-            >
-              <UserAvatar :name="person.name" :src="person.avatar_url" :size="30" />
-              <span class="sheet__person">
-                <span>{{ person.name }}</span>
-                <span v-if="person.email" class="faint">{{ person.email }}</span>
-              </span>
-              <span v-if="isChosen(person)" class="sheet__tick">✓</span>
-            </button>
-          </li>
-        </ul>
-
-        <button type="button" class="button-primary" :disabled="!canStart" @click="startConversation">
-          {{ groupMembers.length > 1 ? 'Создать группу' : 'Написать' }}
-        </button>
-      </div>
-    </div>
+    <ChatComposeSheet
+      v-if="composing"
+      @direct="startDirect"
+      @group="startGroup"
+      @close="composing = false"
+    />
   </section>
 </template>
 
@@ -1625,128 +996,15 @@ const typingLabel = computed(() => {
  */
 .messenger {
   display: grid;
-  grid-template-columns: 20rem 1fr;
+  /* `minmax(0, …)` у обеих колонок: без нуля колонка не ужимается меньше своего
+     содержимого, и одна длинная ссылка растягивает её вместе со всей страницей
+     за край экрана. */
+  grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
   gap: 1rem;
   /* Ровно то, что осталось от экрана: оболочка страницы объявлена в высоту
-     экрана и растягивает эту строку сетки до низа (см. `shell--fills`). */
-  height: 100%;
+     экрана и отдаёт этой странице всё, что не заняли полосы над ней (см.
+     `shell--fills`). Своей высоты она не просит — потому и не переполняет. */
   min-height: 0;
-}
-
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
-/* Заголовок и пустая строка отбиты так же, как строки списка: иначе «Сообщения»
-   висит левее имён, под которыми оно стоит. */
-.list__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-  padding: 0 0.6rem;
-}
-
-.list__title {
-  margin: 0;
-  font-size: 1.35rem;
-}
-
-.list__empty {
-  padding: 0 0.6rem;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  padding: 0.55rem 0.6rem;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.row:hover {
-  background: var(--control-surface-hover);
-}
-
-.row--active {
-  background: var(--color-surface-sunken);
-}
-
-.row__face {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.row__online {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 0.7rem;
-  height: 0.7rem;
-  border: 2px solid var(--color-surface);
-  border-radius: 50%;
-  background: var(--color-success, #3fb950);
-}
-
-.row__body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.row__top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.row__name {
-  overflow: hidden;
-  font-size: 0.92rem;
-  font-weight: 550;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row__time {
-  flex-shrink: 0;
-  font-size: 0.75rem;
-}
-
-.row__preview {
-  overflow: hidden;
-  font-size: 0.82rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row__unread {
-  flex-shrink: 0;
-  min-width: 1.3rem;
-  padding: 0 0.35rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.3rem;
-  text-align: center;
 }
 
 /*
@@ -1754,1259 +1012,134 @@ const typingLabel = computed(() => {
  *
  * Шапка, состав, лента и поле ввода лежат друг под другом, и стоило им разойтись
  * на десятую рема, как имя собеседника, край пузыря и край поля ввода перестали
- * попадать на одну вертикаль. Здесь одно значение на всех, и правится оно в
- * одном месте.
+ * попадать на одну вертикаль.
  */
 .pane {
   --pane-pad: 0.9rem;
 
   display: flex;
-  flex-direction: column;
   min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
-  overflow: hidden;
 }
 
-/* На столе аватар стоит перед именем: кнопки «назад» там нет, и центрировать
-   имя не от чего. На телефоне порядок разметки берёт своё — аватар справа. */
-.pane__avatar {
-  order: -1;
-}
-
-.pane__head {
+/* Держатель ленты: по нему позиционируется кнопка «вниз». */
+.pane__thread {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.7rem var(--pane-pad);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.pane__back {
-  display: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.pane__who {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  min-height: 0;
   flex: 1;
-}
-
-.pane__name {
-  overflow: hidden;
-  font-weight: 550;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pane__status {
-  font-size: 0.78rem;
-}
-
-/* Держатель меню переписки: позиционирует список, который из него выпадает. */
-.pane__menu {
-  position: relative;
-  display: flex;
-}
-
-.pane__more {
-  padding: 0 0.35rem;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 1.2rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.pane__more:hover,
-.pane__more:focus-visible {
-  color: var(--color-text);
-}
-
-.thread {
-  display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.9rem var(--pane-pad);
 }
 
-.thread__older,
-.thread__day {
-  margin: 0.4rem 0;
-  font-size: 0.75rem;
-  text-align: center;
-}
-
-.thread__day {
-  color: var(--color-text-faint);
-}
-
-.system {
-  margin: 0.3rem auto;
-  padding: 0.25rem 0.7rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  font-size: 0.78rem;
-  text-align: center;
-}
-
-.bubble {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-self: flex-start;
-  gap: 0.15rem;
-  max-width: min(34rem, 78%);
-  padding: 0.5rem 0.75rem;
-  /* Скругление сдержаннее, чем у карточек интерфейса: у реплики оно спорит с
-     текстом, а не обрамляет его. */
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-sunken);
-}
-
-/*
- * Пузырь из одних снимков: полей нет, снимок занимает его целиком.
- *
- * Ширину по-прежнему задаёт снимок: маленький не растягивается, большой упирается
- * в предел пузыря. Подложка под снимком остаётся — сквозь прозрачные края PNG
- * иначе просвечивала бы лента.
- *
- * Углы скругляет сам снимок, тем же радиусом, а не `overflow: hidden` у пузыря:
- * внутри пузыря лежит ещё и всплывающее меню действий, и обрезка срезала бы его.
- */
-.bubble--photo {
-  gap: 0;
-  padding: 0;
-}
-
-/* Имя в группе — единственное, что здесь ещё нуждается в полях. */
-.bubble--photo .bubble__author {
-  padding: 0.4rem 0.7rem 0.3rem;
-}
-
-/*
- * Сетка из нескольких кадров всегда одной ширины: плитки должны быть одного
- * размера у всех сообщений, а не подстраиваться под первый снимок.
- *
- * Ширина — своя, меньше дозволенной пузырю: реплика из слов и реплика из
- * снимков живут в одной ленте, и снимок на всю её ширину съедает экран, ради
- * которого лента и открыта. Столько же занимает медиа в мессенджерах, откуда
- * взята и сама сетка. Предел пузыря (78 %) на телефоне всё равно перебивает эту
- * ширину — там она уже больше, чем дают.
- */
-.bubble--album {
-  width: min(24rem, 76vw);
-}
-
-/* ---------- Сетка снимков и записей ---------- */
-
-/*
- * Раскладки — по числу кадров, как в мессенджерах. Пропорции целого задаются
- * здесь, а кадры внутри обрезаются по центру: собрать сетку из настоящих
- * пропорций каждого снимка нельзя, их никто не присылает заранее.
- */
-.album {
-  display: grid;
-  gap: 2px;
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-}
-
-/* Один — как есть, без обрезки: вертикальный кадр телефона на квадратной плитке
-   потерял бы половину. */
-.album--1 {
-  gap: 0;
-}
-
-.album--2 {
-  grid-template-columns: 1fr 1fr;
-  aspect-ratio: 2 / 1;
-}
-
-.album--3 {
-  grid-template-columns: 1.5fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  aspect-ratio: 1.15 / 1;
-}
-
-.album--4 {
-  grid-template-columns: 1.5fr 1fr;
-  grid-template-rows: repeat(3, 1fr);
-  aspect-ratio: 1 / 1.05;
-}
-
-/* Первый кадр — большой: он и есть то, что показывают, остальное при нём. */
-.album--3 > :first-child,
-.album--4 > :first-child {
-  grid-row: 1 / -1;
-}
-
-/* Пять: три сверху, два снизу. Шести не бывает — сервер берёт не больше пяти. */
-.album--5 {
-  grid-template-columns: repeat(6, 1fr);
-  grid-template-rows: 1fr 1fr;
-  aspect-ratio: 1.35 / 1;
-}
-
-.album--5 > :nth-child(-n+3) {
-  grid-column: span 2;
-}
-
-.album--5 > :nth-child(n+4) {
-  grid-column: span 3;
-}
-
-.album__cell {
-  position: relative;
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  background: rgb(0 0 0 / 20%);
-}
-
-.album__media {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/*
- * Одиночный кадр не обрезается и не растягивается — его показывают как есть,
- * вписывая в рамку.
- *
- * Ограничены обе стороны, и высота здесь важнее ширины: вертикальный кадр
- * телефона при одной только ширине вырастает на два экрана, и разговор
- * приходится прокручивать мимо одного снимка. Пропорции при двух пределах
- * браузер сохраняет сам — это замещаемый элемент.
- */
-.album--1 .album__media {
-  width: auto;
-  max-width: min(22rem, 72vw);
-  height: auto;
-  max-height: 24rem;
-}
-
-/* Длительность — в углу кадра, той же пилюлей, что и время сообщения. */
-.album__clock {
+.down {
   position: absolute;
-  top: 0.35rem;
-  left: 0.35rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: var(--radius-pill);
-  background: rgb(0 0 0 / 55%);
-  color: #fff;
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-
-/* Знак записи: кадр из неё виден, но нажимают на него ради воспроизведения. */
-.album__play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
+  right: 1rem;
+  bottom: 1rem;
   display: grid;
   place-items: center;
   width: 2.6rem;
   height: 2.6rem;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 45%);
-  color: #fff;
-  font-size: 0.9rem;
-  /* Треугольник в круге стоит ровно по центру только со сдвигом: у знака есть
-     собственный правый воздух. */
-  padding-left: 0.15rem;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-/*
- * Время и галочки — поверх снимка, в его углу.
- *
- * Подложка обязательна: угол снимка бывает и белым, и чёрным, и пёстрым, а знак
- * прочтения должен читаться на любом. Она же делает знак белым независимо от
- * того, свой пузырь или чужой.
- */
-.bubble--photo .bubble__meta {
-  position: absolute;
-  right: 0.4rem;
-  bottom: 0.4rem;
-  padding: 0.05rem 0.45rem;
-  border-radius: var(--radius-pill);
-  background: rgb(0 0 0 / 45%);
-  color: #fff;
-  opacity: 1;
-}
-
-/* ---------- Пока реплика уходит ---------- */
-
-/*
- * Уходящее видно, но пригашено: оно уже сказано, но ещё не сказано никому.
- */
-.bubble--sending .album,
-.bubble--sending .bubble__text,
-.bubble--sending .file {
-  opacity: 0.65;
-}
-
-.bubble--failed {
-  outline: 1px solid var(--color-danger);
-}
-
-.bubble__await {
-  flex-wrap: wrap;
-  align-self: flex-end;
-  opacity: 1;
-}
-
-.bubble__why {
-  color: var(--color-danger);
-}
-
-/* Своё сообщение — на почти чёрном, и красный на нём не читается. */
-.bubble--mine .bubble__why {
-  color: var(--color-danger-soft);
-}
-
-.bubble__retry {
   padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  box-shadow: var(--shadow-md);
   cursor: pointer;
 }
 
-/*
- * Полоса ухода байтов — по нижнему краю пузыря.
- *
- * Полоса, а не круг с процентом: она читается краем глаза и не требует места,
- * которого у реплики нет.
- */
-.bubble__progress {
+.down:hover {
+  color: var(--color-text);
+}
+
+.down svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.down__count {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 20%, transparent);
-  overflow: hidden;
-}
-
-.bubble__progress::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--sent, 0%);
-  background: currentcolor;
-  transition: width 0.2s ease;
-}
-
-/* На снимке метка отправки — такой же пилюлей, как время. */
-.bubble--photo .bubble__await {
-  position: absolute;
-  right: 0.4rem;
-  bottom: 0.4rem;
-  max-width: calc(100% - 0.8rem);
-  padding: 0.05rem 0.45rem;
-  border-radius: var(--radius-pill);
-  background: rgb(0 0 0 / 55%);
-  color: #fff;
-}
-
-.bubble--photo .bubble__why {
-  color: #ffb3ad;
-}
-
-/* Кнопка действий тоже лежит на снимке, и ей нужна та же подложка. */
-.bubble--photo .bubble__more {
-  top: 0.35rem;
-  right: 0.35rem;
+  top: -0.3rem;
+  right: -0.3rem;
+  min-width: 1.2rem;
   padding: 0 0.3rem;
   border-radius: var(--radius-pill);
-  background: rgb(0 0 0 / 45%);
-  color: #fff;
-}
-
-/* Куда перенесло по нажатию на цитату. Гаснет само — см. jumpTo(). */
-.bubble--found {
-  outline: 2px solid var(--color-highlight-strong);
-  outline-offset: 2px;
-}
-
-.bubble--mine {
-  align-self: flex-end;
   background: var(--color-accent);
   color: var(--color-accent-text);
-}
-
-.bubble__author {
-  font-size: 0.75rem;
-  font-weight: 600;
-  opacity: 0.75;
-}
-
-.bubble__text {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.bubble__meta {
-  display: flex;
-  gap: 0.3rem;
-  align-items: center;
-  align-self: flex-end;
   font-size: 0.7rem;
-  opacity: 0.7;
-}
-
-/* Знак прочтения. Размер задан здесь, а не в самом svg: у двух знаков разные
-   системы координат (16 и 20), а в ленте они обязаны выглядеть одинаково. */
-.tick {
-  width: 0.95rem;
-  height: 0.95rem;
-  flex-shrink: 0;
-}
-
-/* ---------- Цитата над ответом ---------- */
-
-.quote {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  width: 100%;
-  padding: 0.3rem 0.5rem;
-  border: 0;
-  /* Полоса слева — то, чем цитата отличается от текста самого сообщения. */
-  border-left: 2px solid currentcolor;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 12%, transparent);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.quote:hover {
-  background: color-mix(in srgb, currentcolor 18%, transparent);
-}
-
-/* Удалённую не к чему перематывать: курсор об этом и говорит. */
-.quote--gone {
-  cursor: default;
-  font-style: italic;
-}
-
-.quote__author {
-  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
+  line-height: 1.2rem;
+  text-align: center;
 }
 
-/*
- * Карточка материала, с которого написали. Устроена как цитата — тем же
- * оттенком собственного цвета и той же полосой слева, — потому что это и есть
- * цитата, только не чужой реплики, а места в базе знаний.
- */
-.about {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  width: 100%;
-  padding: 0.35rem 0.55rem;
-  border-left: 2px solid currentcolor;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 12%, transparent);
-  color: inherit;
-  text-decoration: none;
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.about:hover {
-  background: color-mix(in srgb, currentcolor 18%, transparent);
-}
-
-.about__head {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.about__title {
-  font-size: 0.86rem;
-  font-weight: 500;
-}
-
-.about__context {
-  font-size: 0.75rem;
-  opacity: 0.75;
-}
-
-.quote__text {
-  overflow: hidden;
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.85;
-}
-
-/* ---------- Действия над репликой ---------- */
-
-.bubble__more {
-  position: absolute;
-  top: 0.15rem;
-  right: 0.3rem;
-  padding: 0 0.2rem;
-  border: 0;
-  background: none;
-  color: inherit;
-  font-size: 0.9rem;
-  line-height: 1;
-  cursor: pointer;
+.pop-enter-from,
+.pop-leave-to {
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transform: translateY(0.5rem) scale(0.9);
 }
 
-.bubble:hover .bubble__more,
-.bubble__more:focus-visible {
-  opacity: 0.6;
-}
-
-/*
- * Под пальцем наведения не бывает, и спрятанная кнопка недосягаема — там она
- * видна всегда. Узкое окно на столе сюда же: мышь там есть, но раскладка уже
- * телефонная, и прятать единственный путь к действиям незачем.
- */
-@media (pointer: coarse), (max-width: 52rem) {
-  .bubble__more {
-    opacity: 0.5;
-  }
-}
-
-.actions {
-  position: absolute;
-  top: 1.5rem;
-  right: 0.3rem;
-  z-index: 5;
-  min-width: 11rem;
-  margin: 0;
-  padding: 0.25rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
-  list-style: none;
-}
-
-/* Раскрытое вверх — для реплик у нижнего края ленты, см. toggleMenu(). Идёт
-   после `.actions`: специфичность одинаковая, и решает порядок. */
-.actions--up {
-  top: auto;
-  bottom: 1.5rem;
-}
-
-/*
- * У чужой реплики меню растёт вправо, а не влево.
- *
- * Чужие пузыри прижаты к левому краю и бывают узкими — в одно слово. Меню
- * шириной в одиннадцать знаков, отсчитанное от правого края такого пузыря,
- * уходило за левый край экрана, и «Ответить» с «Удалить» было видно наполовину.
- */
-.actions--left {
-  right: auto;
-  left: 0.3rem;
-}
-
-.actions button {
-  width: 100%;
-  padding: 0.45rem 0.6rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.actions button:hover {
-  background: var(--color-surface-sunken);
-}
-
-/*
- * То же меню, но у заголовка переписки, а не у реплики.
- *
- * Отсчитывается от кнопки «⋯», а не от ленты: заголовок ничего не
- * прокручивает, и обрезать меню нечему — довольно выпустить его вниз под
- * кнопку, прижав к правому краю, чтобы оно не уходило за край экрана.
- */
-.actions--chat {
-  top: calc(100% + 0.35rem);
-  right: 0;
-  z-index: 10;
-}
-
-.actions__danger {
-  color: var(--color-danger);
-}
-
-/* ---------- Просмотр снимков и записей ---------- */
-
-.viewer {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: center;
-  padding: 3.5rem 1rem;
-  background: rgb(0 0 0 / 88%);
-}
-
-.viewer__media {
-  max-width: 100%;
-  /* Не 100%: сверху крестик, снизу имя файла, и снимок не должен лезть под них. */
-  max-height: calc(100dvh - 7rem);
-  object-fit: contain;
-}
-
-.viewer__close,
-.viewer__step {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border: 0;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 14%);
-  color: #fff;
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-}
-
-.viewer__close:hover,
-.viewer__step:hover {
-  background: rgb(255 255 255 / 26%);
-}
-
-/*
- * Все три кнопки — на одном расстоянии от краёв, и это расстояние учитывает
- * вырезы экрана: у телефона в ландшафте боковая безопасная зона не нулевая, и
- * кнопка у самого края наполовину уходила под скругление корпуса.
- */
-.viewer__close {
-  top: max(1rem, env(safe-area-inset-top));
-  right: max(1rem, env(safe-area-inset-right));
-}
-
-/* Вертикаль задана явно: без `top` кнопка встаёт туда, куда её поставит
-   выравнивание сетки, и это зависит от того, что сейчас в ней лежит. */
-.viewer__step {
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.viewer__step--back {
-  left: max(1rem, env(safe-area-inset-left));
-}
-
-.viewer__step--next {
-  right: max(1rem, env(safe-area-inset-right));
-}
-
-.viewer__name {
-  position: absolute;
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  max-width: 80%;
-  overflow: hidden;
-  color: #fff;
-  font-size: 0.85rem;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.75;
-}
-
-.viewer__name:hover {
-  opacity: 1;
-  text-decoration: underline;
-}
-
-/* ---------- Полоса «отвечаем / изменяем» ---------- */
-
-.composing {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.4rem 0.6rem;
-  border-left: 2px solid var(--color-accent);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-sunken);
-  font-size: 0.82rem;
-}
-
-.composing__kind {
-  flex-shrink: 0;
-  font-weight: 600;
-}
-
-.composing__text {
-  overflow: hidden;
-  flex: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.75;
-}
-
-.composing__cancel {
-  flex-shrink: 0;
-  padding: 0 0.25rem;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-
-/* На широком экране у кнопки слово, знак спрятан. Подмена — в медиазапросе. */
-.composer__send {
-  flex-shrink: 0;
-}
-
-.composer__send-sign {
-  display: none;
-}
-
-.file {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.2rem;
-  color: inherit;
-  font-size: 0.85rem;
-}
-
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.7rem var(--pane-pad);
-  border-top: 1px solid var(--color-border);
-}
-
-.composer__files {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 0.8rem;
-}
-
-.composer__files li {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-sunken);
-}
-
-.composer__files button {
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.composer__row {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
-}
-
-/* Отдельная величина под палец: на телефоне значок в один символ не поймать. */
-.composer__clip {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  cursor: pointer;
-  color: var(--color-text-muted);
-}
-
-/* Скрепка держит выбор вложения: он раскрывается ровно над ней. */
-.composer__attach {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.attach {
-  position: absolute;
-  bottom: calc(100% + 0.4rem);
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 11rem;
-  padding: 0.3rem;
-  border-radius: var(--radius);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-lg);
-}
-
-.attach__option {
-  padding: 0.5rem 0.7rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 0.88rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.attach__option:hover {
-  background: var(--color-surface-sunken);
-}
-
-/* Отказ на выбранном: слишком тяжёлое или слишком много. Красным, но строкой, а
-   не окном — исправляется это тем же нажатием, что и вызвало. */
-.composer__warning {
-  margin: 0;
-  color: var(--color-danger);
-  font-size: 0.8rem;
-}
-
-.composer__file-name {
-  overflow: hidden;
-  max-width: 12rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer__clip svg {
-  width: 1.35rem;
-  height: 1.35rem;
-}
-
-.composer__clip:hover svg {
-  color: var(--color-text);
-}
-
-.composer__clip:hover {
-  background: var(--control-surface-hover);
-}
-
-.composer__field {
-  flex: 1;
-  max-height: 8rem;
-  resize: none;
-}
-
-.crew {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.8rem var(--pane-pad);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface-sunken);
-}
-
-.crew__rename,
-.crew__invite {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.crew__list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.crew__item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.88rem;
-}
-
-.crew__name {
-  flex: 1;
-}
-
-.crew__remove {
-  border: none;
-  background: transparent;
-  color: var(--color-danger);
-  font: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.finder {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.finder__option {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  width: 100%;
-  padding: 0.35rem 0.5rem;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.finder__option:hover,
-.finder__option--chosen {
-  background: var(--control-surface-hover);
-}
-
-/* Лист поверх страницы — единственное место, где он тут уместен: выбор
-   собеседника перекрывает и список, и ленту. */
-.sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: color-mix(in srgb, var(--color-text) 35%, transparent);
-}
-
-.sheet__panel {
-  max-height: min(36rem, 85dvh);
-}
-
-.sheet__panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  width: min(28rem, 100%);
-  padding: 1.1rem 1.2rem;
-  overflow-y: auto;
-}
-
-.sheet__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sheet__title {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.sheet__hint {
-  margin: 0;
-  font-size: 0.82rem;
-}
-
-.sheet__people {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  flex: 1;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow-y: auto;
-}
-
-.sheet__person {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  font-size: 0.88rem;
-}
-
-.sheet__tick {
-  color: var(--color-accent);
-}
-
-/* На узком экране панели не помещаются рядом: показываем ту, что нужна. */
-@media (max-width: 52rem) {
+/* На узком экране панель одна: список, пока никто не выбран, и лента, когда
+   выбран. Обе сразу туда не помещаются, а показывать половину каждой хуже, чем
+   показывать одну целиком. */
+@media (max-width: 47.9rem) {
   .messenger {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    /*
+     * По бокам — до самых кромок.
+     *
+     * Поля ставит оболочка, одни на все страницы, и мессенджеру они не идут:
+     * карточка с отступом по краям уместна там, где страница листается, а здесь
+     * она сама себе экран. Гасим их отрицательным полем, а не правкой оболочки:
+     * те же поля нужны всем остальным страницам, включая соседние с тем же
+     * `fills`.
+     *
+     * Снизу поля нет — его уже сняла оболочка, когда убрала полосу разделов, —
+     * и отрицательное там вылезло бы за нижнюю кромку.
+     */
+    margin: 0 -1rem;
   }
 
   /*
-   * Открытая переписка занимает весь экран.
+   * Сверху до кромки уходит только открытый разговор.
    *
-   * Как во всяком мессенджере: в разговоре не нужны ни шапка приложения, ни
-   * рельса разделов — выходят из него кнопкой «назад», и она ведёт в список.
-   * Место, которое они занимали, уходит ленте.
-   *
-   * `fixed` здесь важнее внешнего вида: страница перестаёт зависеть от сетки
-   * оболочки и её отступов, а `100dvh` вместе с
-   * `interactive-widget=resizes-content` означает «то, что видно сейчас» — и
-   * при выехавшей клавиатуре тоже. Поэтому ничего никуда не съезжает.
+   * У него наверху своя шапка с именем собеседника, и она встаёт на место
+   * системной — так и должно быть. А список остаётся списком: заголовок
+   * «Сообщения», прижатый к самому краю экрана, выглядит обрезанным.
    */
   .messenger--open {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    height: 100dvh;
-    padding: 0;
-    background: var(--color-bg);
+    margin-top: -1rem;
   }
 
-  /* Во весь экран рамка и скругления только мешают: края экрана и есть края. */
-  .messenger--open .pane {
-    border: 0;
+  /* Рамки и скругления у того, что занимает весь экран, обрамлять нечего. */
+  .pane {
+    border: none;
     border-radius: 0;
-    background: var(--color-bg);
-  }
-
-  /*
-   * Шапка лежит поверх ленты, а не над ней.
-   *
-   * Сплошной полосы нет: фон прозрачный, границы нет, и сообщения проходят
-   * под кнопками — так же, как в привычных мессенджерах. Фон есть у каждой
-   * кнопки по отдельности, и он полупрозрачный с размытием, чтобы буквы под
-   * ним не мешали читать надпись.
-   */
-  .messenger--open .pane__head {
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    z-index: 5;
-    flex-shrink: 0;
-    padding-top: max(0.75rem, env(safe-area-inset-top));
-    border-bottom: 0;
-    background: none;
-    pointer-events: none;
-  }
-
-  /* Сама полоса кликов не ловит — иначе она накрыла бы верхние сообщения, —
-     а плашки ловят. */
-  .messenger--open .pane__head > * {
-    pointer-events: auto;
-  }
-
-  /* Лента начинается под шапкой, но прокручивается за неё. */
-  .messenger--open .thread {
-    padding-top: calc(3.9rem + max(0.75rem, env(safe-area-inset-top)));
-  }
-
-  /*
-   * Плашки под кнопками: своё скругление и размытие у каждой — и одна высота на
-   * всех.
-   *
-   * Высота была у каждой своя: «назад» 36 точек, имя 44, «⋯» 28. Три плашки
-   * трёх размеров в одной строке и есть тот перекос, который видно, даже не
-   * присматриваясь. Аватар той же величины — см. `size` в разметке.
-   */
-  .messenger--open .pane__back,
-  .messenger--open .pane__who,
-  .messenger--open .pane__more {
-    height: 2.5rem;
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
-    backdrop-filter: blur(14px);
-  }
-
-  /* «⋯» лежит поверх сообщений, и без собственной плашки знак терялся бы в
-     них — как и «назад» на другом краю. */
-  .messenger--open .pane__more {
-    display: grid;
-    place-items: center;
-    width: 2.5rem;
-    padding: 0;
-    color: var(--color-text);
-  }
-
-  /*
-   * Плашка имени — по ширине надписи и по середине экрана.
-   *
-   * Не `margin: auto`: слева от неё одна кнопка, справа две, и середина
-   * свободного места приходится левее настоящей середины — надпись выглядела
-   * сдвинутой. Поэтому она выведена из строки и центрируется по самой шапке, а
-   * не по тому, что от неё осталось.
-   */
-  .messenger--open .pane__who {
-    position: absolute;
-    left: 50%;
-    max-width: 52%;
-    justify-content: center;
-    padding: 0.1rem 1rem;
-    text-align: center;
-    transform: translateX(-50%);
-  }
-
-  /* Кнопки разъезжаются по краям: между ними больше нет плашки имени. */
-  .messenger--open .pane__menu {
-    margin-left: auto;
-  }
-
-  /* Аватар справа: на столе его держит перед именем `order: -1`. */
-  .messenger--open .pane__avatar {
-    order: 0;
-    border-radius: 50%;
-    backdrop-filter: blur(14px);
-  }
-
-  /*
-   * Нижняя панель — тоже без сплошной подложки: фон есть у поля и у кнопок по
-   * отдельности, а между ними просвечивает лента. Разделительной полосы нет по
-   * той же причине, что и у шапки: она рисовала бы границу там, где её нет.
-   */
-  .messenger--open .composer {
-    flex-shrink: 0;
-    border-top: 0;
-    background: none;
-    /* Приподнята над кромкой: прижатая вплотную кнопка попадает под полосу
-       жестов, и нажатие уходит системе, а не приложению. */
-    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
-  }
-
-  /*
-   * Нижняя строка — из частей одной высоты и одной формы.
-   *
-   * Скрепка, поле и кнопка отправки стояли по 2.5, 2.6 и 2.75 рема, да ещё поле
-   * со скруглением в 16 точек между двумя кругами: три почти одинаковых размера
-   * рядом читаются как перекос, а не как замысел. Здесь одна величина на всех.
-   */
-  .messenger--open .composer__field,
-  .messenger--open .composer__clip {
-    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
-    backdrop-filter: blur(14px);
-  }
-
-  .messenger--open .composer__field {
-    min-height: 2.75rem;
-    /* Плашка-таблетка: у пустого поля она круглится в те же круги, что соседи, а
-       разросшись на несколько строк — остаётся плашкой. */
-    padding: 0.65rem 1rem;
-    border-radius: var(--radius-pill);
-  }
-
-  .messenger--open .composer__clip {
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: 50%;
-  }
-
-  .messenger--open .list {
     display: none;
   }
 
-  .messenger:not(.messenger--open) .pane {
+  .messenger--open .messenger__list {
     display: none;
   }
 
-  /* Возврат к списку — единственный способ уйти из переписки, когда панель
-     одна: на столе для этого достаточно посмотреть влево. */
-  .pane__back {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: var(--radius);
+  .messenger--open .pane {
+    display: flex;
   }
+}
 
-  .pane__back:hover {
-    background: var(--control-surface-hover);
-  }
-
-  .thread {
-    padding: 0.75rem var(--pane-pad);
-  }
-
-  /* Пузырь на телефоне шире: 78% от 390 точек — это обрывок строки. */
-  .bubble {
-    max-width: 88%;
-  }
-
-  /*
-   * Кнопка сворачивается в круг со стрелкой.
-   *
-   * Со словом «Отправить» она занимала 118 точек из 352, и полю ввода
-   * оставалось 149 — уже, чем сама кнопка. Писать в такое поле нельзя: видно
-   * последние два слова.
-   */
-  .composer__send-word {
-    display: none;
-  }
-
-  .composer__send-sign {
-    display: block;
-    font-size: 1.15rem;
-    line-height: 1;
-  }
-
-  .composer__send {
-    display: grid;
-    place-items: center;
-    width: 2.75rem;
-    height: 2.75rem;
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  /* Поле забирает всё, что осталось: без min-width оно не ужимается ниже
-     своего содержимого и выдавливает соседей. */
-  .composer__field {
-    flex: 1;
-    min-width: 0;
-  }
-
-  /* Лист выезжает снизу — там, где до него дотягивается большой палец. */
-  .sheet {
-    place-items: end stretch;
-    padding: 0;
-  }
-
-  .sheet__panel {
-    width: 100%;
-    max-height: 85dvh;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+@media (prefers-reduced-motion: reduce) {
+  .pop-enter-active,
+  .pop-leave-active {
+    transition: none;
   }
 }
 </style>

@@ -27,6 +27,11 @@ class ConversationParticipant extends Pivot
         return [
             'last_read_at' => 'datetime',
             'left_at' => 'datetime',
+            'cleared_at' => 'datetime',
+
+            // Личные отметки читателя: приглушил разговор, поднял его наверх.
+            'muted_at' => 'datetime',
+            'pinned_at' => 'datetime',
         ];
     }
 }
