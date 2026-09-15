@@ -227,7 +227,7 @@ function when(value: string | null): string {
           </button>
         </div>
 
-        <table v-if="links.length" class="share__links">
+        <table v-if="links.length" class="share__links data-table">
           <thead>
             <tr>
               <th>Ссылка</th>
@@ -242,10 +242,10 @@ function when(value: string | null): string {
                 <code>{{ link.hint }}</code>
                 <span v-if="link.created_by" class="share__note">{{ link.created_by }}</span>
               </td>
-              <td class="share__number">
+              <td class="data-table__number" data-label="Период">
                 {{ when(link.period.from) }} — {{ when(link.period.to) }}
               </td>
-              <td class="share__number">
+              <td class="data-table__number" data-label="Действует до">
                 {{ when(link.expires_at) }}
                 <span v-if="link.revoked_at" class="badge badge--warning">отозвана</span>
                 <span v-else-if="!link.live" class="badge">истекла</span>
@@ -293,6 +293,26 @@ function when(value: string | null): string {
 .share__section + .share__section {
   padding-top: 1.1rem;
   border-top: 1px solid var(--color-border);
+}
+
+/*
+ * Телефон: панель не висит над страницей, а раскрывается под кнопкой.
+ *
+ * Всплывающее окно шириной в экран — это и есть экран, только с содержимым под
+ * ним, которое ничего не сообщает, но перехватывает нажатия. Обычный блок,
+ * раздвигающий страницу, на телефоне честнее: его прокручивают вместе со всем
+ * остальным и закрывают той же кнопкой, которой открыли.
+ */
+@media (max-width: 40rem) {
+  .share {
+    width: 100%;
+  }
+
+  .share__panel {
+    position: static;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
 }
 
 .share__section {
@@ -352,30 +372,14 @@ function when(value: string | null): string {
   font-size: 0.78rem;
 }
 
+/* Список ссылок мельче отчётных таблиц: это служебная запись, а не то, ради
+   чего панель открыли. */
 .share__links {
-  width: 100%;
-  border-collapse: collapse;
   font-size: 0.82rem;
 }
 
-.share__links th,
-.share__links td {
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-
 .share__links th {
-  color: var(--color-text-muted);
   font-size: 0.72rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.share__number {
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

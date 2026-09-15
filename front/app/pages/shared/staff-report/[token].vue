@@ -120,7 +120,7 @@ function tenure(months: number | null): string {
         </AnalyticsChartCard>
 
         <AnalyticsChartCard title="По подразделениям" :span="7" :rows="3">
-          <table v-if="data.departments.length" class="rows">
+          <table v-if="data.departments.length" class="data-table">
             <thead>
               <tr>
                 <th>Подразделение</th>
@@ -133,16 +133,16 @@ function tenure(months: number | null): string {
             <tbody>
               <tr v-for="row in data.departments" :key="row.id">
                 <td>{{ row.name }}</td>
-                <td class="rows__number">
+                <td class="data-table__number" data-label="Числятся">
                   {{ row.headcount }}
                 </td>
-                <td class="rows__number">
+                <td class="data-table__number" data-label="Принято">
                   {{ row.hired }}
                 </td>
-                <td class="rows__number">
+                <td class="data-table__number" data-label="Уволено">
                   {{ row.left }}
                 </td>
-                <td class="rows__number">
+                <td class="data-table__number" data-label="Текучесть">
                   {{ row.turnover }}%
                 </td>
               </tr>
@@ -209,29 +209,14 @@ function tenure(months: number | null): string {
   font-size: 0.85rem;
 }
 
-.rows {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
+/* Телефон: заголовок и подпись прижимаются к тому же краю, что и панели. */
+@media (max-width: 40rem) {
+  .shared__head {
+    margin-bottom: 1rem;
+  }
 
-.rows th,
-.rows td {
-  padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-
-.rows th {
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.rows__number {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  .shared__refusal {
+    margin: 2rem auto;
+  }
 }
 </style>

@@ -309,7 +309,7 @@ function failedIn(quiz: LearningQuizRow): number {
         :span="12"
         :rows="4"
       >
-        <table v-if="quizzes.length" class="quizzes">
+        <table v-if="quizzes.length" class="quizzes data-table">
           <thead>
             <tr>
               <th>Проверка</th>
@@ -339,13 +339,13 @@ function failedIn(quiz: LearningQuizRow): number {
                   </NuxtLink>
                   <span v-else class="muted quizzes__where">{{ quizWhere(quiz) }}</span>
                 </td>
-                <td class="quizzes__number">
+                <td class="data-table__number" data-label="Вопросов">
                   {{ quiz.questions }}
                 </td>
-                <td class="quizzes__number">
+                <td class="data-table__number" data-label="Проходили">
                   {{ quiz.attempted }}
                 </td>
-                <td class="quizzes__number">
+                <td class="data-table__number quizzes__passed" data-label="Сдали">
                   {{ quiz.passed }}
                   <!-- Ждущие проверки идут первыми и не попадают в не сдавших:
                        это невыполненная работа проверяющего, а не человека. -->
@@ -356,14 +356,14 @@ function failedIn(quiz: LearningQuizRow): number {
                     не сдали {{ failedIn(quiz) }}
                   </span>
                 </td>
-                <td class="quizzes__number">
+                <td class="data-table__number" data-label="Средний балл">
                   {{ quiz.attempted ? `${quiz.average_score}%` : '—' }}
                 </td>
               </tr>
 
               <!-- Состав: не сдавшие идут первыми, ради них отчёт и открывают. -->
               <tr v-if="openedQuizId === quiz.id" class="quizzes__people">
-                <td colspan="5">
+                <td colspan="5" class="data-table__span">
                   <p v-if="isLoadingResults" class="muted">
                     Загружаем…
                   </p>
@@ -420,32 +420,21 @@ function failedIn(quiz: LearningQuizRow): number {
 }
 
 /* Отчёт таблицей, а не полосками: здесь читают числа рядом друг с другом, а не
-   сравнивают длины. Узкий экран прокручивает её, а не ломает страницу. */
+   сравнивают длины. На телефоне строка разворачивается в карточку — см.
+   `.data-table` в общих стилях. */
 .quizzes {
-  width: 100%;
-  border-collapse: collapse;
   font-size: 0.92rem;
 }
 
-.quizzes th,
-.quizzes td {
-  padding: 0.6rem 0.7rem;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.quizzes th {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.quizzes__number {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+/*
+ * В ячейке «сдали» рядом с числом стоят бейджи, и переносить их можно.
+ *
+ * Запрет переноса, общий для числовых ячеек, здесь снимается: «ждут проверки 2»
+ * и «не сдали 1» вместе шире любого столбца, и без переноса они распирали бы
+ * таблицу до горизонтальной прокрутки. Моноширинные цифры остаются.
+ */
+.quizzes__passed {
+  white-space: normal;
 }
 
 .quizzes__open {
@@ -471,12 +460,23 @@ function failedIn(quiz: LearningQuizRow): number {
   text-decoration: none;
 }
 
-.quizzes__row--open td {
+/* Раскрытая строка и её состав — одно целое: черта между ними разрезала бы
+   проверку пополам. На телефоне черту несёт сама строка, на широком — ячейки. */
+.quizzes__row--open td,
+.quizzes__row--open {
   border-bottom-color: transparent;
 }
 
-.quizzes__people td {
-  padding-top: 0;
+/* Телефон: между карточкой проверки и её составом нет и отступа — иначе список
+   людей читается как отдельная запись, а не как содержимое предыдущей. */
+@media (max-width: 40rem) {
+  .quizzes__row--open {
+    padding-bottom: 0;
+  }
+
+  .quizzes__people {
+    padding-top: 0;
+  }
 }
 
 .people {

@@ -540,6 +540,126 @@ a {
   --control-surface-hover: var(--color-border-strong);
 }
 
+/* ---------- Data tables ---------- */
+
+/*
+ * Таблица отчёта: столбцы на широком экране, карточки на телефоне.
+ *
+ * Пять столбцов чисел не помещаются в триста шестьдесят точек ни при какой
+ * вёрстке, и выбор здесь из трёх: сломать страницу горизонтальной прокруткой,
+ * прокручивать саму таблицу — или перестать быть таблицей. Первое не вариант
+ * вовсе; второе прячет половину цифр за краем и заставляет возить пальцем
+ * туда-сюда, сравнивая то, чего не видно одновременно. Поэтому на телефоне
+ * строка разворачивается в карточку: первая ячейка — её заголовок, остальные
+ * подписываются тем же словом, что стояло в шапке.
+ *
+ * Подпись берётся из `data-label` на ячейке. Дублирование с `<th>` намеренное:
+ * вытащить текст шапки средствами CSS нельзя, а разметка, в которой подпись
+ * названа дважды, честнее скрипта, который её оттуда достаёт.
+ */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Числа — моноширинными цифрами и без переносов: столбец чисел читают
+   вертикально, и прыгающая ширина знака сбивает это чтение. */
+.data-table__number {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+  }
+
+  /* Шапка уезжает: её слова возвращаются к каждой ячейке по отдельности. */
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table tr {
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .data-table td {
+    padding: 0.12rem 0;
+    border: 0;
+  }
+
+  .data-table td[data-label]::before {
+    content: attr(data-label) ' ';
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+  }
+
+  /*
+   * Первая ячейка — заголовок карточки, и подписи у неё нет: «Сотрудник
+   * Иванов» читается как опись имущества. Остальное под ним — строчками
+   * «подпись значение».
+   */
+  .data-table td:first-child {
+    padding-bottom: 0.3rem;
+    font-weight: 500;
+  }
+
+  .data-table td:first-child::before {
+    content: none;
+  }
+
+  /* Последняя карточка не отделяется от того, что под таблицей: черта на
+     самом низу панели выглядит недорисованной строкой. */
+  .data-table tr:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
+/*
+ * Ячейка во всю строку — раскрытые подробности под ней, а не столбец таблицы.
+ *
+ * Правило стоит после правил телефона намеренно: у него та же вес, что у
+ * `td:first-child`, и побеждает оно порядком. Иначе раскрытый список людей
+ * получал бы жирное начертание заголовка строки — он в своей строке первый и
+ * единственный.
+ */
+.data-table td.data-table__span {
+  padding: 0 0.6rem 0.6rem;
+  font-weight: inherit;
+}
+
+.data-table td.data-table__span::before {
+  content: none;
+}
+
+@media (max-width: 40rem) {
+  .data-table td.data-table__span {
+    padding: 0.35rem 0 0;
+  }
+}
+
 .page-title {
   margin: 0;
   font-size: 2.15rem;

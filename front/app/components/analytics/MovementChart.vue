@@ -48,43 +48,47 @@ const hovered = ref<number | null>(null)
 
 <template>
   <div class="chart" :style="{ '--height': `${height}px` }">
-    <div class="chart__plot">
-      <div
-        v-for="(month, at) in months"
-        :key="month.month"
-        class="month"
-        :class="{ 'month--hovered': hovered === at }"
-        @mouseenter="hovered = at"
-        @mouseleave="hovered = null"
-      >
-        <span class="month__half month__half--up">
-          <span
-            class="bar bar--hired"
-            :style="{ height: `${share(month.hired)}%` }"
-            :title="`Принято ${month.hired}`"
-          />
-        </span>
+    <!-- Обёртка нужна только на телефоне: там ряд месяцев не помещается и
+         доматывается вбок. На широком экране она ничего не делает. -->
+    <div class="chart__viewport">
+      <div class="chart__plot">
+        <div
+          v-for="(month, at) in months"
+          :key="month.month"
+          class="month"
+          :class="{ 'month--hovered': hovered === at }"
+          @mouseenter="hovered = at"
+          @mouseleave="hovered = null"
+        >
+          <span class="month__half month__half--up">
+            <span
+              class="bar bar--hired"
+              :style="{ height: `${share(month.hired)}%` }"
+              :title="`Принято ${month.hired}`"
+            />
+          </span>
 
-        <span class="month__axis" />
+          <span class="month__axis" />
 
-        <span class="month__half month__half--down">
-          <span
-            class="bar bar--left"
-            :style="{ height: `${share(month.left)}%` }"
-            :title="`Уволено ${month.left}`"
-          />
-        </span>
+          <span class="month__half month__half--down">
+            <span
+              class="bar bar--left"
+              :style="{ height: `${share(month.left)}%` }"
+              :title="`Уволено ${month.left}`"
+            />
+          </span>
 
-        <span class="month__label">
-          <span class="month__name">{{ label(month.month) }}</span>
-          <span v-if="year(month.month, at)" class="month__year">{{ year(month.month, at) }}</span>
-        </span>
+          <span class="month__label">
+            <span class="month__name">{{ label(month.month) }}</span>
+            <span v-if="year(month.month, at)" class="month__year">{{ year(month.month, at) }}</span>
+          </span>
 
-        <!-- Числа показываются у того месяца, на который смотрят: подписать все
-             сразу значит закрыть цифрами сам график. -->
-        <span v-if="hovered === at" class="month__figures">
-          +{{ month.hired }} / −{{ month.left }}
-        </span>
+          <!-- Числа показываются у того месяца, на который смотрят: подписать
+               все сразу значит закрыть цифрами сам график. -->
+          <span v-if="hovered === at" class="month__figures">
+            +{{ month.hired }} / −{{ month.left }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -100,6 +104,10 @@ const hovered = ref<number | null>(null)
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.chart__viewport {
+  min-width: 0;
 }
 
 .chart__plot {
@@ -211,6 +219,34 @@ const hovered = ref<number | null>(null)
 .chart__key--left {
   margin-left: 0.6rem;
   background: var(--color-border-strong);
+}
+
+/*
+ * Телефон: месяцу отводится своя ширина, и ряд доматывается вбок.
+ *
+ * Год в триста сорок точек — это двадцать восемь точек на месяц: столбик
+ * шириной в палец и подпись, налезающая на соседнюю. Сжимать дальше некуда, а
+ * выкидывать месяцы нельзя — провал в середине года и есть то, ради чего на
+ * график смотрят. Поэтому ряд не ужимается, а прокручивается: видно сразу
+ * месяцев шесть, остальные — движением пальца.
+ */
+@media (max-width: 40rem) {
+  .chart__viewport {
+    overflow-x: auto;
+    /* Прокрутка идёт по месяцам, а не останавливается посреди столбика. */
+    scroll-snap-type: x proximity;
+    /* Полоса прокрутки под графиком съедала бы его нижнюю строку подписей. */
+    padding-bottom: 0.35rem;
+  }
+
+  .month {
+    flex: 0 0 2.6rem;
+    scroll-snap-align: start;
+  }
+
+  .month__label {
+    font-size: 0.66rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

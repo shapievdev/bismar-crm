@@ -449,7 +449,7 @@ const drift = computed(() => {
               Никого: за этот срез таких людей нет.
             </p>
 
-            <table v-else class="people">
+            <table v-else class="people data-table">
               <thead>
                 <tr>
                   <th>Сотрудник</th>
@@ -467,18 +467,18 @@ const drift = computed(() => {
                     </NuxtLink>
                     <span v-if="person.job_title" class="muted people__title">{{ person.job_title }}</span>
                   </td>
-                  <td class="muted">
+                  <td class="muted" data-label="Подразделение">
                     {{ person.departments.join(', ') || '—' }}
                   </td>
-                  <td class="people__number">
+                  <td class="data-table__number" data-label="Принят">
                     {{ when(person.hired_at) }}
                     <span v-if="person.dismissed_at" class="muted">→ {{ when(person.dismissed_at) }}</span>
                   </td>
-                  <td class="people__number">
+                  <td class="data-table__number wraps" data-label="Стаж">
                     {{ tenure(person.tenure_months) }}
                     <span v-if="person.tenure_tag_label" class="badge">{{ person.tenure_tag_label }}</span>
                   </td>
-                  <td>
+                  <td class="wraps">
                     <span
                       class="badge"
                       :class="person.status === 'dismissed' ? 'badge--warning' : 'badge--success'"
@@ -510,7 +510,7 @@ const drift = computed(() => {
           :span="7"
           :rows="3"
         >
-          <table v-if="data?.departments.length" class="departments">
+          <table v-if="data?.departments.length" class="departments data-table">
             <thead>
               <tr>
                 <th>Подразделение</th>
@@ -523,16 +523,16 @@ const drift = computed(() => {
             <tbody>
               <tr v-for="row in data.departments" :key="row.id">
                 <td>{{ row.name }}</td>
-                <td class="people__number">
+                <td class="data-table__number" data-label="Числятся">
                   {{ row.headcount }}
                 </td>
-                <td class="people__number">
+                <td class="data-table__number" data-label="Принято">
                   {{ row.hired }}
                 </td>
-                <td class="people__number">
+                <td class="data-table__number" data-label="Уволено">
                   {{ row.left }}
                 </td>
-                <td class="people__number">
+                <td class="data-table__number" data-label="Текучесть">
                   <span :class="{ 'departments__hot': row.turnover >= 30 }">{{ row.turnover }}%</span>
                 </td>
               </tr>
@@ -586,6 +586,15 @@ const drift = computed(() => {
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.25rem;
+}
+
+/* Телефон: кнопка уходит под заголовок. Рядом с ним она отняла бы у названия
+   половину ширины, и «Штат» переносилось бы по букве. */
+@media (max-width: 40rem) {
+  .head {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
 }
 
 .muted {
@@ -690,6 +699,7 @@ const drift = computed(() => {
 @media (max-width: 40rem) {
   .filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.85rem 0.9rem;
   }
 
   .filters__field--period {
@@ -700,8 +710,41 @@ const drift = computed(() => {
     justify-content: space-between;
   }
 
+  /* Три равные доли на всю ширину — и повыше: в палец надо попадать, а не
+     целиться. */
   .segment__item {
     flex: 1;
+    padding-block: 0.6rem;
+  }
+
+  /* То же и у кнопок, которыми проваливаются в список людей. */
+  .slices .button-sm {
+    padding-block: 0.55rem;
+  }
+
+  /*
+   * Поля ужимаются по бокам.
+   *
+   * Отступ в рамку, рассчитанный на просторную форму, в половине телефонного
+   * экрана съедает треть поля: «01.01.2026» обрезается до «01.01.20», а «Любой»
+   * до «Люб…». Значение важнее воздуха вокруг него.
+   */
+  .filters .input,
+  .filters :deep(.select-field__control) {
+    padding-inline: 0.7rem;
+  }
+
+  /*
+   * Дате отступы режутся сильнее прочих: у поля `date` есть собственный значок
+   * календаря, который отъедает ширину сверх рамки, и «01.01.2026» иначе
+   * теряет последнюю цифру.
+   *
+   * Уменьшать кегль тут бесполезно: общее правило для сенсорных экранов держит
+   * у полей ввода 16 пикселей насильно, иначе iOS приближает страницу при
+   * касании. Место приходится искать в отступах.
+   */
+  .filters .input[type='date'] {
+    padding-inline: 0.55rem;
   }
 }
 
@@ -717,38 +760,6 @@ const drift = computed(() => {
   color: var(--color-accent-text);
 }
 
-.people,
-.departments {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.people th,
-.people td,
-.departments th,
-.departments td {
-  padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.people th,
-.departments th {
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.people__number,
-.departments td:not(:first-child) {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .people__name {
   color: inherit;
   font-weight: 500;
@@ -761,6 +772,18 @@ const drift = computed(() => {
 
 .people__title {
   display: block;
+}
+
+/*
+ * Ячейка, которой перенос разрешён.
+ *
+ * Общий запрет переноса для числовых ячеек бережёт даты — «15.06.2026 →
+ * 02.07.2026» посреди разрыва читается как две разные, — но рядом со стажем и
+ * положением стоят бейджи, а их бывает до четырёх. Без переноса они распирают
+ * таблицу до горизонтальной прокрутки, и цифры уезжают за край.
+ */
+.wraps {
+  white-space: normal;
 }
 
 /* Высокая текучесть — не «плохо», а «сюда стоит посмотреть». */
