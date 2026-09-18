@@ -173,7 +173,7 @@ const { hideDock } = useShellChrome()
   top: 0;
   z-index: 10;
   height: var(--header-height);
-  background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  background: rgba(var(--color-bg-rgb), 0.85);
   backdrop-filter: blur(12px);
 }
 

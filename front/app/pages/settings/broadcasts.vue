@@ -453,9 +453,15 @@ function when(value: string | null): string {
   border-color: var(--color-border-strong);
 }
 
+/*
+ * Выбранное залито подсветкой в одну восьмую силы — не цветом, смешанным с
+ * подложкой, а тонким слоем поверх неё: на экране это одно и то же, а слоями
+ * умеет любой браузер. Одноцветная полоса и есть такой слой.
+ */
 .audience__option--on {
   border-color: var(--color-highlight-strong);
-  background: color-mix(in srgb, var(--color-highlight) 12%, var(--color-surface-raised));
+  background-color: var(--color-surface-raised);
+  background-image: linear-gradient(rgba(var(--color-highlight-rgb), 0.12), rgba(var(--color-highlight-rgb), 0.12));
 }
 
 .audience__option > span {

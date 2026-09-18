@@ -116,7 +116,7 @@ const MARK_TAG = {
 .code {
   padding: 0.05em 0.3em;
   border-radius: 0.35em;
-  background: color-mix(in srgb, currentcolor 12%, transparent);
+  background: rgba(var(--tint-rgb), 0.12);
   font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
   font-size: 0.9em;
 }
@@ -128,7 +128,7 @@ const MARK_TAG = {
   padding: 0.55rem 0.7rem;
   overflow-x: auto;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 10%, transparent);
+  background: rgba(var(--tint-rgb), 0.1);
   font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
   font-size: 0.85em;
   line-height: 1.5;
@@ -158,7 +158,7 @@ const MARK_TAG = {
 .mention--me {
   padding: 0.05em 0.3em;
   border-radius: 0.4em;
-  background: color-mix(in srgb, var(--color-highlight) 45%, transparent);
+  background: rgba(var(--color-highlight-rgb), 0.45);
   color: var(--color-highlight-text);
   opacity: 1;
 }

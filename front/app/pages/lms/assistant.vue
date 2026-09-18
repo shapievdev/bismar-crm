@@ -697,7 +697,7 @@ function resolutionLink(resolution: ConsultantResolution): string {
   padding: 0.25rem 0.7rem;
   border: 0;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  background: rgba(var(--color-bg-rgb), 0.8);
   backdrop-filter: blur(6px);
   color: var(--color-text-faint);
   font: inherit;

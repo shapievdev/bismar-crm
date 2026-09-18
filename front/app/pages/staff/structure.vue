@@ -982,7 +982,7 @@ provide(structureKey, structure)
 }
 
 .slot--hot {
-  background: color-mix(in srgb, var(--color-highlight) 45%, transparent);
+  background: rgba(var(--color-highlight-rgb), 0.45);
 }
 
 @media (max-width: 60rem) {

@@ -290,7 +290,7 @@ function badge(count?: number): string | null {
   flex-direction: column;
   justify-content: flex-end;
   padding: 1rem 1rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  background: rgba(var(--color-bg-rgb), 0.72);
   backdrop-filter: blur(6px);
   pointer-events: auto;
 }

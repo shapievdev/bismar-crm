@@ -318,7 +318,7 @@ function onPersonDragStart(event: DragEvent, person: DepartmentPerson) {
 /* Куда бросят карточку, если отпустить сейчас. */
 .dept--target {
   border-color: var(--color-highlight-strong);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-highlight) 35%, transparent);
+  box-shadow: 0 0 0 3px rgba(var(--color-highlight-rgb), 0.35);
 }
 
 .dept--dragging {
@@ -579,7 +579,7 @@ function onPersonDragStart(event: DragEvent, person: DepartmentPerson) {
 }
 
 .dept__foot--open {
-  background: color-mix(in srgb, var(--color-highlight) 18%, transparent);
+  background: rgba(var(--color-highlight-rgb), 0.18);
   border-radius: 0 0 var(--radius) var(--radius);
 }
 

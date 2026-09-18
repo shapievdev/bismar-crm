@@ -31,15 +31,23 @@ const model = defineModel<string>({ required: true })
  * Ввод с маской. Поле без маски сюда не заходит — его ведёт v-model, и вместе
  * с ним остаётся то, что он умеет: ввод через IME, диктовку, автозаполнение.
  *
+ * Зовётся тремя событиями, и каждое здесь по своей причине:
+ *
+ * - `input` — обычный набор и вставка из буфера;
+ * - `compositionend` — конец подсказки клавиатуры, которую сам набор пропустил;
+ * - `change` — подстановка сохранённого номера и потеря поля. Старые браузеры
+ *   на автозаполнении `input` не поднимают, и без этого номер, подставленный
+ *   браузером, доехал бы до отправки без маски.
+ *
  * Само наложение маски и возврат курсора — в утилите: тем же правилом живёт
  * телефон на экране профиля, набранный своей разметкой.
  */
-function onInput(event: Event) {
+function onEdit(event: Event) {
   if (!props.format) {
     return
   }
 
-  model.value = applyMask(event.target as HTMLInputElement, props.format)
+  model.value = applyMask(event, props.format)
 }
 </script>
 
@@ -57,7 +65,9 @@ function onInput(event: Event) {
       :max="max"
       :aria-invalid="Boolean(errors?.length)"
       :aria-describedby="errors?.length ? `${id}-error` : (hint ? `${id}-hint` : undefined)"
-      @input="onInput"
+      @input="onEdit"
+      @change="onEdit"
+      @compositionend="onEdit"
     >
 
     <p v-if="errors?.length" :id="`${id}-error`" class="field__error">

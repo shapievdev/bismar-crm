@@ -159,7 +159,7 @@ const leaderIndex = computed(() => (props.rows.length > 1 && props.rows.every(ro
   background:
     repeating-linear-gradient(
       45deg,
-      color-mix(in srgb, var(--color-highlight-text) 22%, transparent) 0 1px,
+      rgba(var(--color-highlight-text-rgb), 0.22) 0 1px,
       transparent 1px 7px
     ),
     var(--color-highlight);

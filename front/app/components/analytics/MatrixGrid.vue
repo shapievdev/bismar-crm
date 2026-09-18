@@ -49,7 +49,7 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
           :key="`${abc}${xyz}`"
           class="cell"
           :class="{ 'cell--dark': isDark(cellAt(abc, xyz)?.revenue ?? 0) }"
-          :style="{ '--fill': `${intensity(cellAt(abc, xyz)?.revenue ?? 0)}%` }"
+          :style="{ '--fill': intensity(cellAt(abc, xyz)?.revenue ?? 0) / 100 }"
           :title="`${abc}${xyz}: ${formatMoney(cellAt(abc, xyz)?.revenue ?? 0)}`"
         >
           <span class="cell__value">{{ formatCompactMoney(cellAt(abc, xyz)?.revenue ?? 0) }}</span>
@@ -115,8 +115,19 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
   min-height: 4.5rem;
   padding: 0.6rem;
   border-radius: var(--radius-sm);
-  /* Одна шкала: от тона поверхности к тону текста, доля — сама величина. */
-  background: color-mix(in srgb, var(--color-text) var(--fill), var(--color-surface-sunken));
+  /*
+   * Одна шкала: от тона поверхности к тону текста, доля — сама величина.
+   *
+   * Тон текста кладётся слоем поверх поверхности, а не смешивается с ней:
+   * прозрачная краска на непрозрачной подложке даёт ровно тот же цвет, что и
+   * смешивание, но понятна всем браузерам. Слой — одноцветная полоса, другого
+   * способа нарисовать сплошную заливку картинкой нет.
+   *
+   * `--fill` приходит долей от единицы, а не процентом: доля годится в прозрачность
+   * любой записи, а процент в ней понимают не везде.
+   */
+  background-color: var(--color-surface-sunken);
+  background-image: linear-gradient(rgba(var(--color-text-rgb), var(--fill)), rgba(var(--color-text-rgb), var(--fill)));
 }
 
 .cell__value {
@@ -137,7 +148,7 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
 }
 
 .cell--dark .cell__meta {
-  color: color-mix(in srgb, var(--color-bg) 75%, transparent);
+  color: rgba(var(--color-bg-rgb), 0.75);
 }
 
 .legend {

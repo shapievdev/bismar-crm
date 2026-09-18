@@ -44,9 +44,13 @@ const form = reactive({
   job_title: user.value?.job_title ?? '',
 })
 
-/** Телефон набирается под маской — тем же правилом, что и в других формах. */
-function onPhoneInput(event: Event) {
-  form.phone = applyMask(event.target as HTMLInputElement, maskPhone)
+/**
+ * Телефон набирается под маской — тем же правилом, что и в других формах, и
+ * теми же тремя событиями: набор, конец подсказки клавиатуры и подстановка
+ * сохранённого номера. Почему их три — сказано в FormField.
+ */
+function onPhoneEdit(event: Event) {
+  form.phone = applyMask(event, maskPhone)
 }
 
 const errors = ref<ValidationErrors>({})
@@ -535,7 +539,9 @@ const groups = computed(() => [
             class="input"
             autocomplete="tel"
             placeholder="+7 (999) 000-99-77"
-            @input="onPhoneInput"
+            @input="onPhoneEdit"
+            @change="onPhoneEdit"
+            @compositionend="onPhoneEdit"
           >
           <p v-if="errors.phone?.length" class="field-error">
             {{ errors.phone[0] }}

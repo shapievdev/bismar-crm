@@ -980,10 +980,16 @@ async function afterChange() {
   border-color: var(--color-border-strong);
 }
 
-/* The chosen standing, marked the same way a ticked box is. */
+/*
+ * The chosen standing, marked the same way a ticked box is.
+ *
+ * Подсветка легла слоем поверх подложки, а не смешанным с ней цветом: слоями
+ * умеет любой браузер, а смешивать — только начиная с Safari 16.2.
+ */
 .access__level--on {
   border-color: var(--color-highlight-strong);
-  background: color-mix(in srgb, var(--color-highlight) 12%, var(--color-surface-raised));
+  background-color: var(--color-surface-raised);
+  background-image: linear-gradient(rgba(var(--color-highlight-rgb), 0.12), rgba(var(--color-highlight-rgb), 0.12));
 }
 
 .access__level--on:hover {

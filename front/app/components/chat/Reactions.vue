@@ -69,7 +69,7 @@ function whom(reaction: MessageReaction): string {
   padding: 0.12rem 0.42rem;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, currentcolor 10%, transparent);
+  background: rgba(var(--tint-rgb), 0.1);
   color: inherit;
   font: inherit;
   font-size: 0.8rem;
@@ -79,7 +79,7 @@ function whom(reaction: MessageReaction): string {
 }
 
 .chip:hover {
-  background: color-mix(in srgb, currentcolor 18%, transparent);
+  background: rgba(var(--tint-rgb), 0.18);
 }
 
 /* Нажатие проседает под пальцем: отклик — самое частое движение в мессенджере,
@@ -90,8 +90,8 @@ function whom(reaction: MessageReaction): string {
 
 /* Свой отклик обведён: в наборе из пяти знаков иначе не найти, который твой. */
 .chip--mine {
-  border-color: color-mix(in srgb, currentcolor 45%, transparent);
-  background: color-mix(in srgb, currentcolor 20%, transparent);
+  border-color: rgba(var(--tint-rgb), 0.45);
+  background: rgba(var(--tint-rgb), 0.2);
 }
 
 /* Знак чуть крупнее цифры: читают его, а не её. */

@@ -55,29 +55,65 @@
 :root {
   color-scheme: light dark;
 
-  --color-bg: #e8eaea;
+  /*
+   * Шесть цветов записаны тройкой чисел, а не решёткой.
+   *
+   * Из них составляют полупрозрачные оттенки — подложку сообщения, заливку
+   * клетки, свечение вокруг карточки. Взять канал у готового цвета CSS не
+   * умеет: либо цвет известен числами, либо оттенка не будет. Смешивать умеет
+   * `color-mix`, но он появился только в Safari 16.2, а такую строчку старый
+   * браузер выбрасывает целиком — вместе с подложкой, а не вместо неё.
+   *
+   * Тройка — запятыми, и `rgba()` с запятыми же: обе записи старше всего, на
+   * чём это приложение открывают.
+   *
+   * Сам цвет собирается из тройки тут же и ровно один раз на весь файл.
+   * Палитрам ниже остаётся объявить числа: шесть цветов следуют за ними сами,
+   * и разъехаться им негде.
+   */
+  --color-bg-rgb: 232, 234, 234;
+  --color-bg: rgb(var(--color-bg-rgb));
   --color-surface: #f4f5f5;
   --color-surface-raised: #ffffff;
   --color-surface-sunken: #dfe1e1;
   --color-border: #dcdede;
   --color-border-strong: #c6c9c9;
 
-  --color-text: #0f1211;
+  --color-text-rgb: 15, 18, 17;
+  --color-text: rgb(var(--color-text-rgb));
   --color-text-muted: #6a706e;
   --color-text-faint: #9aa09e;
 
   /* Primary action. Black in light mode, lime in dark — always the loudest
      thing on the surface it sits on. */
-  --color-accent: #111413;
+  --color-accent-rgb: 17, 20, 19;
+  --color-accent: rgb(var(--color-accent-rgb));
   --color-accent-hover: #292d2c;
   --color-accent-soft: #dfe1e1;
-  --color-accent-text: #ffffff;
+  --color-accent-text-rgb: 255, 255, 255;
+  --color-accent-text: rgb(var(--color-accent-text-rgb));
 
   /* Highlight. Used sparingly: a selected value, a completed course, one bar
      in a chart. It stops meaning "look here" the moment it is everywhere. */
-  --color-highlight: #d3f84b;
+  --color-highlight-rgb: 211, 248, 75;
+  --color-highlight: rgb(var(--color-highlight-rgb));
   --color-highlight-strong: #c2ea34;
-  --color-highlight-text: #10130f;
+  --color-highlight-text-rgb: 16, 19, 15;
+  --color-highlight-text: rgb(var(--color-highlight-text-rgb));
+
+  /*
+   * Краска для подложек внутри чужого цвета.
+   *
+   * Подложка кода в сообщении, обводка своего отклика, кружок проигрывания —
+   * всё это раньше бралось у `currentcolor`, то есть у цвета текста в этом
+   * самом месте: в своём пузыре он один, в чужом другой, и одно правило
+   * подходило обоим. У `currentcolor` каналов не взять, поэтому цвет передаётся
+   * рядом с ним — числами и по наследству, ровно теми же путями.
+   *
+   * По умолчанию это цвет текста страницы. Кто красит текст иначе — красит и
+   * эту тройку; таких мест в приложении одно (свой пузырь в переписке).
+   */
+  --tint-rgb: var(--color-text-rgb);
 
   --color-success: #1f7a52;
   --color-success-soft: #dcf3e7;
@@ -140,21 +176,21 @@
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    --color-bg: #0e100f;
+    --color-bg-rgb: 14, 16, 15;
     --color-surface: #171a19;
     --color-surface-raised: #1e2221;
     --color-surface-sunken: #101312;
     --color-border: #262a29;
     --color-border-strong: #383d3c;
 
-    --color-text: #eef0ef;
+    --color-text-rgb: 238, 240, 239;
     --color-text-muted: #9aa19f;
     --color-text-faint: #6d7472;
 
-    --color-accent: #d3f84b;
+    --color-accent-rgb: 211, 248, 75;
     --color-accent-hover: #ddfa6e;
     --color-accent-soft: #23291a;
-    --color-accent-text: #10130f;
+    --color-accent-text-rgb: 16, 19, 15;
 
     --color-success: #58c894;
     --color-success-soft: #142a20;
@@ -172,21 +208,21 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-    --color-bg: #0e100f;
+    --color-bg-rgb: 14, 16, 15;
     --color-surface: #171a19;
     --color-surface-raised: #1e2221;
     --color-surface-sunken: #101312;
     --color-border: #262a29;
     --color-border-strong: #383d3c;
 
-    --color-text: #eef0ef;
+    --color-text-rgb: 238, 240, 239;
     --color-text-muted: #9aa19f;
     --color-text-faint: #6d7472;
 
-    --color-accent: #d3f84b;
+    --color-accent-rgb: 211, 248, 75;
     --color-accent-hover: #ddfa6e;
     --color-accent-soft: #23291a;
-    --color-accent-text: #10130f;
+    --color-accent-text-rgb: 16, 19, 15;
 
     --color-success: #58c894;
     --color-success-soft: #142a20;
@@ -223,7 +259,7 @@
 :root[data-palette='crimson'] {
   color-scheme: light dark;
 
-  --color-bg: #eaeaea;
+  --color-bg-rgb: 234, 234, 234;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
   --color-surface-sunken: #f4f6f7;
@@ -235,18 +271,18 @@
    * одному, и метаданные под заголовком читались с усилием. Цвет макета
    * оставлен там, где он и задуман, — на совсем неважном.
    */
-  --color-text: #1c2630;
+  --color-text-rgb: 28, 38, 48;
   --color-text-muted: #6f757a;
   --color-text-faint: #8a8f94;
 
-  --color-accent: #d51f2a;
+  --color-accent-rgb: 213, 31, 42;
   --color-accent-hover: #b8161f;
   --color-accent-soft: #fcf0f1;
-  --color-accent-text: #ffffff;
+  --color-accent-text-rgb: 255, 255, 255;
 
-  --color-highlight: #2e3f4f;
+  --color-highlight-rgb: 46, 63, 79;
   --color-highlight-strong: #24323f;
-  --color-highlight-text: #ffffff;
+  --color-highlight-text-rgb: 255, 255, 255;
 
   --color-success: #1f7a52;
   --color-success-soft: #e3f2ea;
@@ -278,27 +314,27 @@
   :root[data-palette='crimson']:not([data-theme='light']) {
     color-scheme: dark;
 
-    --color-bg: #0f151b;
+    --color-bg-rgb: 15, 21, 27;
     --color-surface: #172029;
     --color-surface-raised: #1d2833;
     --color-surface-sunken: #111820;
     --color-border: #253240;
     --color-border-strong: #35485a;
 
-    --color-text: #e7eef4;
+    --color-text-rgb: 231, 238, 244;
     --color-text-muted: #97a4b0;
     --color-text-faint: #6b7885;
 
     /* Темнее макетного: белый на #e8433f давал 3,96 к одному, а надпись на
        кнопке — обычный текст, не крупный. */
-    --color-accent: #d8342f;
+    --color-accent-rgb: 216, 52, 47;
     --color-accent-hover: #e8433f;
     --color-accent-soft: #35171a;
-    --color-accent-text: #ffffff;
+    --color-accent-text-rgb: 255, 255, 255;
 
-    --color-highlight: #7fb2d8;
+    --color-highlight-rgb: 127, 178, 216;
     --color-highlight-strong: #9bc6e6;
-    --color-highlight-text: #0b1b26;
+    --color-highlight-text-rgb: 11, 27, 38;
 
     --color-success: #58c894;
     --color-success-soft: #12291f;
@@ -322,25 +358,25 @@
 :root[data-palette='crimson'][data-theme='dark'] {
   color-scheme: dark;
 
-  --color-bg: #0f151b;
+  --color-bg-rgb: 15, 21, 27;
   --color-surface: #172029;
   --color-surface-raised: #1d2833;
   --color-surface-sunken: #111820;
   --color-border: #253240;
   --color-border-strong: #35485a;
 
-  --color-text: #e7eef4;
+  --color-text-rgb: 231, 238, 244;
   --color-text-muted: #97a4b0;
   --color-text-faint: #6b7885;
 
-  --color-accent: #d8342f;
+  --color-accent-rgb: 216, 52, 47;
   --color-accent-hover: #e8433f;
   --color-accent-soft: #35171a;
-  --color-accent-text: #ffffff;
+  --color-accent-text-rgb: 255, 255, 255;
 
-  --color-highlight: #7fb2d8;
+  --color-highlight-rgb: 127, 178, 216;
   --color-highlight-strong: #9bc6e6;
-  --color-highlight-text: #0b1b26;
+  --color-highlight-text-rgb: 11, 27, 38;
 
   --color-success: #58c894;
   --color-success-soft: #12291f;

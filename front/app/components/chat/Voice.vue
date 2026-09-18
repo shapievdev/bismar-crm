@@ -167,14 +167,14 @@ function onEnded(): void {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: color-mix(in srgb, currentcolor 15%, transparent);
+  background: rgba(var(--tint-rgb), 0.15);
   color: inherit;
   cursor: pointer;
   transition: transform 0.12s ease, background-color 0.15s ease;
 }
 
 .voice__play:hover {
-  background: color-mix(in srgb, currentcolor 24%, transparent);
+  background: rgba(var(--tint-rgb), 0.24);
 }
 
 .voice__play:active {
@@ -210,7 +210,7 @@ function onEnded(): void {
   flex: 1;
   min-width: 2px;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, currentcolor 28%, transparent);
+  background: rgba(var(--tint-rgb), 0.28);
   transition: background-color 0.1s linear;
 }
 
@@ -237,7 +237,7 @@ function onEnded(): void {
   padding: 0.02rem 0.35rem;
   border: none;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, currentcolor 14%, transparent);
+  background: rgba(var(--tint-rgb), 0.14);
   color: inherit;
   font: inherit;
   font-size: 0.7rem;

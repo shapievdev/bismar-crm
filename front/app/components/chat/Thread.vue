@@ -413,7 +413,7 @@ function isSeen(message: ThreadMessage): boolean {
 
 .unread::before,
 .unread::after {
-  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: rgba(var(--color-accent-rgb), 0.4);
 }
 
 .unread span {

@@ -704,14 +704,14 @@ defineExpose({ showSuggestions })
   width: 1.35rem;
   height: 1.35rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  background: rgba(var(--color-text-rgb), 0.08);
   color: var(--color-text-muted);
   font-size: 0.75rem;
   cursor: help;
 }
 
 .badge--warn {
-  background: color-mix(in srgb, #f59e0b 22%, transparent);
+  background: rgba(245, 158, 11, 0.22);
   color: var(--color-text);
 }
 

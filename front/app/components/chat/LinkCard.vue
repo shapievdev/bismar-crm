@@ -85,13 +85,13 @@ async function load(url: string): Promise<void> {
   flex-direction: column;
   border-left: 2px solid currentcolor;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: color-mix(in srgb, currentcolor 10%, transparent);
+  background: rgba(var(--tint-rgb), 0.1);
   color: inherit;
   text-decoration: none;
 }
 
 .card:hover {
-  background: color-mix(in srgb, currentcolor 16%, transparent);
+  background: rgba(var(--tint-rgb), 0.16);
 }
 
 /*

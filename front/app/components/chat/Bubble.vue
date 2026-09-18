@@ -413,9 +413,20 @@ function onDoubleClick(): void {
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
 }
 
+/*
+ * Свой пузырь залит цветом действия, и написанное в нём читается наоборот —
+ * светлым по тёмному или тёмным по светлому, смотря по палитре.
+ *
+ * Вместе с цветом текста задаётся и краска подложек внутри: цитата, файл,
+ * кусок кода и кружок проигрывания красятся ею, и в чужом пузыре она другая.
+ * Раньше они брали её у `currentcolor` сами — но каналов у него не взять, а
+ * без них нет и полупрозрачного оттенка. Теперь цвет едет рядом числами и тем
+ * же путём — по наследству, так что вложенные ничего не спрашивают.
+ */
 .bubble--mine {
   background: var(--color-accent);
   color: var(--color-accent-text);
+  --tint-rgb: var(--color-accent-text-rgb);
 }
 
 /* Перескочили сюда — подсветка гаснет сама: она отвечает на «куда меня
@@ -482,7 +493,7 @@ function onDoubleClick(): void {
   border: none;
   border-left: 2px solid currentcolor;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: color-mix(in srgb, currentcolor 10%, transparent);
+  background: rgba(var(--tint-rgb), 0.1);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -490,7 +501,7 @@ function onDoubleClick(): void {
 }
 
 .quote:hover {
-  background: color-mix(in srgb, currentcolor 16%, transparent);
+  background: rgba(var(--tint-rgb), 0.16);
 }
 
 .quote__author {
@@ -517,7 +528,7 @@ function onDoubleClick(): void {
   margin-bottom: 0.35rem;
   padding: 0.35rem 0.55rem;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 12%, transparent);
+  background: rgba(var(--tint-rgb), 0.12);
   color: inherit;
   text-decoration: none;
 }
@@ -549,13 +560,13 @@ function onDoubleClick(): void {
   margin-top: 0.3rem;
   padding: 0.35rem 0.45rem;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, currentcolor 10%, transparent);
+  background: rgba(var(--tint-rgb), 0.1);
   color: inherit;
   text-decoration: none;
 }
 
 .file:hover {
-  background: color-mix(in srgb, currentcolor 16%, transparent);
+  background: rgba(var(--tint-rgb), 0.16);
 }
 
 .file__body {
@@ -635,7 +646,7 @@ function onDoubleClick(): void {
   left: 0;
   height: 2px;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, currentcolor 20%, transparent);
+  background: rgba(var(--tint-rgb), 0.2);
 }
 
 .bubble__progress::after {
