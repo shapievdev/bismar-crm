@@ -100,7 +100,11 @@ function onToggle(event: Event) {
          редактора одна на всё приложение, и разойтись показ с ней не может. -->
     <div v-else-if="article" class="prose material__article">
       <ClientOnly>
-        <EditorRichTextRenderer :content="article" />
+        <EditorArticleReader
+          :content="article"
+          :title="material.title"
+          :note="copy.materialLabel"
+        />
       </ClientOnly>
     </div>
 

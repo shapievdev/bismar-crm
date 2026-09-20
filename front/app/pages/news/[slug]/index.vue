@@ -188,7 +188,11 @@ async function loadReaders() {
       </div>
     </section>
 
-    <EditorRichTextRenderer :content="article" />
+    <EditorArticleReader
+      :content="article"
+      :title="news.title"
+      :note="day(news.published_at)"
+    />
 
     <!-- Куда сходить после новости: правило поменялось — вот само правило. -->
     <section v-if="news.links?.length" class="card links">

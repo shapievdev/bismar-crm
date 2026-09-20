@@ -366,7 +366,14 @@ async function toggleReaders() {
     -->
     <div class="layout">
       <div class="layout__main">
-        <EditorRichTextRenderer :content="article" />
+        <!-- Статья разворачивается во весь экран: документ читают целиком, а
+             вокруг него стоят выходы со страницы — соседи, ответственные,
+             отметка об ознакомлении. -->
+        <EditorArticleReader
+          :content="article"
+          :title="regulation.title"
+          :note="selected?.name ?? null"
+        />
 
         <section v-if="documents.length" class="card files">
           <h2 class="files__title">

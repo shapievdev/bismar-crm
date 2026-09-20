@@ -138,14 +138,46 @@ function onMessage(event: MessageEvent) {
   }, SETTLE_MS)
 }
 
-/** Brings a section inside the block into view by moving the outer page. */
+/**
+ * Что прокручивается вокруг кадра: сама страница или развёрнутая во весь экран
+ * статья.
+ *
+ * Развёрнутая статья прокручивается внутри себя, и документ под ней стоит на
+ * месте. Двигать в этом случае окно — значит не двигать ничего: ссылка внутри
+ * блока молча не срабатывала бы, а читатель решил бы, что она сломана.
+ */
+function scrollerAround(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node)
+
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node
+    }
+  }
+
+  return null
+}
+
+/** Brings a section inside the block into view by moving whatever scrolls around it. */
 function scrollOuterPageTo(offset: number) {
   if (!frame.value || !Number.isFinite(offset)) {
     return
   }
 
-  const frameTop = frame.value.getBoundingClientRect().top + window.scrollY
   const headerAllowance = 80
+  const scroller = scrollerAround(frame.value)
+
+  if (scroller) {
+    const frameTop = frame.value.getBoundingClientRect().top
+      - scroller.getBoundingClientRect().top
+      + scroller.scrollTop
+
+    scroller.scrollTo({ top: Math.max(0, frameTop + offset - headerAllowance), behavior: 'smooth' })
+
+    return
+  }
+
+  const frameTop = frame.value.getBoundingClientRect().top + window.scrollY
 
   window.scrollTo({ top: Math.max(0, frameTop + offset - headerAllowance), behavior: 'smooth' })
 }
