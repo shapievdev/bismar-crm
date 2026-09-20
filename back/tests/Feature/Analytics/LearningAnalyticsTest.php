@@ -476,6 +476,200 @@ final class LearningAnalyticsTest extends TestCase
             ->assertForbidden();
     }
 
+    /* ---------- Люди за цифрой ---------- */
+
+    /**
+     * За «не приступали» стоят имена и курсы.
+     *
+     * Ради них цифру и раскрывают: «трое» не говорит, с кем разговаривать.
+     * Уволенных здесь нет по той же причине, по какой их нет в самой цифре.
+     */
+    public function test_a_number_opens_into_the_people_behind_it(): void
+    {
+        $course = Course::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        $module = CourseModule::factory()->create(['course_id' => $course->id]);
+        Lesson::factory()->create(['module_id' => $module->id]);
+
+        $idle = User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Мария']);
+        $started = $this->learner();
+        $dismissed = User::factory()->dismissed()->create();
+
+        foreach ([[$idle, null], [$started, now()], [$dismissed, null]] as [$person, $startedAt]) {
+            Enrollment::factory()->create([
+                'course_id' => $course->id,
+                'user_id' => $person->id,
+                'started_at' => $startedAt,
+            ]);
+        }
+
+        $response = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.people', ['slice' => 'not-started']))
+            ->assertOk()
+            ->assertJsonPath('data.slice', 'not-started')
+            ->assertJsonPath('data.total', 1);
+
+        $people = $response->json('data.people');
+
+        $this->assertCount(1, $people);
+        $this->assertSame($idle->id, $people[0]['user_id']);
+        $this->assertSame('Ёлкина Мария', $people[0]['name']);
+        $this->assertSame('Кассовая дисциплина', $people[0]['title']);
+        $this->assertSame('/lms/'.$course->slug, $people[0]['path']);
+        $this->assertSame(0, $people[0]['progress']);
+    }
+
+    /**
+     * Список и цифра над ним считают одно и то же.
+     *
+     * Разойдись они — и над списком из четырёх строк стояло бы «пройдено три»,
+     * после чего верить перестали бы обоим.
+     */
+    public function test_the_plan_list_agrees_with_the_number_above_it(): void
+    {
+        $course = Course::factory()->published()->create();
+        $document = Regulation::factory()->published()->create(['title' => 'Приёмка товара']);
+
+        $person = $this->learner();
+
+        Enrollment::factory()->create([
+            'course_id' => $course->id,
+            'user_id' => $person->id,
+            'completed_at' => now(),
+        ]);
+
+        foreach ([[$course, 1], [$document, 2]] as [$material, $position]) {
+            LearningPlanItem::query()->create([
+                'user_id' => $person->id,
+                'plannable_type' => $material->getMorphClass(),
+                'plannable_id' => $material->id,
+                'position' => $position,
+            ]);
+        }
+
+        $summary = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk()
+            ->json('data.summary');
+
+        $this->assertSame(2, $summary['plan_steps']);
+        $this->assertSame(1, $summary['plan_done']);
+
+        $people = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.people', ['slice' => 'plan']))
+            ->assertOk()
+            ->assertJsonPath('data.total', 2)
+            ->json('data.people');
+
+        // Непройденное идёт первым: план работает запретом, и пока шаг открыт,
+        // человеку закрыт весь остальной каталог.
+        $this->assertSame('Приёмка товара', $people[0]['title']);
+        $this->assertSame('в очереди', $people[0]['state']);
+        $this->assertSame($document->path(), $people[0]['path']);
+
+        $this->assertSame('пройден', $people[1]['state']);
+        $this->assertSame('/lms/'.$course->slug, $people[1]['path']);
+    }
+
+    /**
+     * Ознакомление ведёт в свой раздел: справочник — не документ.
+     */
+    public function test_an_acknowledgement_leads_to_its_own_section(): void
+    {
+        $handbook = Regulation::factory()->handbook()->published()->create(['title' => 'Справочник по кассе']);
+        $person = $this->learner();
+
+        $handbook->acknowledgements()->create([
+            'user_id' => $person->id,
+            'acknowledged_at' => now(),
+        ]);
+
+        $people = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.people', ['slice' => 'acknowledgements']))
+            ->assertOk()
+            ->json('data.people');
+
+        $this->assertCount(1, $people);
+        $this->assertSame('Справочник по кассе', $people[0]['title']);
+        $this->assertSame('/lms/handbooks/'.$handbook->slug, $people[0]['path']);
+    }
+
+    /**
+     * Отвечают все срезы, а не те три, которые кто-то проверил руками.
+     *
+     * Запросы у них разные и написаны на голом SQL: срез, который никто не
+     * открыл, падает молча — и обнаруживается, когда на него нажмут.
+     */
+    public function test_every_slice_answers(): void
+    {
+        $course = Course::factory()->published()->create();
+        $module = CourseModule::factory()->create(['course_id' => $course->id]);
+        $lesson = Lesson::factory()->create(['module_id' => $module->id]);
+        $quiz = Quiz::factory()->attestation()->withQuestions(1)->forLesson($lesson)->create();
+
+        $person = $this->learner();
+
+        Enrollment::factory()->create([
+            'course_id' => $course->id,
+            'user_id' => $person->id,
+            'started_at' => now()->subDay(),
+            'completed_at' => now(),
+        ]);
+
+        LearningPlanItem::query()->create([
+            'user_id' => $person->id,
+            'plannable_type' => $course->getMorphClass(),
+            'plannable_id' => $course->id,
+            'position' => 1,
+        ]);
+
+        Regulation::factory()->published()->create()->acknowledgements()->create([
+            'user_id' => $person->id,
+            'acknowledged_at' => now(),
+        ]);
+
+        QuizAttempt::query()->create([
+            'quiz_id' => $quiz->id,
+            'user_id' => $person->id,
+            'score' => 0,
+            'passed' => false,
+            'answers' => [],
+            'completed_at' => now(),
+            'review_status' => AttestationStatus::Pending,
+        ]);
+
+        $slices = ['not-started', 'completed', 'progress', 'learners', 'plan', 'acknowledgements', 'attestations'];
+
+        foreach ($slices as $slice) {
+            $response = $this->actingAs($this->trainer())
+                ->getJson(route('analytics.learning.people', ['slice' => $slice]))
+                ->assertOk()
+                ->assertJsonPath('data.slice', $slice);
+
+            // Кроме «не приступали»: приступили и дошли до конца.
+            $this->assertSame(
+                $slice === 'not-started' ? 0 : 1,
+                $response->json('data.total'),
+                "срез {$slice}",
+            );
+        }
+    }
+
+    /** Придуманный срез — не «покажу что-нибудь», а отказ. */
+    public function test_an_unknown_slice_is_refused(): void
+    {
+        $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.people', ['slice' => 'salaries']))
+            ->assertUnprocessable();
+    }
+
+    /** Список людей закрыт тем же правом, что и сводка над ним. */
+    public function test_the_people_behind_a_number_need_the_same_right(): void
+    {
+        $this->actingAs($this->learner())
+            ->getJson(route('analytics.learning.people', ['slice' => 'learners']))
+            ->assertForbidden();
+    }
+
     public function test_reading_the_knowledge_base_is_not_enough_to_see_the_report(): void
     {
         $this->actingAs($this->learner())

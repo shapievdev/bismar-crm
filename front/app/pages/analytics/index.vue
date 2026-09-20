@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import type { BarRow } from '~/components/analytics/BarList.vue'
-import type { LearningMaterialRow, LearningQuizResult, LearningQuizRow } from '~/types/analytics'
+import type {
+  LearningMaterialRow,
+  LearningPerson,
+  LearningQuizResult,
+  LearningQuizRow,
+} from '~/types/analytics'
 import { formatNumber } from '~/utils/numbers'
 
 /**
@@ -20,7 +25,7 @@ import { formatNumber } from '~/utils/numbers'
 definePageMeta({ middleware: 'auth', permission: 'enrollments.manage' })
 useHead({ title: 'Обучение — Аналитика' })
 
-const { fetchLearning, fetchQuizResults } = useAnalyticsApi()
+const { fetchLearning, fetchLearningPeople, fetchQuizResults } = useAnalyticsApi()
 
 const { data, pending, error } = await useAsyncData(
   'analytics-learning',
@@ -32,6 +37,83 @@ const summary = computed(() => data.value?.summary ?? null)
 /** Доля в процентах, где знаменатель может быть нулём. */
 function share(part: number, whole: number): number {
   return whole === 0 ? 0 : Math.round((part / whole) * 100)
+}
+
+/* ---------- Люди за цифрой ---------- */
+
+/**
+ * Что стоит за раскрываемой цифрой.
+ *
+ * Заголовок и подписи колонок живут здесь, а не в разметке: колонка «что» и
+ * колонка даты у срезов разные — у записи это курс и день записи, у аттестации
+ * проверка и день отправки, — и «Материал · Когда» на всех означало бы таблицу,
+ * не отвечающую ни на один из вопросов.
+ */
+const SLICES = {
+  'attestations': { title: 'Работы, ждущие проверки', what: 'Проверка', when: 'Отправлена' },
+  'not-started': { title: 'Записи, к которым не приступали', what: 'Курс', when: 'Записан' },
+  'completed': { title: 'Пройденные курсы', what: 'Курс', when: 'Пройден' },
+  'plan': { title: 'Шаги планов обучения', what: 'Материал', when: 'Назначен' },
+  'learners': { title: 'Ученики', what: 'Курсы', when: 'Последний шаг' },
+  'progress': { title: 'Все записи на курсы', what: 'Курс', when: 'Последний шаг' },
+  'acknowledgements': { title: 'Ознакомления', what: 'Материал', when: 'Отмечено' },
+} as const
+
+type Slice = keyof typeof SLICES
+
+const openedSlice = ref<Slice | null>(null)
+const people = ref<LearningPerson[]>([])
+const peopleTotal = ref(0)
+const isLoadingPeople = ref(false)
+const peopleError = ref<string | null>(null)
+
+/**
+ * Открыт ровно один список: семь таблиц подряд — не отчёт, а выгрузка.
+ *
+ * Открывается он окном поверх страницы, а не разворачивается под сеткой плиток
+ * (решение пользователя 2026-09-20): ответ должен появляться там, куда человек
+ * только что нажал, а не под нижним рядом, до которого ещё надо долистать.
+ */
+async function openSlice(slice: Slice) {
+  openedSlice.value = slice
+  people.value = []
+  peopleError.value = null
+  isLoadingPeople.value = true
+
+  try {
+    const answer = (await fetchLearningPeople(slice)).data
+
+    people.value = answer.people
+    peopleTotal.value = answer.total
+  }
+  catch {
+    peopleError.value = 'Не удалось загрузить список.'
+    openedSlice.value = null
+  }
+  finally {
+    isLoadingPeople.value = false
+  }
+}
+
+/**
+ * Колонка прогресса — только там, где он есть.
+ *
+ * У ознакомлений и шагов плана доли нет вовсе, и пустой столбец из прочерков
+ * сообщал бы, что её не посчитали, вместо того что её не бывает.
+ */
+const showsProgress = computed(() => people.value.some(person => person.progress !== null))
+
+/** Подписи открытого среза: заголовок окна и две его колонки. */
+const sliceMeta = computed(() => (openedSlice.value ? SLICES[openedSlice.value] : null))
+
+function closeSlice() {
+  openedSlice.value = null
+  people.value = []
+}
+
+/** Состояние словом красится тем же набором бейджей, что и везде на странице. */
+function stateClass(tone: LearningPerson['tone']): string {
+  return tone === 'muted' ? 'badge' : `badge badge--${tone}`
 }
 
 /* ---------- Рейтинги ---------- */
@@ -171,6 +253,7 @@ function failedIn(quiz: LearningQuizRow): number {
         <p class="page-subtitle">
           Сколько собрано материала и как его проходят. Всюду, где можно, — доля от круга допущенных,
           а не голый счёт. Уволенные не в счёт: отчёт о тех, кого можно спросить.
+          Из любой цифры можно провалиться в список — нажмите на плитку.
         </p>
       </div>
     </header>
@@ -192,70 +275,93 @@ function failedIn(quiz: LearningQuizRow): number {
         :value="summary.attestations_pending"
         :span="3"
         attention
+        expandable
         :hint="summary.attestations
           ? `Всего аттестаций: ${formatNumber(summary.attestations)}`
           : 'Аттестаций пока не заводили'"
+        @open="openSlice('attestations')"
       />
       <AnalyticsStatTile
         label="Не приступали"
         :value="summary.not_started"
         :span="3"
         attention
+        expandable
         :hint="`Из ${formatNumber(summary.enrollments)} ${pluralise(summary.enrollments, 'записи', 'записей', 'записей')} на курсы`"
+        @open="openSlice('not-started')"
       />
       <AnalyticsStatTile
         label="Курсы пройдены"
         :value="share(summary.completed, summary.enrollments)"
         format="percent"
         :span="3"
+        expandable
         :hint="`${formatNumber(summary.completed)} из ${formatNumber(summary.enrollments)} записей`"
+        @open="openSlice('completed')"
       />
       <AnalyticsStatTile
         label="План обучения пройден"
         :value="share(summary.plan_done, summary.plan_steps)"
         format="percent"
         :span="3"
+        expandable
         :hint="`${formatNumber(summary.plan_done)} из ${formatNumber(summary.plan_steps)} шагов у ${formatNumber(summary.plan_people)} человек`"
+        @open="openSlice('plan')"
       />
 
       <AnalyticsStatTile
         label="Учеников"
         :value="summary.learners"
         :span="3"
+        expandable
         :hint="`${share(summary.learners, summary.staff)}% сотрудников хотя бы на одном курсе`"
+        @open="openSlice('learners')"
       />
       <AnalyticsStatTile
         label="Средний прогресс"
         :value="summary.average_progress"
         format="percent"
         :span="3"
+        expandable
         hint="Доля пройденных уроков по всем записям"
+        @open="openSlice('progress')"
       />
+      <!-- Проверки раскрываются не списком людей, а таблицей ниже: она уже
+           стоит на странице, и вторая такая же под плиткой спорила бы с ней. -->
       <AnalyticsStatTile
         label="Проверки сдают"
         :value="share(summary.quiz_passed, summary.quiz_attempts)"
         format="percent"
         :span="3"
+        to="#quizzes"
         :hint="`${formatNumber(summary.quiz_passed)} из ${formatNumber(summary.quiz_attempts)} попыток, средний балл ${summary.quiz_average_score}`"
       />
       <AnalyticsStatTile
         label="Ознакомлений"
         :value="summary.acknowledgements"
         :span="3"
+        expandable
         :hint="`Отметились ${formatNumber(summary.acknowledged_by)} ${pluralise(summary.acknowledged_by, 'человек', 'человека', 'человек')}`"
+        @open="openSlice('acknowledgements')"
       />
 
-      <!-- Сколько материала собрано: справка, а не повод действовать. -->
+      <!--
+        Сколько материала собрано: справка, а не повод действовать. Раскрывать
+        под ними нечего — за ними стоит раздел, и туда они и ведут: второй,
+        худший каталог под плиткой не нужен никому.
+      -->
       <AnalyticsStatTile
         label="Курсов"
         :value="summary.courses"
         :span="3"
+        to="/lms"
         :hint="`Опубликовано ${formatNumber(summary.published_courses)} · ${formatNumber(summary.lessons)} ${pluralise(summary.lessons, 'урок', 'урока', 'уроков')}`"
       />
       <AnalyticsStatTile
         label="Документов"
         :value="summary.documents"
         :span="3"
+        to="/lms/documents"
         :hint="summary.versions
           ? `Опубликовано ${formatNumber(summary.published_documents)} · ${formatNumber(summary.versions)} ${pluralise(summary.versions, 'версия', 'версии', 'версий')}`
           : `Опубликовано ${formatNumber(summary.published_documents)}`"
@@ -264,14 +370,17 @@ function failedIn(quiz: LearningQuizRow): number {
         label="Справочников"
         :value="summary.handbooks"
         :span="3"
+        to="/lms/handbooks"
         :hint="`Опубликовано ${formatNumber(summary.published_handbooks)}`"
       />
       <AnalyticsStatTile
         label="Сотрудников"
         :value="summary.staff"
         :span="3"
+        to="/staff"
         hint="Работающих — уволенные в отчёте не участвуют"
       />
+
 
       <AnalyticsChartCard
         title="Курсы: кто дошёл до конца"
@@ -303,7 +412,10 @@ function failedIn(quiz: LearningQuizRow): number {
         <UiEmptyState v-else title="Справочников пока нет" description="Появятся здесь, как только их заведут." />
       </AnalyticsChartCard>
 
+      <!-- Имя якоря: сюда ведёт плитка «Проверки сдают» — раскрывать под ней
+           второй такой же список незачем, он уже здесь. -->
       <AnalyticsChartCard
+        id="quizzes"
         title="Проверки: кто сдал"
         hint="Люди, а не попытки: сдал с третьего раза — сдал один человек. Первыми — те, где кто-то ждёт проверки. Раскройте строку, чтобы увидеть состав"
         :span="12"
@@ -406,6 +518,75 @@ function failedIn(quiz: LearningQuizRow): number {
         />
       </AnalyticsChartCard>
     </AnalyticsBentoGrid>
+
+    <!--
+      Список за цифрой — окном поверх страницы, а не панелью под сеткой
+      плиток (решение пользователя 2026-09-20). Прежде он вставал под всеми
+      плитками, потому что таблица посреди двенадцатиколоночной сетки
+      разорвала бы ряд надвое, — и ответ оказывался в экране от вопроса.
+    -->
+    <AppSheet
+      :open="openedSlice !== null"
+      wide
+      :title="sliceMeta?.title ?? ''"
+      :hint="peopleTotal > people.length
+        ? `Показаны первые ${formatNumber(people.length)} из ${formatNumber(peopleTotal)} — дальше читать невозможно`
+        : 'Уволенные не в счёт: отчёт о тех, кого можно спросить'"
+      @close="closeSlice"
+    >
+      <p v-if="isLoadingPeople" class="muted">
+        Загружаем…
+      </p>
+
+      <p v-else-if="peopleError" class="alert alert--danger" role="alert">
+        {{ peopleError }}
+      </p>
+
+      <UiEmptyState
+        v-else-if="!people.length"
+        title="Никого"
+        description="За этой цифрой сейчас никто не стоит."
+      />
+
+      <table v-else class="slice data-table">
+        <thead>
+          <tr>
+            <th>Сотрудник</th>
+            <th>{{ sliceMeta?.what }}</th>
+            <th>Состояние</th>
+            <th v-if="showsProgress">
+              Прогресс
+            </th>
+            <th>{{ sliceMeta?.when }}</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr v-for="(person, index) in people" :key="`${person.user_id}-${index}`">
+            <td>
+              <NuxtLink :to="`/staff/${person.user_id}`" class="person__name">
+                {{ person.name }}
+              </NuxtLink>
+            </td>
+            <td data-label="Что">
+              <NuxtLink v-if="person.path" :to="person.path" class="slice__material">
+                {{ person.title }}
+              </NuxtLink>
+              <span v-else>{{ person.title }}</span>
+            </td>
+            <td data-label="Состояние">
+              <span :class="stateClass(person.tone)">{{ person.state }}</span>
+            </td>
+            <td v-if="showsProgress" class="data-table__number" data-label="Прогресс">
+              {{ person.progress === null ? '—' : `${person.progress}%` }}
+            </td>
+            <td class="data-table__number" data-label="Когда">
+              {{ when(person.at) || '—' }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </AppSheet>
   </section>
 </template>
 
@@ -493,6 +674,23 @@ function failedIn(quiz: LearningQuizRow): number {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* Список за раскрытой цифрой: то же, что у отчёта по проверкам, — числа рядом
+   друг с другом, на телефоне строка разворачивается в карточку. */
+.slice {
+  font-size: 0.92rem;
+}
+
+/* Ссылка на материал подчёркивается только под курсором: в столбце из двухсот
+   строк постоянное подчёркивание превращает таблицу в сплошную линию. */
+.slice__material {
+  color: inherit;
+  text-decoration: none;
+}
+
+.slice__material:hover {
+  text-decoration: underline;
 }
 
 .person__name {

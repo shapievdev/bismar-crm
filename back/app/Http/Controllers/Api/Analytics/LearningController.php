@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Quiz;
 use App\Support\Analytics\LearningReport;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * Аналитика обучения: сколько материала собрано и как его проходят.
@@ -38,6 +39,33 @@ final class LearningController extends Controller
                 'handbooks' => $report->materials(MaterialKind::Handbook),
 
                 'quizzes' => $report->quizzes(),
+            ],
+        ]);
+    }
+
+    /**
+     * Люди за цифрой сводки.
+     *
+     * Своим адресом, а не внутри общего ответа: список — персональные данные, и
+     * присылать семь списков всякому, кто открыл страницу, незачем. Какую
+     * именно цифру раскрывают, говорит `slice` — как и в аналитике штата.
+     */
+    public function people(Request $request, LearningReport $report): JsonResponse
+    {
+        $slice = (string) $request->validate([
+            'slice' => ['nullable', 'string', 'in:not-started,completed,progress,learners,plan,acknowledgements,attestations'],
+        ])['slice'] ?? 'not-started';
+
+        ['total' => $total, 'rows' => $rows] = $report->people($slice);
+
+        return response()->json([
+            'data' => [
+                'slice' => $slice,
+
+                // Сколько их всего: список обрезан, и молчать об этом значит
+                // выдать двести строк за полный ответ.
+                'total' => $total,
+                'people' => $rows,
             ],
         ]);
     }

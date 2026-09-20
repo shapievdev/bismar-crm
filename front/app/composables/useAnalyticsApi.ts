@@ -7,6 +7,7 @@ import type {
   ProductBreakdownRow,
   ProductDimension,
   LearningPayload,
+  LearningPerson,
   LearningQuizResult,
   ProductsPayload,
   SalesDimension,
@@ -99,6 +100,21 @@ export function useAnalyticsApi() {
      */
     fetchLearning: (): Promise<AnalyticsResponse<LearningPayload>> =>
       $api<AnalyticsResponse<LearningPayload>>('/api/analytics/learning'),
+
+    /**
+     * Люди за цифрой сводки обучения.
+     *
+     * Своим запросом, а не вместе со сводкой: раскрывают из семи срезов один, и
+     * присылать все семь на открытии страницы значит присылать штат помноженный
+     * на курсы ради одного нажатия, которого может и не случиться.
+     */
+    fetchLearningPeople: (slice: string): Promise<AnalyticsResponse<{
+      slice: string
+      /** Сколько их всего: список обрезан, и об этом сказано прямо. */
+      total: number
+      people: LearningPerson[]
+    }>> =>
+      $api('/api/analytics/learning/people', { query: { slice } }),
 
     /** Кто и как прошёл один тест — раскрывается у одной строки отчёта. */
     fetchQuizResults: (quizId: number): Promise<AnalyticsResponse<{

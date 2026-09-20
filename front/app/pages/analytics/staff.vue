@@ -176,6 +176,15 @@ const slice = ref<string | null>(null)
 const people = ref<StaffPerson[]>([])
 const isLoadingPeople = ref(false)
 
+/**
+ * Заголовок списка за цифрой.
+ *
+ * Ключи — те же срезы, что понимает сервер, и раскрываются они нажатием на саму
+ * плитку: цифра и есть вопрос «кто это», и отвечать на него отдельным рядом
+ * кнопок значило бы просить прицелиться дважды. Плитки, которых здесь нет
+ * (текучесть, средний стаж, онбординг), не раскрываются: за ними стоят те же
+ * люди, что за соседними, и вторая дверь в ту же комнату только путает.
+ */
 const SLICE_TITLES: Record<string, string> = {
   headcount: 'Числятся на конец периода',
   'hired': 'Приняты за период',
@@ -184,15 +193,15 @@ const SLICE_TITLES: Record<string, string> = {
   'without-hire-date': 'Без даты приёма',
 }
 
+/**
+ * Список открывается окном поверх страницы, а не разворачивается под сеткой
+ * (решение пользователя 2026-09-20): ответ должен появляться там, куда человек
+ * только что нажал, а не под нижним рядом плиток, до которого ещё надо
+ * долистать.
+ */
 async function open(which: string): Promise<void> {
-  if (slice.value === which) {
-    slice.value = null
-    people.value = []
-
-    return
-  }
-
   slice.value = which
+  people.value = []
   isLoadingPeople.value = true
 
   try {
@@ -201,6 +210,11 @@ async function open(which: string): Promise<void> {
   finally {
     isLoadingPeople.value = false
   }
+}
+
+function closeSlice(): void {
+  slice.value = null
+  people.value = []
 }
 
 // Сменили срез — открытый список уже не о том.
@@ -247,7 +261,7 @@ const drift = computed(() => {
         </h1>
         <p class="page-subtitle">
           Движение персонала за период: кого приняли, кто ушёл и сколько продержались.
-          Из любой цифры можно провалиться в список людей.
+          Нажмите на плитку, чтобы увидеть, кто за цифрой.
         </p>
       </div>
 
@@ -363,21 +377,27 @@ const drift = computed(() => {
           label="Численность на конец"
           :value="summary.headcount_end"
           :span="3"
+          expandable
           :hint="`На начало ${formatNumber(summary.headcount_start)} · ${drift >= 0 ? '+' : '−'}${Math.abs(drift)} за период`"
+          @open="open('headcount')"
         />
         <AnalyticsStatTile
           label="Принято"
           :value="summary.hired"
           :span="3"
+          expandable
           hint="Нажмите, чтобы увидеть кого"
+          @open="open('hired')"
         />
         <AnalyticsStatTile
           label="Уволено"
           :value="summary.left"
           :span="3"
+          expandable
           :hint="summary.average_life === null
             ? 'За период никто не уходил'
             : `В среднем продержались ${tenure(summary.average_life)}`"
+          @open="open('left')"
         />
         <AnalyticsStatTile
           label="Текучесть"
@@ -394,7 +414,9 @@ const drift = computed(() => {
           format="percent"
           :span="3"
           :attention="summary.early_turnover >= 20"
+          expandable
           :hint="`${formatNumber(summary.early_left)} ушли в первые 90 дней от ${formatNumber(summary.hired)} принятых`"
+          @open="open('early-left')"
         />
         <AnalyticsStatTile
           label="Средний стаж"
@@ -420,79 +442,11 @@ const drift = computed(() => {
           :value="summary.without_hire_date"
           :span="3"
           :attention="summary.without_hire_date > 0"
+          expandable
           hint="Эти люди не попадают ни в одну цифру выше"
+          @open="open('without-hire-date')"
         />
 
-        <!-- Провал в список: кнопками под плитками, а не самими плитками.
-             Плитка — цифра, и нажимать на число, чтобы что-то произошло, никто
-             не догадается. -->
-        <AnalyticsChartCard title="Кто за цифрами" :span="12" :rows="1">
-          <div class="slices">
-            <button
-              v-for="(title, key) in SLICE_TITLES"
-              :key="key"
-              type="button"
-              class="button-secondary button-sm"
-              :aria-pressed="slice === key"
-              @click="open(String(key))"
-            >
-              {{ title }}
-            </button>
-          </div>
-
-          <p v-if="isLoadingPeople" class="muted">
-            Загружаем…
-          </p>
-
-          <template v-else-if="slice">
-            <p v-if="!people.length" class="muted">
-              Никого: за этот срез таких людей нет.
-            </p>
-
-            <table v-else class="people data-table">
-              <thead>
-                <tr>
-                  <th>Сотрудник</th>
-                  <th>Подразделение</th>
-                  <th>Принят</th>
-                  <th>Стаж</th>
-                  <th>Положение</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="person in people" :key="person.id">
-                  <td>
-                    <NuxtLink :to="`/staff/${person.id}`" class="people__name">
-                      {{ person.name }}
-                    </NuxtLink>
-                    <span v-if="person.job_title" class="muted people__title">{{ person.job_title }}</span>
-                  </td>
-                  <td class="muted" data-label="Подразделение">
-                    {{ person.departments.join(', ') || '—' }}
-                  </td>
-                  <td class="data-table__number" data-label="Принят">
-                    {{ when(person.hired_at) }}
-                    <span v-if="person.dismissed_at" class="muted">→ {{ when(person.dismissed_at) }}</span>
-                  </td>
-                  <td class="data-table__number wraps" data-label="Стаж">
-                    {{ tenure(person.tenure_months) }}
-                    <span v-if="person.tenure_tag_label" class="badge">{{ person.tenure_tag_label }}</span>
-                  </td>
-                  <td class="wraps">
-                    <span
-                      class="badge"
-                      :class="person.status === 'dismissed' ? 'badge--warning' : 'badge--success'"
-                    >{{ person.status_label }}</span>
-                    <span v-if="person.dismissal_reason_label" class="muted">
-                      {{ person.dismissal_reason_label }}
-                    </span>
-                    <span v-for="tag in person.tags" :key="tag" class="badge badge--accent">{{ tag }}</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </template>
-        </AnalyticsChartCard>
 
         <AnalyticsChartCard
           title="Принято и уволено по месяцам"
@@ -575,6 +529,72 @@ const drift = computed(() => {
           <UiEmptyState v-else title="За период никто не уходил" description="И это лучший вид этой панели." />
         </AnalyticsChartCard>
       </AnalyticsBentoGrid>
+
+      <!--
+        Список за цифрой — окном поверх страницы, а не панелью под сеткой
+        плиток (решение пользователя 2026-09-20). Прежде он вставал под всеми
+        плитками, потому что таблица посреди двенадцатиколоночной сетки
+        разорвала бы ряд надвое, — и ответ оказывался в экране от вопроса.
+      -->
+      <AppSheet
+        :open="slice !== null"
+        wide
+        :title="slice ? (SLICE_TITLES[slice] ?? 'Кто за цифрой') : ''"
+        @close="closeSlice"
+      >
+        <p v-if="isLoadingPeople" class="muted">
+          Загружаем…
+        </p>
+
+        <template v-else>
+          <p v-if="!people.length" class="muted">
+            Никого: за этот срез таких людей нет.
+          </p>
+
+          <table v-else class="people data-table">
+            <thead>
+              <tr>
+                <th>Сотрудник</th>
+                <th>Подразделение</th>
+                <th>Принят</th>
+                <th>Стаж</th>
+                <th>Положение</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="person in people" :key="person.id">
+                <td>
+                  <NuxtLink :to="`/staff/${person.id}`" class="people__name">
+                    {{ person.name }}
+                  </NuxtLink>
+                  <span v-if="person.job_title" class="muted people__title">{{ person.job_title }}</span>
+                </td>
+                <td class="muted" data-label="Подразделение">
+                  {{ person.departments.join(', ') || '—' }}
+                </td>
+                <td class="data-table__number" data-label="Принят">
+                  {{ when(person.hired_at) }}
+                  <span v-if="person.dismissed_at" class="muted">→ {{ when(person.dismissed_at) }}</span>
+                </td>
+                <td class="data-table__number wraps" data-label="Стаж">
+                  {{ tenure(person.tenure_months) }}
+                  <span v-if="person.tenure_tag_label" class="badge">{{ person.tenure_tag_label }}</span>
+                </td>
+                <td class="wraps">
+                  <span
+                    class="badge"
+                    :class="person.status === 'dismissed' ? 'badge--warning' : 'badge--success'"
+                  >{{ person.status_label }}</span>
+                  <span v-if="person.dismissal_reason_label" class="muted">
+                    {{ person.dismissal_reason_label }}
+                  </span>
+                  <span v-for="tag in person.tags" :key="tag" class="badge badge--accent">{{ tag }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+      </AppSheet>
     </template>
   </section>
 </template>
@@ -717,11 +737,6 @@ const drift = computed(() => {
     padding-block: 0.6rem;
   }
 
-  /* То же и у кнопок, которыми проваливаются в список людей. */
-  .slices .button-sm {
-    padding-block: 0.55rem;
-  }
-
   /*
    * Поля ужимаются по бокам.
    *
@@ -746,18 +761,6 @@ const drift = computed(() => {
   .filters .input[type='date'] {
     padding-inline: 0.55rem;
   }
-}
-
-.slices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-}
-
-.slices [aria-pressed='true'] {
-  background: var(--color-accent);
-  color: var(--color-accent-text);
 }
 
 .people__name {

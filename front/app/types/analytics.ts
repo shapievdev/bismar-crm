@@ -170,6 +170,27 @@ export interface LearningQuizResult {
   last_at: string | null
 }
 
+/**
+ * Человек за цифрой сводки — строка одна на все срезы.
+ *
+ * Срезы отвечают на разные вопросы, но читают их одной таблицей: семь таблиц на
+ * одном экране означали бы семь способов прочитать фамилию.
+ */
+export interface LearningPerson {
+  user_id: number
+  name: string
+  /** Что за ним: курс, документ или «Пройдено 1 из 3» у самого ученика. */
+  title: string
+  /** Куда ведёт строка. `null` — материала уже нет или его и не было. */
+  path: string | null
+  /** Состояние словом: «не приступал», «в очереди», «ждёт проверки». */
+  state: string
+  tone: 'success' | 'warning' | 'danger' | 'muted'
+  /** Доля пройденного там, где цифра о прогрессе. */
+  progress: number | null
+  at: string | null
+}
+
 export interface LearningPayload {
   summary: LearningSummary
   courses: LearningCourseRow[]

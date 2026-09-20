@@ -763,6 +763,11 @@ Route::middleware([
     Route::get('analytics/learning', [AnalyticsLearningController::class, '__invoke'])
         ->name('analytics.learning');
 
+    // Люди за цифрой — отдельным адресом: это персональные данные, и присылать
+    // их всякому, кто открыл сводку, незачем.
+    Route::get('analytics/learning/people', [AnalyticsLearningController::class, 'people'])
+        ->name('analytics.learning.people');
+
     // Кто и как прошёл один тест — раскрывается у одной строки отчёта.
     Route::get('analytics/learning/quizzes/{quiz}', [AnalyticsLearningController::class, 'results'])
         ->name('analytics.learning.quiz');

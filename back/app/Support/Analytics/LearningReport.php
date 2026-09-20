@@ -38,6 +38,16 @@ final class LearningReport
     private const TOP = 15;
 
     /**
+     * Сколько человек уезжает в поимённый список за одной цифрой.
+     *
+     * Записей на курсы в компании тысячи, и «все» здесь означало бы страницу,
+     * которую не прокрутить и не дождаться. Сколько их на самом деле,
+     * возвращается рядом (`total`) — отрезанное должно быть названо, иначе
+     * двести строк читаются как «вот и все».
+     */
+    private const PEOPLE = 200;
+
+    /**
      * Общая сводка — числа, ради которых экран и открывают.
      *
      * @return array<string, int|float>
@@ -118,31 +128,17 @@ final class LearningReport
             join regulations r on r.id = a.regulation_id and r.deleted_at is null
             SQL);
 
-        $plans = DB::selectOne(<<<'SQL'
+        $plans = DB::selectOne(sprintf(<<<'SQL'
             select
                 count(*) as steps,
                 count(distinct user_id) as people,
                 count(*) filter (where done) as done
             from (
-                select
-                    i.user_id,
-                    case i.plannable_type
-                        when 'course' then exists (
-                            select 1 from enrollments e
-                            where e.user_id = i.user_id
-                              and e.course_id = i.plannable_id
-                              and e.completed_at is not null
-                        )
-                        when 'regulation' then exists (
-                            select 1 from regulation_acknowledgements a
-                            where a.user_id = i.user_id and a.regulation_id = i.plannable_id
-                        )
-                        else false
-                    end as done
+                select i.user_id, %s as done
                 from learning_plan_items i
                 join users u on u.id = i.user_id and u.dismissed_at is null
             ) steps
-            SQL);
+            SQL, $this->planStepDoneSql()));
 
         return [
             'staff' => $staff,
@@ -427,6 +423,423 @@ final class LearningReport
 
             'last_at' => $row->last_at === null ? null : (string) $row->last_at,
         ], $rows);
+    }
+
+    /**
+     * Люди за цифрой: кого именно посчитали в сводке.
+     *
+     * Своим адресом, а не внутри общего ответа: список — персональные данные,
+     * и присылать семь списков всякому, кто открыл сводку, незачем. Раскрывают
+     * из них один, и то не всегда.
+     *
+     * Строка у всех срезов одна: человек, материал, состояние, доля и дата.
+     * Разные срезы отвечают на разные вопросы, но читают их одной таблицей, и
+     * семь таблиц на одном экране означали бы семь способов прочитать фамилию.
+     *
+     * Порядок везде «сначала худшее»: отчёт открывают ради тех, с кем надо
+     * разговаривать, а не ради отличников.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    public function people(string $slice): array
+    {
+        return match ($slice) {
+            'completed' => $this->completedEnrollments(),
+            'progress' => $this->allEnrollments(),
+            'learners' => $this->learners(),
+            'plan' => $this->planSteps(),
+            'acknowledgements' => $this->acknowledgements(),
+            'attestations' => $this->attestationsAwaiting(),
+            default => $this->untouchedEnrollments(),
+        };
+    }
+
+    /**
+     * Записи, к которым не приступали.
+     *
+     * Первыми — самые давние: запись, висящая с весны, это не «человек ещё не
+     * успел», а «назначили и забыли», и разговор по ней другой.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function untouchedEnrollments(): array
+    {
+        return $this->slice(sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                c.title,
+                c.slug,
+                e.enrolled_at as at
+            from enrollments e
+            join users u on u.id = e.user_id and u.dismissed_at is null
+            join courses c on c.id = e.course_id and c.deleted_at is null
+            where e.started_at is null and e.completed_at is null
+            order by e.enrolled_at, %s
+            limit %d
+            SQL, $this->nameSql(), $this->nameOrderSql(), self::PEOPLE), [], fn (object $row): array => [
+            ...$this->who($row),
+            'title' => $row->title,
+            'path' => '/lms/'.$row->slug,
+            'state' => 'не приступал',
+            'tone' => 'warning',
+            'progress' => 0,
+            'at' => $this->when($row->at),
+        ]);
+    }
+
+    /**
+     * Пройденные записи — свежие сверху: здесь смотрят, что происходит сейчас.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function completedEnrollments(): array
+    {
+        return $this->slice(sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                c.title,
+                c.slug,
+                e.completed_at as at
+            from enrollments e
+            join users u on u.id = e.user_id and u.dismissed_at is null
+            join courses c on c.id = e.course_id and c.deleted_at is null
+            where e.completed_at is not null
+            order by e.completed_at desc
+            limit %d
+            SQL, $this->nameSql(), self::PEOPLE), [], fn (object $row): array => [
+            ...$this->who($row),
+            'title' => $row->title,
+            'path' => '/lms/'.$row->slug,
+            'state' => 'пройден',
+            'tone' => 'success',
+            'progress' => 100,
+            'at' => $this->when($row->at),
+        ]);
+    }
+
+    /**
+     * Все записи с прогрессом — то самое, из чего сложился средний.
+     *
+     * Сначала те, у кого меньше: средний процент открывают, чтобы узнать, кто
+     * его тянет вниз.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function allEnrollments(): array
+    {
+        return $this->slice($this->progressSql().sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                c.title,
+                c.slug,
+                p.progress,
+                p.started_at,
+                p.completed_at
+            from progress p
+            join users u on u.id = p.user_id
+            join courses c on c.id = p.course_id
+            order by p.progress, %s
+            limit %d
+            SQL, $this->nameSql(), $this->nameOrderSql(), self::PEOPLE), [], fn (object $row): array => [
+            ...$this->who($row),
+            'title' => $row->title,
+            'path' => '/lms/'.$row->slug,
+            'state' => match (true) {
+                $row->completed_at !== null => 'пройден',
+                $row->started_at !== null => 'идёт',
+                default => 'не приступал',
+            },
+            'tone' => match (true) {
+                $row->completed_at !== null => 'success',
+                $row->started_at !== null => 'muted',
+                default => 'warning',
+            },
+            'progress' => (int) $row->progress,
+            'at' => $this->when($row->completed_at ?? $row->started_at),
+        ]);
+    }
+
+    /**
+     * Ученики — по человеку, а не по записи: вопрос «кто учится» задают о людях.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function learners(): array
+    {
+        return $this->slice($this->progressSql().sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                count(*) as courses,
+                count(*) filter (where p.completed_at is not null) as completed,
+                coalesce(round(avg(p.progress)), 0) as progress,
+                max(coalesce(p.completed_at, p.started_at)) as at
+            from progress p
+            join users u on u.id = p.user_id
+            group by u.id, u.last_name, u.first_name, u.middle_name
+            order by coalesce(round(avg(p.progress)), 0), %s
+            limit %d
+            SQL, $this->nameSql(), $this->nameOrderSql(), self::PEOPLE), [], fn (object $row): array => [
+            ...$this->who($row),
+
+            // Словами, а не двумя числами в разных колонках: «пройдено 1 из 3»
+            // — это один факт, и разрезать его по таблице значит заставить
+            // читателя сложить его обратно.
+            'title' => sprintf('Пройдено %d из %d', (int) $row->completed, (int) $row->courses),
+            'path' => null,
+            'state' => (int) $row->completed === (int) $row->courses ? 'всё пройдено' : 'учится',
+            'tone' => (int) $row->completed === (int) $row->courses ? 'success' : 'muted',
+            'progress' => (int) $row->progress,
+            'at' => $this->when($row->at),
+        ]);
+    }
+
+    /**
+     * Шаги планов обучения — сначала непройденные.
+     *
+     * План работает запретом: пока шаг не закрыт, человеку закрыты все курсы,
+     * кроме текущего. Поэтому непройденный шаг здесь — не «медленно идёт», а
+     * запертый каталог, и стоит он первым.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function planSteps(): array
+    {
+        return $this->slice(sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                i.position,
+                i.plannable_type,
+                i.created_at as at,
+                c.title as course_title,
+                c.slug as course_slug,
+                r.title as document_title,
+                r.slug as document_slug,
+                r.kind as document_kind,
+                %s as done
+            from learning_plan_items i
+            join users u on u.id = i.user_id and u.dismissed_at is null
+            left join courses c
+                on i.plannable_type = 'course' and c.id = i.plannable_id and c.deleted_at is null
+            left join regulations r
+                on i.plannable_type = 'regulation' and r.id = i.plannable_id and r.deleted_at is null
+            order by done, %s, i.position
+            limit %d
+            SQL, $this->nameSql(), $this->planStepDoneSql(), $this->nameOrderSql(), self::PEOPLE), [], function (object $row): array {
+            $isCourse = $row->plannable_type === 'course';
+
+            return [
+                ...$this->who($row),
+
+                // Материала может уже не быть: шаг остаётся, пока план не
+                // переписали, и молчать о нём хуже, чем назвать пропажу.
+                'title' => ($isCourse ? $row->course_title : $row->document_title) ?? 'материал удалён',
+                'path' => $isCourse
+                    ? ($row->course_slug === null ? null : '/lms/'.$row->course_slug)
+                    : $this->materialPath($row->document_kind, $row->document_slug),
+                'state' => $row->done ? 'пройден' : 'в очереди',
+                'tone' => $row->done ? 'success' : 'warning',
+                'progress' => null,
+                'at' => $this->when($row->at),
+            ];
+        });
+    }
+
+    /**
+     * Ознакомления с документами и справочниками — свежие сверху.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function acknowledgements(): array
+    {
+        return $this->slice(sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                r.title,
+                r.slug,
+                r.kind,
+                v.name as version_name,
+                a.acknowledged_at as at
+            from regulation_acknowledgements a
+            join users u on u.id = a.user_id and u.dismissed_at is null
+            join regulations r on r.id = a.regulation_id and r.deleted_at is null
+            left join regulation_versions v on v.id = a.version_id
+            order by a.acknowledged_at desc
+            limit %d
+            SQL, $this->nameSql(), self::PEOPLE), [], fn (object $row): array => [
+            ...$this->who($row),
+
+            // Чью версию прочли: в документе с версиями «ознакомлен» без имени
+            // текста не говорит, с чем именно.
+            'title' => $row->version_name === null
+                ? $row->title
+                : sprintf('%s · версия «%s»', $row->title, $row->version_name),
+            'path' => $this->materialPath($row->kind, $row->slug),
+            'state' => 'ознакомлен',
+            'tone' => 'success',
+            'progress' => null,
+            'at' => $this->when($row->at),
+        ]);
+    }
+
+    /**
+     * Работы, ждущие человека, — сначала самые давние.
+     *
+     * Это единственный срез, где спрашивают не с сотрудника: работа отправлена,
+     * и ждут здесь проверяющего. Ведёт строка в материал, а не в очередь
+     * проверки: очередь у каждого своя — в ней лежит только сданное ему.
+     *
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function attestationsAwaiting(): array
+    {
+        return $this->slice(sprintf(<<<'SQL'
+            select
+                count(*) over () as total,
+                %s,
+                q.title,
+                q.quizzable_type as owner,
+                l.id as lesson_id,
+                c.slug as course_slug,
+                coalesce(r.slug, vr.slug) as document_slug,
+                coalesce(r.kind, vr.kind) as document_kind,
+                t.completed_at as at
+            from quiz_attempts t
+            join users u on u.id = t.user_id and u.dismissed_at is null
+            join quizzes q on q.id = t.quiz_id
+            left join lessons l on q.quizzable_type = 'lesson' and l.id = q.quizzable_id
+            left join course_modules m on m.id = l.module_id
+            left join courses c on c.id = m.course_id and c.deleted_at is null
+            left join regulations r on q.quizzable_type = 'regulation' and r.id = q.quizzable_id
+                and r.deleted_at is null
+            left join regulation_versions v on q.quizzable_type = 'regulation_version'
+                and v.id = q.quizzable_id
+            left join regulations vr on vr.id = v.regulation_id and vr.deleted_at is null
+            where t.review_status = ?
+            order by t.completed_at
+            limit %d
+            SQL, $this->nameSql(), self::PEOPLE), [AttestationStatus::Pending->value], fn (object $row): array => [
+            ...$this->who($row),
+            'title' => $row->title,
+            'path' => $row->owner === 'lesson'
+                ? ($row->course_slug === null || $row->lesson_id === null
+                    ? null
+                    : '/lms/'.$row->course_slug.'/lessons/'.$row->lesson_id)
+                : $this->materialPath($row->document_kind, $row->document_slug),
+            'state' => AttestationStatus::Pending->label(),
+            'tone' => 'warning',
+            'progress' => null,
+            'at' => $this->when($row->at),
+        ]);
+    }
+
+    /* ---------- Кухня ---------- */
+
+    /**
+     * Строки среза и сколько их всего.
+     *
+     * Общее число считается окном по тому же запросу, а не вторым `count(*)`:
+     * второй запрос ходил бы по тем же соединениям ради одного числа — и мог бы
+     * посчитать уже другое, если между ними кто-то дошёл до конца курса.
+     *
+     * @param  list<mixed>  $bindings
+     * @param  callable(object): array<string, mixed>  $shape
+     * @return array{total: int, rows: list<array<string, mixed>>}
+     */
+    private function slice(string $sql, array $bindings, callable $shape): array
+    {
+        $rows = DB::select($sql, $bindings);
+
+        return [
+            'total' => $rows === [] ? 0 : (int) $rows[0]->total,
+            'rows' => array_map($shape, $rows),
+        ];
+    }
+
+    /** Колонки, из которых складывается имя. */
+    private function nameSql(): string
+    {
+        return 'u.id as user_id, u.last_name, u.first_name, u.middle_name';
+    }
+
+    /** Порядок по фамилии — русской коллацией: без неё «Яшин» идёт перед «Wood». */
+    private function nameOrderSql(): string
+    {
+        return 'coalesce(u.last_name, u.first_name) collate "und-x-icu"';
+    }
+
+    /**
+     * Человек в строке списка.
+     *
+     * @return array{user_id: int, name: string}
+     */
+    private function who(object $row): array
+    {
+        return [
+            'user_id' => (int) $row->user_id,
+            'name' => trim(implode(' ', array_filter([
+                $row->last_name ?? '',
+                $row->first_name,
+                $row->middle_name,
+            ]))),
+        ];
+    }
+
+    /** Дата как есть: как её показать, решает экран. */
+    private function when(mixed $value): ?string
+    {
+        return $value === null ? null : (string) $value;
+    }
+
+    /**
+     * Адрес документа или справочника.
+     *
+     * Раздел берётся у вида (MaterialKind::section()) — того же места, что
+     * знает Regulation::path(): разделов два, и собранная по месту ссылка
+     * однажды уведёт справочник в документы.
+     */
+    private function materialPath(?string $kind, ?string $slug): ?string
+    {
+        if ($kind === null || $slug === null) {
+            return null;
+        }
+
+        return '/lms/'.MaterialKind::from($kind)->section().'/'.$slug;
+    }
+
+    /**
+     * Пройден ли шаг плана — одно выражение на сводку и на поимённый список.
+     *
+     * Врозь они разошлись бы на первой правке, и «пройдено 3 из 6» стояло бы
+     * над списком, где пройденных четыре.
+     *
+     * Это упрощённый брат App\Support\Lms\StepCompletion: тот отвечает за
+     * запрет и спрашивает у документа ещё и сданную проверку, здесь же считают
+     * отчёт, и лишний join на каждый шаг ради двух процентов разницы не окупает
+     * себя. Расходятся они в одну сторону — отчёт добрее запрета.
+     */
+    private function planStepDoneSql(): string
+    {
+        return <<<'SQL'
+            case i.plannable_type
+                when 'course' then exists (
+                    select 1 from enrollments e
+                    where e.user_id = i.user_id
+                      and e.course_id = i.plannable_id
+                      and e.completed_at is not null
+                )
+                when 'regulation' then exists (
+                    select 1 from regulation_acknowledgements a
+                    where a.user_id = i.user_id and a.regulation_id = i.plannable_id
+                )
+                else false
+            end
+            SQL;
     }
 
     /**

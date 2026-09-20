@@ -46,11 +46,51 @@ const props = withDefaults(defineProps<{
    * бы второй шаг и второй ритм на одном экране.
    */
   span?: number
+  /**
+   * Куда ведёт цифра, за которой стоит не список людей, а раздел.
+   *
+   * «Курсов 3» отвечает каталогом, а не таблицей: разворачивать под плиткой то,
+   * что уже есть целой страницей, значит заводить второй, худший каталог.
+   */
+  to?: string
+  /**
+   * Открывается ли за цифрой список тех, из кого она сложилась.
+   *
+   * Нажимается сама плитка, а не кнопка под ней: цифра и есть вопрос «кто это»,
+   * и отвечать на него отдельным рядом кнопок значит просить прицелиться дважды.
+   *
+   * Список открывается окном поверх страницы (решение пользователя 2026-09-20).
+   * Прежде он разворачивался под сеткой плиток, и ответ появлялся далеко от
+   * вопроса: нажал цифру в верхнем ряду — таблица выехала под нижним, и, чтобы
+   * её увидеть, приходилось прокручивать страницу, уводя саму цифру с экрана.
+   */
+  expandable?: boolean
 }>(), {
   format: 'number',
   growth: 'good',
   span: 2,
 })
+
+const emit = defineEmits<{ open: [] }>()
+
+/**
+ * Чем плитка окажется в разметке.
+ *
+ * Ссылка ссылкой, а раскрывающая — кнопкой: и то и другое должно открываться
+ * с клавиатуры и читаться скринридером тем, чем является. Неподвижная остаётся
+ * `div`: кнопка, которая ничего не делает, обещает нажатие.
+ */
+const NuxtLink = resolveComponent('NuxtLink')
+
+const as = computed(() => {
+  if (props.to) {
+    return NuxtLink
+  }
+
+  return props.expandable ? 'button' : 'div'
+})
+
+const pressable = computed(() => Boolean(props.to) || props.expandable === true)
 
 const wide = computed(() => Math.min(12, Math.max(1, Math.round(props.span))))
 const medium = computed(() => Math.min(6, Math.max(2, Math.ceil(wide.value / 2))))
@@ -94,16 +134,32 @@ const tone = computed(() => {
 </script>
 
 <template>
-  <div
+  <!--
+    Строки внутри — `span`, а не `p`: плитка бывает кнопкой, а абзац внутри
+    кнопки — недопустимая разметка, и браузер разбирает её по-своему.
+  -->
+  <component
+    :is="as"
     class="tile"
+    :class="{ 'tile--pressable': pressable }"
+    :to="to"
+    :type="!to && expandable ? 'button' : undefined"
+    :aria-haspopup="!to && expandable ? 'dialog' : undefined"
     :title="precise"
     :style="{ '--span-wide': wide, '--span-medium': medium }"
+    @click="!to && expandable ? emit('open') : undefined"
   >
-    <p class="tile__label">
-      {{ label }}
-    </p>
+    <span class="tile__label">
+      <span class="tile__text">{{ label }}</span>
 
-    <p
+      <!-- Знак того, что плитка отвечает: стрелка у ссылки — она уводит на
+           другую страницу, уголок у списка — он открывается здесь же, окном. -->
+      <span v-if="pressable" class="tile__sign" aria-hidden="true">
+        {{ to ? '→' : '›' }}
+      </span>
+    </span>
+
+    <span
       class="tile__value"
       :class="{
         'tile__value--attention': attention && value > 0 && !unknown,
@@ -111,18 +167,18 @@ const tone = computed(() => {
       }"
     >
       {{ unknown ? '—' : formatted }}
-    </p>
+    </span>
 
-    <p v-if="change !== null" class="tile__change" :class="`tile__change--${tone}`">
+    <span v-if="change !== null" class="tile__change" :class="`tile__change--${tone}`">
       <span aria-hidden="true">{{ change > 0 ? '↑' : change < 0 ? '↓' : '→' }}</span>
       {{ formatPercent(Math.abs(change)) }}
       <span class="tile__against">к прошлому периоду</span>
-    </p>
+    </span>
 
-    <p v-else-if="hint" class="tile__hint">
+    <span v-else-if="hint" class="tile__hint">
       {{ hint }}
-    </p>
-  </div>
+    </span>
+  </component>
 </template>
 
 <style scoped>
@@ -157,17 +213,70 @@ const tone = computed(() => {
   }
 }
 
+/*
+ * Нажимаемая плитка.
+ *
+ * Отзывается тенью и подъёмом, а не рамкой: рамка у одной плитки в ряду
+ * ломает ритм сетки даже под курсором. Курсор и знак в углу говорят, что она
+ * отвечает, до всякого наведения — по одной тени об этом не догадаться.
+ */
+.tile--pressable {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  /* Кнопке браузер центрирует и текст, и содержимое: без этого плитка,
+     ставшая кнопкой, встала бы по центру, а соседняя — по левому краю. */
+  align-items: stretch;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.tile--pressable:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile--pressable {
+    transition: none;
+  }
+
+  .tile--pressable:hover {
+    transform: none;
+  }
+}
+
 .tile__label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin: 0;
   font-size: 0.78rem;
   color: var(--color-text-muted);
-  /* Подпись не переносится на две строки в узкой плитке — обрезается. */
+}
+
+/* Подпись не переносится на две строки в узкой плитке — обрезается. */
+.tile__text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Знак прижат к правому краю и не сжимается: он короче подписи, и отдавать
+   ему место при обрезке значит обрезать её раньше времени. */
+.tile__sign {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--color-text-faint);
+}
+
 .tile__value {
+  display: block;
   margin: 0;
   font-size: 1.55rem;
   font-weight: 600;
@@ -245,7 +354,7 @@ const tone = computed(() => {
    * превращается в «Численность…», и плитка перестаёт сообщать, что за число
    * на ней стоит.
    */
-  .tile__label {
+  .tile__text {
     white-space: normal;
     line-height: 1.25;
   }
