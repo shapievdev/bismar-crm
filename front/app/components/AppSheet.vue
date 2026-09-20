@@ -14,6 +14,15 @@ const props = defineProps<{
   open: boolean
   title: string
   hint?: string
+  /**
+   * Окно под таблицу, а не под форму.
+   *
+   * Раздел настроек — это столбик полей, и узкое окно ему впору. Но в этом же
+   * окне показывают списки людей со строками в полдюжины колонок, и в тридцать
+   * четыре знака ширины такая строка переносится трижды. На телефоне разницы
+   * нет: там окно и так во весь экран.
+   */
+  wide?: boolean
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -60,6 +69,7 @@ function onBackdrop(event: MouseEvent) {
   <dialog
     ref="element"
     class="sheet"
+    :class="{ 'sheet--wide': wide }"
     @click="onBackdrop"
     @cancel.prevent="emit('close')"
     @close="props.open && emit('close')"
@@ -109,6 +119,20 @@ function onBackdrop(event: MouseEvent) {
   color: var(--color-text);
   box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
   overflow: hidden;
+}
+
+/*
+ * Широкое окно ещё и не ужимается до высоты содержимого.
+ *
+ * В нём ходят по уровням — список, человек, одна попытка, — и окно, растущее и
+ * сжимающееся под каждый из них, ездит по экрану: нажал строку, а «назад»
+ * оказалось не там, где только что стояла строка. Нижняя граница высоты держит
+ * окно на месте при переходах; содержимое выше неё растёт как обычно.
+ */
+.sheet--wide {
+  width: min(52rem, calc(100vw - 2rem));
+  min-height: min(30rem, calc(100dvh - 3rem));
+  max-height: min(52rem, calc(100dvh - 3rem));
 }
 
 .sheet::backdrop {

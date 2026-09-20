@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import type { QuizReview, QuizReviewQuestion } from '~/types/lms'
 
-defineProps<{ review: QuizReview }>()
+const props = defineProps<{
+  review: QuizReview
+  /**
+   * Чужая работа — та, которую читает не сдававший, а ведущий тест.
+   *
+   * Разбор один на оба случая, и «ваш ответ» в нём верно ровно наполовину: в
+   * окне аналитики администратор смотрит ответы сотрудника, и обращение к себе
+   * там читается ошибкой. Слово меняется, разметка — нет.
+   */
+  foreign?: boolean
+}>()
+
+const answerLabel = computed(() => (props.foreign ? 'ответ' : 'ваш ответ'))
 
 /**
  * Разошедшиеся ячейки с ожидаемым значением.
@@ -80,7 +92,7 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
              эталон открывается по тем же правилам, что и ключ у выбора. -->
         <template v-if="question.answer !== undefined && question.options.length === 0">
           <p class="written">
-            <span class="written__label">Ваш ответ</span>
+            <span class="written__label">{{ foreign ? 'Ответ' : 'Ваш ответ' }}</span>
             {{ question.answer ?? '—' }}
           </p>
 
@@ -136,7 +148,7 @@ function optionClass(question: QuizReviewQuestion, isChosen: boolean, isCorrect:
             :class="optionClass(question, option.is_chosen, option.is_correct)"
           >
             <span class="review-option__text">{{ option.text }}</span>
-            <span v-if="option.is_chosen" class="review-option__tag">ваш ответ</span>
+            <span v-if="option.is_chosen" class="review-option__tag">{{ answerLabel }}</span>
             <span v-else-if="option.is_correct" class="review-option__tag">верный ответ</span>
           </li>
         </ul>

@@ -337,6 +337,23 @@ async function toggleReaders() {
             ({{ regulation.acknowledged_count }})
           </template>
         </button>
+
+        <!-- Как материал проходят и как проходят его проверку — администратору,
+             в шапке, а не двумя полотнами под страницей (решение пользователя
+             2026-09-20). Соседняя кнопка показывает список ознакомившихся тому,
+             кто материал правит; здесь же — весь круг читателей поимённо, и
+             открыт он только администратору. -->
+        <ProgressMaterialStats
+          v-if="isAdmin"
+          :key="`progress-${regulation.id}`"
+          :load="async () => (await fetchProgress(slug)).data"
+          title="Кто ознакомился"
+          summary-label="Ознакомились"
+          done-label="Ознакомлен"
+          pending-label="Не ознакомлен"
+          :load-quiz="quiz ? async () => (await fetchQuizStatistics(slug)).data : null"
+          :load-quiz-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
+        />
       </div>
     </header>
 
@@ -535,28 +552,6 @@ async function toggleReaders() {
       </aside>
     </div>
 
-    <!-- Как материал проходят — администратору (решение пользователя
-         2026-09-12). Во всю ширину, под колонками: список людей длиннее
-         врезки, и в боковой колонке он читался бы в три слова на строку. -->
-    <template v-if="isAdmin">
-      <ProgressPeoplePanel
-        :key="`progress-${regulation.id}`"
-        :load="async () => (await fetchProgress(slug)).data"
-        title="Кто ознакомился"
-        summary-label="Ознакомились"
-        done-label="Ознакомлен"
-        pending-label="Не ознакомлен"
-      />
-
-      <!-- Разбор проверки стоит здесь же: прежде он жил в редакторе, но это
-           такая же статистика прохождения, и место у неё одно. -->
-      <QuizStatisticsPanel
-        v-if="quiz"
-        :key="quiz.id"
-        :load="async () => (await fetchQuizStatistics(slug)).data"
-        :load-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
-      />
-    </template>
   </article>
 </template>
 

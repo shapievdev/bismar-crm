@@ -147,6 +147,16 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
           <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-secondary">
             Редактировать
           </NuxtLink>
+
+          <!-- Как курс проходят — здесь же, рядом с «Редактировать», а не
+               полотном внизу страницы (решение пользователя 2026-09-20).
+               Читателю этой кнопки нет вовсе: сервер отвечает ему 403, и
+               спрашивать незачем. -->
+          <ProgressCourseStats
+            v-if="isAdmin"
+            :load="async () => (await fetchCourseProgress(slug)).data"
+            :load-learner="async learnerId => (await fetchLearnerProgress(slug, learnerId)).data"
+          />
         </div>
 
       </div>
@@ -254,14 +264,6 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
          сообщение — и всё это уходит письмом тому, кто курс правит. -->
     <MaterialFeedback :target="{ kind: 'course', slug: course.slug }" class="feedback" />
 
-    <!-- Как курс проходят — администратору, внизу самой страницы курса
-         (решение пользователя 2026-09-12). Читателю этого блока нет вовсе:
-         сервер отвечает ему 403, и спрашивать незачем. -->
-    <ProgressCoursePanel
-      v-if="isAdmin"
-      :load="async () => (await fetchCourseProgress(slug)).data"
-      :load-learner="async learnerId => (await fetchLearnerProgress(slug, learnerId)).data"
-    />
   </section>
 </template>
 

@@ -323,6 +323,22 @@ function formatSize(bytes: number): string {
           >
             Редактировать
           </NuxtLink>
+
+          <!-- Как урок проходят и как проходят его тест — администратору, в
+               шапке урока, а не двумя полотнами под ним (решение пользователя
+               2026-09-20). Разбор теста уехал туда же второй вкладкой: это
+               такая же статистика прохождения, и место у неё одно. -->
+          <ProgressMaterialStats
+            v-if="isAdmin"
+            :key="`progress-${lesson.id}`"
+            :load="async () => (await fetchLessonProgress(lessonId)).data"
+            title="Как проходят урок"
+            summary-label="Прошли урок"
+            done-label="Пройден"
+            pending-label="Не пройден"
+            :load-quiz="lesson.quiz ? async () => (await fetchQuizStatistics(lessonId)).data : null"
+            :load-quiz-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
+          />
         </div>
       </header>
 
@@ -564,27 +580,6 @@ function formatSize(bytes: number): string {
       <!-- Замечание пишут с того урока, на котором споткнулись: автору важно,
            где именно не хватило, а не «где-то в курсе». -->
       <MaterialFeedback :target="{ kind: 'lesson', id: lesson.id }" class="feedback" />
-
-      <!-- Как урок проходят — администратору (решение пользователя
-           2026-09-12). Разбор теста стоит здесь же: прежде он жил в редакторе
-           урока, но это такая же статистика прохождения, и место у неё одно. -->
-      <template v-if="isAdmin">
-        <ProgressPeoplePanel
-          :key="`progress-${lesson.id}`"
-          :load="async () => (await fetchLessonProgress(lessonId)).data"
-          title="Как проходят урок"
-          summary-label="Прошли урок"
-          done-label="Пройден"
-          pending-label="Не пройден"
-        />
-
-        <QuizStatisticsPanel
-          v-if="lesson.quiz"
-          :key="lesson.quiz.id"
-          :load="async () => (await fetchQuizStatistics(lessonId)).data"
-          :load-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
-        />
-      </template>
 
       <nav class="pager">
         <NuxtLink
