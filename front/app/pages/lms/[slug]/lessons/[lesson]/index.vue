@@ -346,12 +346,7 @@ function formatSize(bytes: number): string {
 
       <div class="prose">
         <ClientOnly>
-          <EditorArticleReader
-            :content="article"
-            :fallback-text="lesson.content"
-            :title="lesson.title"
-            :note="lesson.course_title"
-          />
+          <EditorRichTextRenderer :content="article" :fallback-text="lesson.content" />
 
           <template #fallback>
             <p v-for="(paragraph, index) in paragraphs" :key="index">

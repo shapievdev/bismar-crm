@@ -112,7 +112,13 @@ function onMessage(event: MessageEvent) {
   }
 
   if (data.type === HTML_BLOCK_SCROLL_MESSAGE) {
-    scrollOuterPageTo(Number(data.offset))
+    // Развёрнутая рамка прокручивается сама — ссылку внутри неё отрабатывает
+    // `scrollIntoView` в самом документе, а страницу под накладкой двигать
+    // некуда и незачем.
+    if (!isScreen.value) {
+      scrollOuterPageTo(Number(data.offset))
+    }
+
     return
   }
 
@@ -122,7 +128,10 @@ function onMessage(event: MessageEvent) {
 
   const height = Number(data.height)
 
-  if (!Number.isFinite(height) || height <= 0 || isSettled.value) {
+  // Во весь экран рамка меряется по экрану, а не по разметке: принятое оттуда
+  // число осталось бы с блоком и после сворачивания — свёрнутый блок стал бы
+  // высотой с монитор.
+  if (!Number.isFinite(height) || height <= 0 || isSettled.value || isScreen.value) {
     return
   }
 
@@ -138,46 +147,14 @@ function onMessage(event: MessageEvent) {
   }, SETTLE_MS)
 }
 
-/**
- * Что прокручивается вокруг кадра: сама страница или развёрнутая во весь экран
- * статья.
- *
- * Развёрнутая статья прокручивается внутри себя, и документ под ней стоит на
- * месте. Двигать в этом случае окно — значит не двигать ничего: ссылка внутри
- * блока молча не срабатывала бы, а читатель решил бы, что она сломана.
- */
-function scrollerAround(element: HTMLElement): HTMLElement | null {
-  for (let node = element.parentElement; node; node = node.parentElement) {
-    const { overflowY } = getComputedStyle(node)
-
-    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
-      return node
-    }
-  }
-
-  return null
-}
-
-/** Brings a section inside the block into view by moving whatever scrolls around it. */
+/** Brings a section inside the block into view by moving the outer page. */
 function scrollOuterPageTo(offset: number) {
   if (!frame.value || !Number.isFinite(offset)) {
     return
   }
 
-  const headerAllowance = 80
-  const scroller = scrollerAround(frame.value)
-
-  if (scroller) {
-    const frameTop = frame.value.getBoundingClientRect().top
-      - scroller.getBoundingClientRect().top
-      + scroller.scrollTop
-
-    scroller.scrollTo({ top: Math.max(0, frameTop + offset - headerAllowance), behavior: 'smooth' })
-
-    return
-  }
-
   const frameTop = frame.value.getBoundingClientRect().top + window.scrollY
+  const headerAllowance = 80
 
   window.scrollTo({ top: Math.max(0, frameTop + offset - headerAllowance), behavior: 'smooth' })
 }
@@ -190,10 +167,135 @@ watch(srcdoc, () => {
   measuredHeight.value = REFERENCE_HEIGHT
 })
 
+/* ---------- Блок во весь экран ---------- */
+
+/**
+ * Развёрнут ли блок.
+ *
+ * Блоком в статью кладут не абзац, а разметку: таблицу на двадцать колонок,
+ * схему, расчёт. В колонке статьи такому тесно, а раздвинуть колонку нельзя —
+ * рядом с ней живёт сама статья. Поэтому блок разворачивается на экран целиком
+ * и сворачивается обратно.
+ *
+ * Разворачивается обёртка вокруг рамки, а не сама рамка: внутри рамки чужая
+ * разметка, кнопки «свернуть» у неё нет, и, отдав ей весь экран, мы оставили бы
+ * читателя без выхода. Обёртка же наша — в ней и живёт кнопка.
+ *
+ * Рамка при этом остаётся тем же узлом документа: её не переносят и не рисуют
+ * заново, поэтому всё, что в блоке успели натыкать — открытая вкладка, введённые
+ * числа, проигранная анимация, — переживает и разворот, и сворачивание. Любой
+ * переезд по документу перезагрузил бы её с нуля.
+ */
+const isScreen = ref(false)
+
+const pane = useTemplateRef<HTMLElement>('pane')
+
+/**
+ * Где читатель стоял на странице.
+ *
+ * Развёрнутый блок выпадает из потока, страница под ним становится короче, и
+ * браузер подтягивает прокрутку вверх. Свернув, читатель оказывался бы не там,
+ * где оторвался, — место запоминается на входе и возвращается на выходе, когда
+ * раскладка уже пересчитана.
+ */
+let restoreScrollTo = 0
+
+function expand() {
+  if (isScreen.value) {
+    return
+  }
+
+  restoreScrollTo = window.scrollY
+  isScreen.value = true
+
+  // Страницу под накладкой приходится придерживать самим: накрыть её мало —
+  // палец на телефоне прокручивает то, что под ней.
+  document.body.style.overflow = 'hidden'
+
+  /*
+   * Полный экран браузера — сверх нашего и только там, где он есть: Safari на
+   * телефоне разворачивает одно лишь видео. Накладка закрывает экран и без
+   * него, поэтому отказ ничего не ломает — остаётся адресная строка.
+   *
+   * Просьба уходит в том же нажатии, что и разворот: отложенную до перерисовки
+   * браузер считает непрошеной и отклоняет.
+   */
+  if (document.fullscreenEnabled === true) {
+    void pane.value?.requestFullscreen?.()?.catch(() => {})
+  }
+}
+
+async function collapse() {
+  if (!isScreen.value) {
+    return
+  }
+
+  isScreen.value = false
+  document.body.style.overflow = ''
+
+  if (document.fullscreenElement === pane.value) {
+    void document.exitFullscreen?.()?.catch(() => {})
+  }
+
+  /*
+   * Свернувшись, блок меряется заново.
+   *
+   * Во весь экран разметка внутри раскладывается иначе — сетка в три колонки
+   * вместо одной, таблица без переносов, — и, главное, замер в это время не
+   * принимается вовсе. Оставить прежнее число значило бы полагаться на то, что
+   * оно успело сняться до разворота: блок, развёрнутый в первые же полсекунды
+   * после загрузки, вернулся бы в колонку высотой с заглушку.
+   */
+  clearTimeout(settleTimer)
+  tallestReport = 0
+  isSettled.value = false
+
+  // Место на странице возвращается после перерисовки: до неё блок ещё вне
+  // потока, страница коротка, и прокрутке некуда встать.
+  await nextTick()
+  window.scrollTo(0, restoreScrollTo)
+}
+
+function onKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    void collapse()
+  }
+}
+
+/**
+ * Из полного экрана выходят не только нашей кнопкой: Esc, системная «назад»,
+ * жест. Выйдя, читатель ждёт, что вернулась страница, — иначе блок остался бы
+ * поверх неё, и выходить пришлось бы дважды.
+ */
+function onFullscreenChange() {
+  if (isScreen.value && document.fullscreenElement === null) {
+    void collapse()
+  }
+}
+
+// Слушаем, только пока развёрнуто: блоков в статье бывает с десяток, и каждый
+// держал бы свою пару обработчиков на документе просто так.
+watch(isScreen, (screen) => {
+  if (screen) {
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+  }
+  else {
+    document.removeEventListener('keydown', onKey)
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }
+})
+
 onMounted(() => window.addEventListener('message', onMessage))
 onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage)
+  document.removeEventListener('keydown', onKey)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   clearTimeout(settleTimer)
+
+  // Ушли со страницы прямо из развёрнутого блока — прокрутку документу надо
+  // вернуть, иначе следующий экран не листается вовсе.
+  document.body.style.overflow = ''
 })
 
 function save() {
@@ -268,19 +370,56 @@ function unpin() {
       </div>
     </div>
 
-    <!--
-      No loading="lazy" here. A srcdoc frame has no network request to trigger
-      the deferred load, so Chrome leaves it blank indefinitely.
-    -->
-    <iframe
+    <div
       v-else-if="html"
-      ref="frame"
-      class="html-block__frame"
-      :style="{ height: `${effectiveHeight}px` }"
-      :sandbox="SANDBOX"
-      :srcdoc="srcdoc"
-      title="Встроенный HTML"
-    />
+      ref="pane"
+      class="html-block__pane"
+      :class="{ 'html-block__pane--screen': isScreen }"
+      contenteditable="false"
+    >
+      <!-- Кнопка стоит поверх рамки, а не рядом: полоса над блоком есть только
+           у автора, а разворачивает блок читатель, и другого места для неё в
+           статье нет. -->
+      <button
+        type="button"
+        class="html-block__screen"
+        :title="isScreen ? 'Свернуть (Esc)' : 'Во весь экран'"
+        :aria-label="isScreen ? 'Свернуть блок' : 'Развернуть блок во весь экран'"
+        :aria-expanded="isScreen"
+        @click="isScreen ? collapse() : expand()"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="17"
+          height="17"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path v-if="isScreen" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+          <path v-else d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+        </svg>
+      </button>
+
+      <!--
+        No loading="lazy" here. A srcdoc frame has no network request to trigger
+        the deferred load, so Chrome leaves it blank indefinitely.
+
+        Во весь экран высота не задаётся вовсе: её даёт раскладка накладки, а
+        замеренное число вернётся к рамке, когда блок свернут обратно.
+      -->
+      <iframe
+        ref="frame"
+        class="html-block__frame"
+        :style="isScreen ? undefined : { height: `${effectiveHeight}px` }"
+        :sandbox="SANDBOX"
+        :srcdoc="srcdoc"
+        title="Встроенный HTML"
+      />
+    </div>
 
     <p v-else class="html-block__empty faint">
       Пустой HTML-блок — нажмите «Код», чтобы вставить разметку.
@@ -337,6 +476,30 @@ function unpin() {
   margin-top: 0.5rem;
 }
 
+.html-block__pane {
+  position: relative;
+}
+
+/*
+ * Развёрнутый блок.
+ *
+ * `fixed`, а не полный экран браузера: его умеют не все, а блок должен
+ * разворачиваться везде. Где умеют — просьба уходит сверх этого, и тогда
+ * пропадает ещё и адресная строка.
+ */
+.html-block__pane--screen {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: var(--color-bg);
+  animation: html-block-screen 0.16s ease;
+}
+
+@keyframes html-block-screen {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /*
  * The frame carries the surface the block sits on, and the document inside it
  * is transparent — so author markup that paints nothing still lands on the
@@ -347,6 +510,81 @@ function unpin() {
   width: 100%;
   border: 0;
   background: var(--color-surface-raised);
+}
+
+/* Во весь экран рамка занимает его целиком, и разметка внутри прокручивается
+   сама — высоту ей больше не задают. */
+.html-block__pane--screen .html-block__frame {
+  height: 100%;
+}
+
+/*
+ * Кнопка разворота — поверх чужой разметки.
+ *
+ * Подложка тёмная и непрозрачная наполовину, а не в цвет темы: под кнопкой
+ * авторский HTML, и какого он цвета, мы не знаем. Приглушена, пока на блок не
+ * навели: она нужна раз за чтение, а стоит поверх содержимого.
+ */
+.html-block__screen {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.45;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.html-block:hover .html-block__screen,
+.html-block__screen:hover,
+.html-block__screen:focus-visible {
+  opacity: 1;
+}
+
+.html-block__screen:hover {
+  background: rgb(0 0 0 / 78%);
+}
+
+/*
+ * Пальцем на блок не наводят — кнопка видна сразу. И размер у неё под палец:
+ * разворачивают блок чаще всего как раз на телефоне, где колонка уже всего.
+ */
+@media (pointer: coarse) {
+  .html-block__screen {
+    width: 2.75rem;
+    height: 2.75rem;
+    opacity: 1;
+  }
+}
+
+/* Развёрнутый блок выходят из, а не любуются им: кнопка перестаёт быть
+   приглушённой и отступает от выреза экрана. */
+.html-block__pane--screen .html-block__screen {
+  top: max(0.6rem, env(safe-area-inset-top));
+  right: 0.6rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .html-block__pane--screen {
+    animation: none;
+  }
+
+  .html-block__screen {
+    transition: none;
+  }
 }
 
 .html-block__empty {
