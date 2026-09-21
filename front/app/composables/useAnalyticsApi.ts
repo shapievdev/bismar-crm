@@ -1,3 +1,4 @@
+import type { SurveySummary } from '~/types/survey'
 import type {
   AnalyticsFilters,
   AnalyticsResponse,
@@ -9,6 +10,7 @@ import type {
   LearningPayload,
   LearningPerson,
   LearningQuizResult,
+  LearningSurveyParticipant,
   ProductsPayload,
   SalesDimension,
   SalesPayload,
@@ -122,6 +124,21 @@ export function useAnalyticsApi() {
       people: LearningQuizResult[]
     }>> =>
       $api(`/api/analytics/learning/quizzes/${quizId}`),
+
+    /**
+     * Результаты одного опроса: сводка ответов и кто его прошёл.
+     *
+     * Двумя частями, потому что «результаты» здесь про разное: сводка — что
+     * ответили, список — кто отвечал. У анонимного опроса имён в сводке нет и
+     * взяться им неоткуда, а список прошедших остаётся поимённым: «кто прошёл,
+     * видно; что ответил — нет».
+     */
+    fetchSurveyResults: (surveyId: number): Promise<AnalyticsResponse<{
+      survey: { id: number, title: string, is_required: boolean, is_anonymous: boolean }
+      summary: SurveySummary
+      people: LearningSurveyParticipant[]
+    }>> =>
+      $api(`/api/analytics/learning/surveys/${surveyId}`),
 
     /**
      * Движение персонала за срез.

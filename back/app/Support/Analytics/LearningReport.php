@@ -119,6 +119,22 @@ final class LearningReport
             select count(*) as total from quizzes where kind = ?
             SQL, [QuizKind::Attestation->value]);
 
+        /*
+         * Опросы считаются по прохождениям, а не по строкам ответов: у
+         * анонимного опроса ответы не связаны с людьми, и единственное, что
+         * знает о них счёт, — отметка о прохождении.
+         */
+        $surveys = DB::selectOne(<<<'SQL'
+            select
+                (select count(*) from surveys) as total,
+                (select count(*) from surveys where is_required) as required,
+                (
+                    select count(*)
+                    from survey_completions c
+                    join users u on u.id = c.user_id and u.dismissed_at is null
+                ) as answered
+            SQL);
+
         $acknowledgements = DB::selectOne(<<<'SQL'
             select
                 count(*) as total,
@@ -170,6 +186,12 @@ final class LearningReport
             // затем, чтобы узнать, не ждёт ли кто-то этой проверки.
             'attestations' => (int) $attestations->total,
             'attestations_pending' => (int) $quizzes->pending,
+
+            // Опросы: сколько их и сколько раз их прошли. Планки и балла у
+            // опроса нет — сравнивать не с чем, и доля здесь была бы выдумкой.
+            'surveys' => (int) $surveys->total,
+            'surveys_required' => (int) $surveys->required,
+            'survey_answered' => (int) $surveys->answered,
 
             'acknowledgements' => (int) $acknowledgements->total,
             'acknowledged_by' => (int) $acknowledgements->people,
@@ -378,6 +400,140 @@ final class LearningReport
             'passed' => (int) $row->passed,
             'pending' => (int) $row->pending,
             'average_score' => (int) $row->average_score,
+        ], $rows);
+    }
+
+    /**
+     * Опросы: сколько человек их прошло и где они стоят.
+     *
+     * Устроено по образцу отчёта о проверках — и списком, и раскрытием состава,
+     * потому что вопрос тот же: как это проходят. Разное лишь то, чего у опроса
+     * нет: ни планки, ни балла, ни попыток, а значит ни «сдали», ни «средний
+     * балл». Вместо них — сколько прошли и чем опрос помечен: обязательный
+     * держит зачёт материала, анонимный не покажет, кто что ответил, закрытый
+     * больше не принимает ответов.
+     *
+     * Считается по отметкам о прохождении (`survey_completions`), а не по
+     * строкам ответов: у анонимного опроса ответы не связаны с людьми вовсе —
+     * см. App\Models\SurveyCompletion.
+     *
+     * Первыми — обязательные: от них зависит зачёт материала, и незакрытый
+     * обязательный опрос это не цифра, а очередь людей, которым не зачлось.
+     * Внутри — где прошло больше, потому что читать есть что там.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function surveys(): array
+    {
+        $rows = DB::select(sprintf(<<<'SQL'
+            select
+                s.id,
+                s.title,
+                s.is_required,
+                s.is_anonymous,
+                s.closes_at,
+                s.surveyable_type as owner,
+                l.id as lesson_id,
+                l.title as lesson_title,
+                c.slug as course_slug,
+                c.title as course_title,
+                coalesce(r.slug, vr.slug) as document_slug,
+                coalesce(r.kind, vr.kind) as document_kind,
+                coalesce(r.title, vr.title) as document_title,
+                v.name as version_name,
+                n.slug as news_slug,
+                n.title as news_title,
+                (select count(*) from survey_questions where survey_id = s.id) as questions,
+                (
+                    select count(*)
+                    from survey_completions sc
+                    join users u on u.id = sc.user_id and u.dismissed_at is null
+                    where sc.survey_id = s.id
+                ) as answered
+            from surveys s
+            left join lessons l on s.surveyable_type = 'lesson' and l.id = s.surveyable_id
+            left join course_modules m on m.id = l.module_id
+            left join courses c on c.id = m.course_id and c.deleted_at is null
+            left join regulations r on s.surveyable_type = 'regulation' and r.id = s.surveyable_id
+                and r.deleted_at is null
+            left join regulation_versions v on s.surveyable_type = 'regulation_version'
+                and v.id = s.surveyable_id
+            left join regulations vr on vr.id = v.regulation_id and vr.deleted_at is null
+            left join news n on s.surveyable_type = 'news' and n.id = s.surveyable_id
+                and n.deleted_at is null
+            order by
+                s.is_required desc,
+                answered desc,
+                s.title collate "und-x-icu"
+            limit %d
+            SQL, self::TOP));
+
+        return array_map(static fn (object $row): array => [
+            'id' => (int) $row->id,
+            'title' => $row->title,
+
+            // Обязательный держит зачёт материала, анонимный не покажет, кто
+            // что ответил. Человеку, который читает отчёт, важно и то и другое:
+            // первое объясняет, почему людей спрашивают, второе — почему в
+            // ответах нет имён.
+            'is_required' => (bool) $row->is_required,
+            'is_anonymous' => (bool) $row->is_anonymous,
+            'closes_at' => $row->closes_at === null ? null : (string) $row->closes_at,
+
+            // Где опрос стоит: экран рисует по этому и подпись, и ссылку.
+            // Новость — четвёртый владелец, которого у проверок не бывает: у
+            // них при новости своя стопка таблиц.
+            'owner' => $row->owner,
+            'material' => match ($row->owner) {
+                'lesson' => $row->lesson_title,
+                'news' => $row->news_title,
+                default => $row->document_title,
+            },
+            'course_title' => $row->course_title,
+            'course_slug' => $row->course_slug,
+            'lesson_id' => $row->lesson_id === null ? null : (int) $row->lesson_id,
+            'document_slug' => $row->document_slug,
+            'document_kind' => $row->document_kind,
+            'version_name' => $row->version_name,
+            'news_slug' => $row->news_slug,
+
+            'questions' => (int) $row->questions,
+            'answered' => (int) $row->answered,
+        ], $rows);
+    }
+
+    /**
+     * Кто прошёл один опрос.
+     *
+     * Только имя и день — и это не скупость выдачи, а устройство опроса: что
+     * человек ответил, отчёт не покажет никогда, даже у неанонимного. Ответы
+     * читают сводкой (App\Support\Lms\SurveySummary), где они и имеют смысл:
+     * распределение по вариантам, среднее по шкале, написанное списком.
+     *
+     * Список прохождений при этом не тайна и у анонимного опроса: «кто прошёл,
+     * видно; что ответил — нет» — на этом и стоит вся его схема.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function surveyResults(int $surveyId): array
+    {
+        $rows = DB::select(<<<'SQL'
+            select
+                u.id,
+                coalesce(u.last_name, '') as last_name,
+                u.first_name,
+                u.middle_name,
+                c.completed_at
+            from survey_completions c
+            join users u on u.id = c.user_id and u.dismissed_at is null
+            where c.survey_id = ?
+            order by c.completed_at desc, coalesce(u.last_name, u.first_name) collate "und-x-icu"
+            SQL, [$surveyId]);
+
+        return array_map(static fn (object $row): array => [
+            'id' => (int) $row->id,
+            'name' => trim(implode(' ', array_filter([$row->last_name, $row->first_name, $row->middle_name]))),
+            'answered_at' => $row->completed_at === null ? null : (string) $row->completed_at,
         ], $rows);
     }
 

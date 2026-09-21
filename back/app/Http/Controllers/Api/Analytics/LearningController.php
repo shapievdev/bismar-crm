@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Api\Analytics;
 use App\Enums\MaterialKind;
 use App\Http\Controllers\Controller;
 use App\Models\Quiz;
+use App\Models\Survey;
 use App\Support\Analytics\LearningReport;
+use App\Support\Lms\SurveySummary;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -39,6 +41,11 @@ final class LearningController extends Controller
                 'handbooks' => $report->materials(MaterialKind::Handbook),
 
                 'quizzes' => $report->quizzes(),
+
+                // Опросы — тем же списком и о том же: как это проходят. Что
+                // именно ответили, приходит отдельным адресом, как и состав
+                // проверки.
+                'surveys' => $report->surveys(),
             ],
         ]);
     }
@@ -66,6 +73,38 @@ final class LearningController extends Controller
                 // выдать двести строк за полный ответ.
                 'total' => $total,
                 'people' => $rows,
+            ],
+        ]);
+    }
+
+    /**
+     * Результаты одного опроса: что ответили и кто прошёл.
+     *
+     * Двумя частями, потому что это два разных ответа на «результаты». Сводка —
+     * то, ради чего опрос заводили: распределение по вариантам, среднее по
+     * шкале, написанное списком. Список прошедших — про участие, и он остаётся
+     * поимённым даже у анонимного опроса: «кто прошёл, видно; что ответил —
+     * нет» (см. App\Models\SurveyCompletion). Имён в сводке при этом не
+     * появится — их там нет в самой базе.
+     *
+     * Своим адресом, а не внутри общего ответа: раскрывают один опрос из
+     * пятнадцати, и присылать все пятнадцать сводок ради этого незачем.
+     *
+     * Правом «вести обучение», а не правом на правку материала, — как и состав
+     * проверки: этот раздел для того, кто отвечает за обучение целиком.
+     */
+    public function surveyResults(Survey $survey, LearningReport $report, SurveySummary $summary): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'survey' => [
+                    'id' => $survey->getKey(),
+                    'title' => $survey->title,
+                    'is_required' => $survey->is_required,
+                    'is_anonymous' => $survey->is_anonymous,
+                ],
+                'summary' => $summary->of($survey),
+                'people' => $report->surveyResults((int) $survey->getKey()),
             ],
         ]);
     }

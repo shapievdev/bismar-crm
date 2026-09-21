@@ -835,6 +835,11 @@ Route::middleware([
     // Кто и как прошёл один тест — раскрывается у одной строки отчёта.
     Route::get('analytics/learning/quizzes/{quiz}', [AnalyticsLearningController::class, 'results'])
         ->name('analytics.learning.quiz');
+
+    // Результаты одного опроса: сводка ответов и список прошедших. Тем же
+    // правом и по той же причине, что и состав проверки.
+    Route::get('analytics/learning/surveys/{survey}', [AnalyticsLearningController::class, 'surveyResults'])
+        ->name('analytics.learning.survey');
 });
 
 /*

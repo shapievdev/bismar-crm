@@ -15,6 +15,9 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\RegulationVersion;
+use App\Models\Survey;
+use App\Models\SurveyCompletion;
+use App\Models\SurveyResponse;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
@@ -32,6 +35,15 @@ final class LearningAnalyticsTest extends TestCase
     private function trainer(): User
     {
         return $this->userWith(Permission::ViewCourses, Permission::ManageEnrollments);
+    }
+
+    /** Урок в опубликованном курсе — на нём проверяют опросы при уроках. */
+    private function lessonInCourse(): Lesson
+    {
+        $course = Course::factory()->published()->create();
+        $module = CourseModule::factory()->create(['course_id' => $course->id]);
+
+        return Lesson::factory()->create(['module_id' => $module->id]);
     }
 
     /**
@@ -235,6 +247,178 @@ final class LearningAnalyticsTest extends TestCase
         $this->assertTrue($people[1]['passed']);
         $this->assertSame('Ёлкина Мария', $people[1]['name']);
         $this->assertSame(1, $people[1]['attempts']);
+    }
+
+    /* ---------- Опросы ---------- */
+
+    /**
+     * Опросы стоят в отчёте рядом с проверками и о том же: как это проходят.
+     *
+     * Первыми — обязательные: от них зависит зачёт материала.
+     */
+    public function test_the_report_lists_surveys_with_the_required_ones_first(): void
+    {
+        $document = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
+        $optional = Survey::factory()->forRegulation($document)->withQuestion()->create([
+            'title' => 'Необязательный',
+        ]);
+
+        $lesson = $this->lessonInCourse();
+        $required = Survey::factory()->forLesson($lesson)->required()->withQuestion()->create([
+            'title' => 'Обязательный',
+        ]);
+
+        $answered = $this->learner();
+        SurveyCompletion::query()->create([
+            'survey_id' => $optional->id, 'user_id' => $answered->id, 'completed_at' => now(),
+        ]);
+
+        $surveys = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk()
+            ->json('data.surveys');
+
+        // Обязательный впереди, даже если его ещё никто не прошёл.
+        $this->assertSame($required->id, $surveys[0]['id']);
+        $this->assertTrue($surveys[0]['is_required']);
+        $this->assertSame(0, $surveys[0]['answered']);
+        $this->assertSame('lesson', $surveys[0]['owner']);
+
+        $this->assertSame($optional->id, $surveys[1]['id']);
+        $this->assertSame(1, $surveys[1]['answered']);
+        $this->assertSame('Кассовая дисциплина', $surveys[1]['material']);
+        $this->assertSame($document->slug, $surveys[1]['document_slug']);
+        $this->assertSame(1, $surveys[1]['questions']);
+    }
+
+    /** Уволенный в счёт не идёт: отчёт о тех, кого можно спросить. */
+    public function test_a_dismissed_person_is_not_counted_among_those_who_answered(): void
+    {
+        $lesson = $this->lessonInCourse();
+        $survey = Survey::factory()->forLesson($lesson)->withQuestion()->create();
+
+        foreach ([$this->learner(), User::factory()->dismissed()->create()] as $person) {
+            SurveyCompletion::query()->create([
+                'survey_id' => $survey->id, 'user_id' => $person->id, 'completed_at' => now(),
+            ]);
+        }
+
+        $surveys = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk()
+            ->json('data.surveys');
+
+        $this->assertSame(1, $surveys[0]['answered']);
+    }
+
+    /** Сводка ответов и список прошедших — одним ответом по одному опросу. */
+    public function test_the_report_shows_what_was_answered_and_who_answered(): void
+    {
+        $lesson = $this->lessonInCourse();
+        $survey = Survey::factory()->forLesson($lesson)->withQuestion()->create();
+        $question = $survey->questions()->with('options')->firstOrFail();
+        $option = $question->options->firstOrFail();
+
+        $person = User::factory()->create(['last_name' => 'Ёлкина', 'first_name' => 'Мария']);
+
+        SurveyCompletion::query()->create([
+            'survey_id' => $survey->id, 'user_id' => $person->id, 'completed_at' => now(),
+        ]);
+        SurveyResponse::query()->create([
+            'survey_id' => $survey->id,
+            'user_id' => $person->id,
+            'answers' => [(string) $question->getKey() => ['options' => [$option->getKey()]]],
+            'submitted_at' => now(),
+        ]);
+
+        $data = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.survey', $survey))
+            ->assertOk()
+            ->assertJsonPath('data.survey.id', $survey->id)
+            ->json('data');
+
+        $this->assertSame(1, $data['summary']['answered']);
+        $this->assertSame(1, $data['summary']['questions'][0]['options'][0]['count']);
+
+        $this->assertCount(1, $data['people']);
+        $this->assertSame('Ёлкина Мария', $data['people'][0]['name']);
+    }
+
+    /**
+     * Анонимность держится и здесь: прошедшие названы, ответы — нет.
+     *
+     * Это не оплошность выдачи, а устройство: у анонимного опроса ответы не
+     * связаны с человеком в самой базе, и подставить имя сюда неоткуда.
+     */
+    public function test_an_anonymous_survey_names_who_answered_but_not_what_they_said(): void
+    {
+        $lesson = $this->lessonInCourse();
+        $survey = Survey::factory()->forLesson($lesson)->anonymous()->create();
+        $question = $survey->questions()->create([
+            'text' => 'Что улучшить?',
+            'type' => 'long_text',
+            'is_required' => true,
+            'position' => 0,
+        ]);
+
+        $person = User::factory()->create(['last_name' => 'Сомов', 'first_name' => 'Иван']);
+
+        SurveyCompletion::query()->create([
+            'survey_id' => $survey->id, 'user_id' => $person->id, 'completed_at' => now(),
+        ]);
+        SurveyResponse::query()->create([
+            'survey_id' => $survey->id,
+            // Человека в строке ответов у анонимного опроса нет вовсе.
+            'user_id' => null,
+            'answers' => [(string) $question->getKey() => ['text' => 'Ничего, всё понятно']],
+            'submitted_at' => now(),
+        ]);
+
+        $data = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning.survey', $survey))
+            ->assertOk()
+            ->json('data');
+
+        $this->assertTrue($data['summary']['is_anonymous']);
+        $this->assertSame('Ничего, всё понятно', $data['summary']['questions'][0]['texts'][0]['text']);
+        $this->assertNull($data['summary']['questions'][0]['texts'][0]['person']);
+
+        // А кто проходил — видно: на этом и стоит обязательный опрос.
+        $this->assertSame('Сомов Иван', $data['people'][0]['name']);
+    }
+
+    /** Сводка считает опросы и прохождения. */
+    public function test_the_summary_counts_surveys(): void
+    {
+        $lesson = $this->lessonInCourse();
+        Survey::factory()->forLesson($lesson)->required()->withQuestion()->create();
+        Survey::factory()->forRegulation(Regulation::factory()->published()->create())->create();
+
+        SurveyCompletion::query()->create([
+            'survey_id' => Survey::query()->firstOrFail()->id,
+            'user_id' => $this->learner()->id,
+            'completed_at' => now(),
+        ]);
+
+        $summary = $this->actingAs($this->trainer())
+            ->getJson(route('analytics.learning'))
+            ->assertOk()
+            ->json('data.summary');
+
+        $this->assertSame(2, $summary['surveys']);
+        $this->assertSame(1, $summary['surveys_required']);
+        $this->assertSame(1, $summary['survey_answered']);
+    }
+
+    /** Аналитика обучения — тому, кому доверено обучение. */
+    public function test_survey_results_are_closed_to_everyone_else(): void
+    {
+        $lesson = $this->lessonInCourse();
+        $survey = Survey::factory()->forLesson($lesson)->withQuestion()->create();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('analytics.learning.survey', $survey))
+            ->assertForbidden();
     }
 
     /* ---------- Разделы, охват и аттестации ---------- */

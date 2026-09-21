@@ -88,6 +88,12 @@ export interface LearningSummary {
   /** Работ, ждущих проверки человеком. */
   attestations_pending: number
 
+  /* Опросы. Ни планки, ни балла у опроса нет — сравнивать не с чем. */
+  surveys: number
+  surveys_required: number
+  /** Сколько раз опросы прошли. Считается по отметкам, а не по ответам. */
+  survey_answered: number
+
   /* Документы. */
   acknowledgements: number
   acknowledged_by: number
@@ -197,6 +203,42 @@ export interface LearningPayload {
   documents: LearningMaterialRow[]
   handbooks: LearningMaterialRow[]
   quizzes: LearningQuizRow[]
+  surveys: LearningSurveyRow[]
+}
+
+/**
+ * Опрос в отчёте — по образцу проверки, и с той же разницей, что в самом
+ * опросе: ни планки, ни балла, ни попыток, а значит ни «сдали», ни «средний
+ * балл». Вместо них — сколько прошли и чем опрос помечен.
+ */
+export interface LearningSurveyRow {
+  id: number
+  title: string
+  /** Обязательный держит зачёт материала. */
+  is_required: boolean
+  /** Анонимный не покажет, кто что ответил. */
+  is_anonymous: boolean
+  closes_at: string | null
+  /** У опроса четвёртый владелец, которого у проверок не бывает, — новость. */
+  owner: 'lesson' | 'regulation' | 'regulation_version' | 'news'
+  document_kind?: 'document' | 'handbook' | null
+  material: string | null
+  course_title: string | null
+  course_slug: string | null
+  lesson_id: number | null
+  document_slug: string | null
+  version_name: string | null
+  news_slug: string | null
+  questions: number
+  /** Сколько человек прошли. Уволенные не в счёт. */
+  answered: number
+}
+
+/** Кто прошёл опрос. Что ответил — не здесь: это сводка, см. SurveySummary. */
+export interface LearningSurveyParticipant {
+  id: number
+  name: string
+  answered_at: string | null
 }
 
 

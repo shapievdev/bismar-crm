@@ -5,7 +5,10 @@ import type {
   LearningPerson,
   LearningQuizResult,
   LearningQuizRow,
+  LearningSurveyParticipant,
+  LearningSurveyRow,
 } from '~/types/analytics'
+import type { SurveySummary } from '~/types/survey'
 import { formatNumber } from '~/utils/numbers'
 
 /**
@@ -25,7 +28,7 @@ import { formatNumber } from '~/utils/numbers'
 definePageMeta({ middleware: 'auth', permission: 'enrollments.manage' })
 useHead({ title: 'Обучение — Аналитика' })
 
-const { fetchLearning, fetchLearningPeople, fetchQuizResults } = useAnalyticsApi()
+const { fetchLearning, fetchLearningPeople, fetchQuizResults, fetchSurveyResults } = useAnalyticsApi()
 
 const { data, pending, error } = await useAsyncData(
   'analytics-learning',
@@ -198,6 +201,96 @@ async function openResults(id: number) {
   }
 }
 
+/* ---------- Отчёт по опросам ---------- */
+
+/**
+ * Опросы — тем же списком, что и проверки, и с той же мыслью: как это проходят.
+ * Первыми обязательные: от них зависит зачёт материала, и незакрытый
+ * обязательный опрос это не цифра, а очередь людей, которым не зачлось.
+ *
+ * Раскрытая строка показывает две разные вещи под одним словом «результаты»:
+ * сводку ответов — то, ради чего опрос заводили, — и список прошедших. У
+ * анонимного опроса имён в сводке нет и взяться им неоткуда, а список прошедших
+ * поимённый и у него: «кто прошёл, видно; что ответил — нет».
+ */
+const surveys = computed(() => data.value?.surveys ?? [])
+
+const openedSurveyId = ref<number | null>(null)
+const surveySummary = ref<SurveySummary | null>(null)
+const surveyPeople = ref<LearningSurveyParticipant[]>([])
+const isLoadingSurvey = ref(false)
+const surveyError = ref<string | null>(null)
+
+async function openSurvey(id: number) {
+  if (openedSurveyId.value === id) {
+    openedSurveyId.value = null
+    surveySummary.value = null
+    surveyPeople.value = []
+
+    return
+  }
+
+  openedSurveyId.value = id
+  surveySummary.value = null
+  surveyPeople.value = []
+  surveyError.value = null
+  isLoadingSurvey.value = true
+
+  try {
+    const { data: result } = await fetchSurveyResults(id)
+
+    surveySummary.value = result.summary
+    surveyPeople.value = result.people
+  }
+  catch {
+    surveyError.value = 'Не удалось загрузить результаты опроса.'
+    openedSurveyId.value = null
+  }
+  finally {
+    isLoadingSurvey.value = false
+  }
+}
+
+/** Куда ведёт опрос: в урок курса, в документ, в его версию или в новость. */
+function surveyLink(survey: LearningSurveyRow): string | null {
+  if (survey.owner === 'lesson') {
+    return survey.course_slug && survey.lesson_id
+      ? `/lms/${survey.course_slug}/lessons/${survey.lesson_id}`
+      : null
+  }
+
+  if (survey.owner === 'news') {
+    return survey.news_slug ? `/news/${survey.news_slug}` : null
+  }
+
+  return survey.document_slug
+    ? `/lms/${survey.document_kind === 'handbook' ? 'handbooks' : 'documents'}/${survey.document_slug}`
+    : null
+}
+
+function surveyWhere(survey: LearningSurveyRow): string {
+  const material = survey.material ?? 'источник удалён'
+
+  if (survey.owner === 'lesson') {
+    return `Урок «${material}»${survey.course_title ? ` · ${survey.course_title}` : ''}`
+  }
+
+  if (survey.owner === 'news') {
+    return `Новость «${material}»`
+  }
+
+  const what = survey.document_kind === 'handbook' ? 'Справочник' : 'Документ'
+
+  return survey.version_name
+    ? `${what} «${material}» · версия «${survey.version_name}»`
+    : `${what} «${material}»`
+}
+
+/** Закрыт ли опрос: срок приёма ответов мог выйти. */
+function isClosed(survey: LearningSurveyRow): boolean {
+  return survey.closes_at !== null && new Date(survey.closes_at).getTime() < Date.now()
+}
+
 /** Куда ведёт проверка: в урок курса, в документ или в его версию. */
 function quizLink(quiz: LearningQuizRow): string | null {
   if (quiz.owner === 'lesson') {
@@ -335,6 +428,16 @@ function failedIn(quiz: LearningQuizRow): number {
         :span="3"
         to="#quizzes"
         :hint="`${formatNumber(summary.quiz_passed)} из ${formatNumber(summary.quiz_attempts)} попыток, средний балл ${summary.quiz_average_score}`"
+      />
+      <!-- Опросы раскрываются таблицей ниже, как и проверки: доли у опроса нет
+           — планки и балла у него не бывает, — поэтому на плитке счёт. -->
+      <AnalyticsStatTile
+        v-if="summary.surveys"
+        label="Опросы прошли"
+        :value="summary.survey_answered"
+        :span="3"
+        to="#surveys"
+        :hint="`${formatNumber(summary.surveys)} ${pluralise(summary.surveys, 'опрос', 'опроса', 'опросов')}, из них обязательных ${formatNumber(summary.surveys_required)}`"
       />
       <AnalyticsStatTile
         label="Ознакомлений"
@@ -517,6 +620,98 @@ function failedIn(quiz: LearningQuizRow): number {
           description="Приложите проверку к уроку, документу или его версии — результаты появятся здесь."
         />
       </AnalyticsChartCard>
+
+      <!-- Имя якоря: сюда ведёт плитка «Опросы прошли». -->
+      <AnalyticsChartCard
+        id="surveys"
+        title="Опросы: что ответили"
+        hint="Первыми обязательные — от них зависит зачёт материала. Раскройте строку: сводка ответов и кто опрос прошёл. У анонимного опроса имён в ответах нет"
+        :span="12"
+        :rows="4"
+      >
+        <table v-if="surveys.length" class="quizzes data-table">
+          <thead>
+            <tr>
+              <th>Опрос</th>
+              <th>Вопросов</th>
+              <th>Прошли</th>
+              <th>Какой</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <template v-for="survey in surveys" :key="survey.id">
+              <tr class="quizzes__row" :class="{ 'quizzes__row--open': openedSurveyId === survey.id }">
+                <td>
+                  <button
+                    type="button"
+                    class="quizzes__open"
+                    :aria-expanded="openedSurveyId === survey.id"
+                    @click="openSurvey(survey.id)"
+                  >
+                    {{ survey.title }}
+                  </button>
+
+                  <NuxtLink v-if="surveyLink(survey)" :to="surveyLink(survey)!" class="muted quizzes__where">
+                    {{ surveyWhere(survey) }}
+                  </NuxtLink>
+                  <span v-else class="muted quizzes__where">{{ surveyWhere(survey) }}</span>
+                </td>
+                <td class="data-table__number" data-label="Вопросов">
+                  {{ survey.questions }}
+                </td>
+                <td class="data-table__number" data-label="Прошли">
+                  {{ survey.answered }}
+                </td>
+                <td data-label="Какой">
+                  <!-- Три пометки, и каждая объясняет читателю разное: почему
+                       людей спрашивают, почему в ответах нет имён и почему
+                       ответов больше не прибавится. -->
+                  <span v-if="survey.is_required" class="badge badge--accent">обязательный</span>
+                  <span v-if="survey.is_anonymous" class="badge">анонимный</span>
+                  <span v-if="isClosed(survey)" class="badge badge--warning">закрыт</span>
+                  <span v-if="!survey.is_required && !survey.is_anonymous && !isClosed(survey)" class="muted">—</span>
+                </td>
+              </tr>
+
+              <tr v-if="openedSurveyId === survey.id" class="quizzes__people">
+                <td colspan="4" class="data-table__span">
+                  <p v-if="isLoadingSurvey" class="muted">
+                    Загружаем…
+                  </p>
+                  <p v-else-if="surveyError" class="alert alert--danger" role="alert">
+                    {{ surveyError }}
+                  </p>
+                  <template v-else>
+                    <!-- Сводка — та же, что автор видит в редакторе материала:
+                         распределение по вариантам, среднее по шкале,
+                         написанное списком. -->
+                    <SurveySummaryView v-if="surveySummary" :summary="surveySummary" />
+
+                    <p v-if="!surveyPeople.length" class="muted">
+                      Этот опрос ещё никто не прошёл.
+                    </p>
+                    <ul v-else class="people survey-people">
+                      <li v-for="person in surveyPeople" :key="person.id" class="person">
+                        <NuxtLink :to="`/staff/${person.id}`" class="person__name">
+                          {{ person.name }}
+                        </NuxtLink>
+                        <span v-if="person.answered_at" class="muted">{{ when(person.answered_at) }}</span>
+                      </li>
+                    </ul>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <UiEmptyState
+          v-else
+          title="Опросов пока нет"
+          description="Приложите опрос к уроку, документу, справочнику или новости — ответы появятся здесь."
+        />
+      </AnalyticsChartCard>
     </AnalyticsBentoGrid>
 
     <!--
@@ -674,6 +869,14 @@ function failedIn(quiz: LearningQuizRow): number {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* Прошедшие опрос — под сводкой ответов, а не вместо неё: отчёт открывают ради
+   сказанного, список отвечает на второй вопрос, «кто именно». */
+.survey-people {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
 }
 
 /* Список за раскрытой цифрой: то же, что у отчёта по проверкам, — числа рядом
