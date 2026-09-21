@@ -65,6 +65,7 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\Push\BroadcastController;
 use App\Http\Controllers\Api\PushSubscriptionController;
+use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\Staff\StaffTagController;
 use App\Http\Controllers\Api\Staff\UserStaffTagController;
 use App\Http\Controllers\Api\Structure\DepartmentController;
@@ -692,6 +693,17 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::Vie
             ->whereIn('dimension', ProductReport::dimensions())
             ->name('products.breakdown');
     });
+
+/*
+ * Поиск из шапки — по всей платформе разом.
+ *
+ * Своей группой и без права: разделы отбираются внутри, по правам
+ * спрашивающего, и человек, которому закрыты курсы, всё равно вправе найти
+ * коллегу и новость. См. App\Support\Search\Everywhere.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
+    Route::get('search', [SearchController::class, 'index'])->name('search');
+});
 
 Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
     // The catalogue the access editor ticks through, so it answers to the same

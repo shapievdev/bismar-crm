@@ -58,17 +58,28 @@ const { hideDock } = useShellChrome()
 
         <ModuleNav v-if="isAuthenticated" />
 
-        <!-- The avatar alone: the name is on the profile page, and repeating it
-             in every header only tells you what you already know. -->
-        <NuxtLink
-          v-if="isAuthenticated"
-          to="/profile"
-          class="account"
-          title="Профиль"
-          :aria-label="`Профиль: ${user?.name ?? ''}`"
-        >
-          <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="36" />
-        </NuxtLink>
+        <!--
+          Правый край шапки: поиск и своё лицо.
+
+          Одной группой, а не двумя соседями: поиск обязан стоять у правого края
+          рядом с аватаром, а не посреди свободного места. Полоса разделов
+          отжимает эту группу вправо своим `margin-right: auto`, и второй такой
+          же отступ здесь — на случай, когда разделов у страницы нет вовсе.
+        -->
+        <div v-if="isAuthenticated" class="topbar__end">
+          <AppSearch />
+
+          <!-- The avatar alone: the name is on the profile page, and repeating
+               it in every header only tells you what you already know. -->
+          <NuxtLink
+            to="/profile"
+            class="account"
+            title="Профиль"
+            :aria-label="`Профиль: ${user?.name ?? ''}`"
+          >
+            <UserAvatar :name="user?.name" :src="user?.avatar_url" :size="36" />
+          </NuxtLink>
+        </div>
       </div>
     </header>
 
@@ -201,11 +212,18 @@ const { hideDock } = useShellChrome()
   text-decoration: none;
 }
 
+.topbar__end {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
 .account {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  margin-left: auto;
   color: inherit;
   text-decoration: none;
 }
@@ -326,9 +344,13 @@ const { hideDock } = useShellChrome()
    * `:empty` этого не ловил, и полоса всё это время занимала сантиметр экрана
    * ни на чём: логотип с аватаром на телефоне спрятаны, но из разметки никуда
    * не делись, и пустой она для браузера не была. Смотрим на то, ради чего она
-   * на телефоне и существует, — на названия разделов.
+   * на телефоне и существует, — на названия разделов и на поиск.
+   *
+   * Поиск в этом списке появился вместе со значком лупы: он стоит в полосе на
+   * любой странице, и с ним пустой она остаётся только для гостя — тому не
+   * показывают ни разделов, ни поиска.
    */
-  .topbar__inner:not(:has(.module-nav)) {
+  .topbar__inner:not(:has(.module-nav)):not(:has(.top-search)) {
     padding: 0;
   }
 }
