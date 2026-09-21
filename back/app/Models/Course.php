@@ -9,6 +9,7 @@ use App\Enums\CourseVisibility;
 use App\Models\Concerns\LenientlySearchable;
 use App\Models\Contracts\PartOfCourse;
 use App\Support\Lms\CourseAccess;
+use App\Support\Search\Substring;
 use Database\Factories\CourseFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -223,29 +224,14 @@ class Course extends Model implements PartOfCourse
      * Обычным вхождением подстроки: без Meilisearch каталог всё равно должен
      * искаться, пусть и без опечаток и словоформ. См. CatalogSearch.
      *
+     * Ключевые слова — целиком, как хранятся: их пишут ради тех, кто ищет не
+     * теми словами, и запасной поиск обязан их видеть тоже.
+     *
      * @param  Builder<$this>  $query
      */
     public function scopeMatching(Builder $query, ?string $term): void
     {
-        $term = trim((string) $term);
-
-        if ($term === '') {
-            return;
-        }
-
-        // The databases use the C collation, whose lower() folds ASCII only, so
-        // a plain ILIKE never matches Russian text. Collating to ICU fixes it.
-        $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term).'%';
-
-        $query->where(function (Builder $query) use ($pattern): void {
-            foreach (['title', 'summary', 'description'] as $column) {
-                $query->orWhereRaw(sprintf('%s COLLATE "und-x-icu" ILIKE ?', $column), [$pattern]);
-            }
-
-            // Ключевые слова — целиком, как хранятся: их пишут ради тех, кто
-            // ищет не теми словами, и запасной поиск обязан их видеть тоже.
-            $query->orWhereRaw('keywords::text COLLATE "und-x-icu" ILIKE ?', [$pattern]);
-        });
+        Substring::apply($query, $term, ['title', 'summary', 'description', 'keywords::text']);
     }
 
     /**

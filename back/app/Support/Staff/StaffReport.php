@@ -8,6 +8,7 @@ use App\Enums\DismissalReason;
 use App\Enums\TenureTag;
 use App\Models\Quiz;
 use App\Models\User;
+use App\Support\Search\Substring;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -308,8 +309,9 @@ final readonly class StaffReport
             ->when($filters->departmentIds !== null, fn (Builder $query) => $query
                 ->whereHas('departments', fn (Builder $departments) => $departments
                     ->whereIn('departments.id', $filters->departmentIds === [] ? [0] : $filters->departmentIds)))
-            ->when($filters->jobTitle !== null, fn (Builder $query) => $query
-                ->whereRaw('job_title collate "und-x-icu" ilike ?', ['%'.$filters->jobTitle.'%']))
+            ->when($filters->jobTitle !== null, fn (Builder $query) => Substring::apply(
+                $query, $filters->jobTitle, ['job_title'],
+            ))
             ->when($filters->workMode !== null, fn (Builder $query) => $query
                 ->where('work_mode', $filters->workMode->value))
             // Все теги разом, а не любой из них: отбирая «кадровый резерв» и

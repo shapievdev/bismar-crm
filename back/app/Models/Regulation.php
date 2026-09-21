@@ -10,6 +10,7 @@ use App\Enums\MaterialKind;
 use App\Models\Concerns\LenientlySearchable;
 use App\Observers\RegulationObserver;
 use App\Support\Lms\RegulationAccess;
+use App\Support\Search\Substring;
 use Database\Factories\RegulationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -366,28 +367,14 @@ class Regulation extends Model
     /**
      * Поиск по названию и краткому описанию.
      *
-     * Сверяется с ICU: базы собраны с C-сортировкой, где lower() и ILIKE
-     * складывают только латиницу, — иначе «касса» не нашла бы «Кассовую».
+     * Ключевые слова — целиком, как хранятся: их пишут ради тех, кто ищет не
+     * теми словами, и запасной поиск видит их тоже.
      *
      * @param  Builder<Regulation>  $query
      */
     public function scopeMatching(Builder $query, ?string $term): void
     {
-        $term = trim((string) $term);
-
-        if ($term === '') {
-            return;
-        }
-
-        $pattern = '%'.$term.'%';
-
-        $query->where(function (Builder $query) use ($pattern): void {
-            $query->whereRaw('title COLLATE "und-x-icu" ILIKE ?', [$pattern])
-                ->orWhereRaw('summary COLLATE "und-x-icu" ILIKE ?', [$pattern])
-                // Ключевые слова — целиком, как хранятся: их пишут ради тех,
-                // кто ищет не теми словами, и запасной поиск видит их тоже.
-                ->orWhereRaw('keywords::text COLLATE "und-x-icu" ILIKE ?', [$pattern]);
-        });
+        Substring::apply($query, $term, ['title', 'summary', 'keywords::text']);
     }
 
     /**

@@ -12,6 +12,7 @@ use App\Http\Resources\Ai\QuestionResource;
 use App\Models\ConsultantQuestion;
 use App\Models\Lesson;
 use App\Models\User;
+use App\Support\Search\Substring;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -59,12 +60,7 @@ final class QuestionLogController extends Controller
             )
             ->when(
                 $request->string('search')->isNotEmpty(),
-                // Коллация ICU: под C-коллацией базы ILIKE не сворачивает
-                // кириллицу, и поиск по «Краска» не найдёт «краска».
-                fn ($query) => $query->whereRaw(
-                    'question COLLATE "und-x-icu" ILIKE ?',
-                    ['%'.$request->string('search')->value().'%'],
-                ),
+                fn ($query) => Substring::apply($query, $request->string('search')->value(), ['question']),
             )
             ->latest('created_at')
             ->paginate(self::PER_PAGE)

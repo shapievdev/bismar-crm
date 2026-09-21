@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Lms;
 
+use App\Support\Search\KeyboardLayout;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -78,6 +79,15 @@ final class CatalogSearch
     /**
      * Номера найденного — или null, если спросить было не у кого.
      *
+     * По набранному — и, если по набранному не нашлось ничего, вторым чтением
+     * раскладки: поисковик прощает опечатку, но «ljrevtyn» опечаткой не считает
+     * — для него это слово, которого в индексе нет (см. KeyboardLayout).
+     *
+     * Вторым чтением спрашивается не всегда, а только по пустой выдаче, и это не
+     * экономия ради экономии: каждое чтение — отдельное обращение к службе, а
+     * запрос, по которому что-то нашлось, забытой раскладкой не набирают. Заодно
+     * порядок выдачи остаётся ровно тем, что вернул поисковик.
+     *
      * @return list<int>|null
      */
     private function found(Model $model, string $term): ?array
@@ -97,10 +107,16 @@ final class CatalogSearch
         }
 
         try {
-            /** @var Collection<int, mixed> $keys */
-            $keys = $model::search($term)->take(self::CANDIDATES)->keys();
+            foreach (KeyboardLayout::readings($term) as $reading) {
+                /** @var Collection<int, mixed> $keys */
+                $keys = $model::search($reading)->take(self::CANDIDATES)->keys();
 
-            return $keys->map(intval(...))->all();
+                if ($keys->isNotEmpty()) {
+                    return $keys->map(intval(...))->all();
+                }
+            }
+
+            return [];
         } catch (Throwable $failure) {
             // Тихо для человека, громко в журнале: он спрашивал про курсы, а не
             // про поисковый сервер, и ответ по названию лучше пустого экрана.

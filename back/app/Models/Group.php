@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Support\Search\Substring;
 use Database\Factories\GroupFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,26 +61,11 @@ class Group extends Model
     /**
      * Группы под строку поиска — по названию и по описанию.
      *
-     * Сверяется с ICU: базы собраны с C-сортировкой, где ILIKE складывает
-     * только латиницу, так что «наставники» иначе не нашли бы «Наставников».
-     *
      * @param  Builder<$this>  $query
      */
     public function scopeMatching(Builder $query, ?string $term): void
     {
-        $term = trim((string) $term);
-
-        if ($term === '') {
-            return;
-        }
-
-        $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term).'%';
-
-        $query->where(function (Builder $query) use ($pattern): void {
-            foreach (['name', 'description'] as $column) {
-                $query->orWhereRaw(sprintf('%s COLLATE "und-x-icu" ILIKE ?', $column), [$pattern]);
-            }
-        });
+        Substring::apply($query, $term, ['name', 'description']);
     }
 
     /**

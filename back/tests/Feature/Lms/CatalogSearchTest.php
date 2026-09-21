@@ -8,6 +8,7 @@ use App\Enums\CourseVisibility;
 use App\Models\Course;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Laravel\Scout\Builder as ScoutBuilder;
 use Laravel\Scout\EngineManager;
 use Laravel\Scout\Engines\Engine;
 use Mockery;
@@ -41,6 +42,23 @@ final class CatalogSearchTest extends TestCase
         } else {
             $engine->shouldReceive('keys')->andReturn(new Collection($answer));
         }
+
+        resolve(EngineManager::class)->extend('fake', fn (): Engine => $engine);
+        config(['scout.driver' => 'fake']);
+    }
+
+    /**
+     * Подставной движок, отвечающий по-разному на разные запросы.
+     *
+     * @param  callable(string): list<int>  $answer
+     */
+    private function pretendTheEngineAnswersEach(callable $answer): void
+    {
+        $engine = Mockery::mock(Engine::class);
+
+        $engine->shouldReceive('keys')->andReturnUsing(
+            static fn (ScoutBuilder $builder): Collection => new Collection($answer($builder->query)),
+        );
 
         resolve(EngineManager::class)->extend('fake', fn (): Engine => $engine);
         config(['scout.driver' => 'fake']);
@@ -96,6 +114,77 @@ final class CatalogSearchTest extends TestCase
             ->getJson(route('lms.courses.index', ['search' => 'касса']))
             ->assertOk()
             ->assertJsonCount(0, 'data');
+    }
+
+    /**
+     * Забытая раскладка: поисковик прощает опечатку, но «ljrevtyn» опечаткой не
+     * считает — для него это слово, которого в индексе нет. Поэтому спрашивают
+     * дважды, вторым чтением тоже.
+     */
+    public function test_the_engine_is_asked_about_the_other_layout_too(): void
+    {
+        $course = Course::factory()->published()->create(['title' => 'Документооборот']);
+
+        $asked = [];
+
+        $this->pretendTheEngineAnswersEach(function (string $query) use (&$asked, $course): array {
+            $asked[] = $query;
+
+            return $query === 'документ' ? [$course->getKey()] : [];
+        });
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.courses.index', ['search' => 'ljrevtyn']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Документооборот');
+
+        // Набранное — первым: правильный запрос не должен ждать, пока переберут
+        // догадки.
+        $this->assertSame(['ljrevtyn', 'документ'], $asked);
+    }
+
+    /**
+     * Нашлось по набранному — второе чтение не спрашивается вовсе: каждое
+     * обращение к поисковику стоит запроса, а по слову, которое что-то нашло,
+     * раскладку не забывали.
+     */
+    public function test_the_engine_is_not_asked_twice_when_the_typing_was_right(): void
+    {
+        $course = Course::factory()->published()->create(['title' => 'Документооборот']);
+
+        $asked = [];
+
+        $this->pretendTheEngineAnswersEach(function (string $query) use (&$asked, $course): array {
+            $asked[] = $query;
+
+            return [$course->getKey()];
+        });
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.courses.index', ['search' => 'документ']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $this->assertSame(['документ'], $asked);
+    }
+
+    /**
+     * Читается второй раскладкой и запрос к поисковику, и запасной путь: молчащий
+     * Meilisearch не должен отнимать у сотрудника поблажку, которая была.
+     */
+    public function test_a_silent_engine_still_reads_the_other_layout(): void
+    {
+        Course::factory()->published()->create(['title' => 'Документооборот']);
+        Course::factory()->published()->create(['title' => 'Онбординг']);
+
+        $this->pretendTheEngineAnswers(new RuntimeException('Meilisearch недоступен'));
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.courses.index', ['search' => 'ljrevtyn']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Документооборот');
     }
 
     /**

@@ -12,6 +12,7 @@ use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Lms\CourseAccess;
 use App\Support\Lms\RegulationAccess;
+use App\Support\Search\Substring;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
@@ -188,11 +189,10 @@ final class LinkedMaterial
      */
     private static function queryFor(string $kind, string $term, User $actor, int $limit): iterable
     {
-        $pattern = '%'.$term.'%';
-
-        // ICU обязателен: базы собраны с C-сортировкой, где ILIKE складывает
-        // только латиницу, и «касса» не нашла бы «Кассовую».
-        $byTitle = fn (Builder $query) => $query->whereRaw('title COLLATE "und-x-icu" ILIKE ?', [$pattern]);
+        // Только по названию: составитель ищет то, что видел в каталоге, и
+        // предъявлять ему урок, где набранное слово мелькнуло в описании, значит
+        // предлагать ссылку не на то, о чём он спросил.
+        $byTitle = fn (Builder $query) => Substring::apply($query, $term, ['title']);
 
         return match ($kind) {
             'course' => Course::query()->visibleTo($actor)->where($byTitle)

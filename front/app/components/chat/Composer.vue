@@ -332,7 +332,7 @@ const mentionOptions = computed(() => {
 
   return props.people
     .filter(person => person.id !== props.me)
-    .filter(person => needle === '' || person.name.toLowerCase().includes(needle.toLowerCase()))
+    .filter(person => needle === '' || matchesTyped(person.name, needle))
     .slice(0, 6)
 })
 

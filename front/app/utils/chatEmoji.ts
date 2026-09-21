@@ -203,11 +203,13 @@ export const RECENT_EMOJI_LIMIT = 24
 export const ALL_EMOJI: EmojiItem[] = EMOJI_GROUPS.flatMap(group => group.items)
 
 export function searchEmoji(query: string): EmojiItem[] {
-  const needle = query.trim().toLowerCase()
+  const needle = query.trim()
 
   if (needle === '') {
     return []
   }
 
-  return ALL_EMOJI.filter(item => item.keywords.includes(needle))
+  // Слова здесь русские, а раскладку в переписке забывают чаще, чем где-либо:
+  // «eks,rf» ищет улыбку, а не ничего.
+  return ALL_EMOJI.filter(item => matchesTyped(item.keywords, needle))
 }

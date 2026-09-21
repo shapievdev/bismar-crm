@@ -19,7 +19,9 @@ final readonly class Answer
      * @param  list<CourseExpert>  $experts  к кому идти, если ответа не нашлось
      * @param  list<int>  $privateCourseIds  приватные курсы, из которых собран ответ
      * @param  list<int>  $privateDocumentIds  приватные документы, из которых собран ответ
-     * @param  string|null  $searchedAs  чем искали, если вопрос дополнили разговором
+     * @param  string|null  $searchedAs  чем искали, если искали не тем, что набрано:
+     *                                   вопрос дополнили разговором или прочли в
+     *                                   другой раскладке
      */
     public function __construct(
         public string $text,

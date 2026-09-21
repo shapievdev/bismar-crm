@@ -56,17 +56,18 @@ const isSearchShown = computed(() => props.searchable ?? props.options.length > 
  * Что видно в списке: всё или подходящее под набранное.
  *
  * Ищем и по подписи, и по пояснению: у отдела в пояснении стоит число людей, а
- * у материала — раздел, и набранное человек ждёт найденным в обоих.
+ * у материала — раздел, и набранное человек ждёт найденным в обоих. Раскладку
+ * прощаем — набранное латиницей по русским клавишам находит то же самое.
  */
 const visible = computed(() => {
-  const term = query.value.trim().toLowerCase()
+  const term = query.value.trim()
 
   if (term === '') {
     return props.options
   }
 
   return props.options.filter(option =>
-    `${option.label} ${option.hint ?? ''}`.toLowerCase().includes(term))
+    matchesTyped(`${option.label} ${option.hint ?? ''}`, term))
 })
 
 const selected = computed(() => props.options.find(option => option.value === model.value) ?? null)

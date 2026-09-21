@@ -8,6 +8,7 @@ use App\Enums\DismissalReason;
 use App\Enums\EmploymentStatus;
 use App\Enums\WorkMode;
 use App\Support\Authorization;
+use App\Support\Search\Substring;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -302,26 +303,11 @@ class User extends Authenticatable
     /**
      * Люди, подходящие под строку поиска, — по имени или почте.
      *
-     * Сверяется с ICU: базы собраны с C-сортировкой, где lower() и ILIKE
-     * складывают только латиницу, так что «иванов» иначе не нашёл бы Иванова.
-     *
      * @param  Builder<$this>  $query
      */
     public function scopeMatching(Builder $query, ?string $term): void
     {
-        $term = trim((string) $term);
-
-        if ($term === '') {
-            return;
-        }
-
-        $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term).'%';
-
-        $query->where(function (Builder $query) use ($pattern): void {
-            foreach (['last_name', 'first_name', 'middle_name', 'email'] as $column) {
-                $query->orWhereRaw(sprintf('%s COLLATE "und-x-icu" ILIKE ?', $column), [$pattern]);
-            }
-        });
+        Substring::apply($query, $term, ['last_name', 'first_name', 'middle_name', 'email']);
     }
 
     /**

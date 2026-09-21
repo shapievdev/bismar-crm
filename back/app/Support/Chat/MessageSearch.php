@@ -9,6 +9,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Support\Ai\RussianText;
+use App\Support\Search\KeyboardLayout;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -131,17 +132,51 @@ final readonly class MessageSearch
     /**
      * Запрос человека, переведённый на язык полнотекстового поиска.
      *
-     * Из слов вычищается всё, кроме букв и цифр, и это единственное, что стоит
-     * между пользовательским вводом и синтаксисом tsquery: операторы `&`, `:` и
-     * `*` в итоговой строке могут появиться только отсюда, из кода. Без этого
-     * «а & б» уронил бы запрос, а подобранная строка — сделала бы больше.
+     * Читается двумя раскладками и ищется по обоим чтениям через «или»: набрано
+     * «,kfyr» — значит, искали «бланк», и молчать в ответ поиск не должен (см.
+     * KeyboardLayout). Слова внутри одного чтения по-прежнему складываются через
+     * «и»: уточнение остаётся уточнением.
      *
-     * Последнее слово ищется по началу: человек ещё печатает «бланк», и находки
-     * должны появляться, не дожидаясь, пока он допишет «бланков».
+     * Раскладка читается до того, как из слов вычистят знаки: «б» живёт на
+     * запятой, и вычищенное «,kfyr» стало бы «kfyr» — «ланк» вместо «бланка».
      */
     private function tsquery(string $query): ?string
     {
-        $words = preg_split('/\s+/u', trim($query), flags: PREG_SPLIT_NO_EMPTY) ?: [];
+        $readings = [];
+
+        foreach (KeyboardLayout::readings($query) as $reading) {
+            $terms = $this->terms($reading);
+
+            if ($terms !== []) {
+                $readings[] = implode(' & ', $terms);
+            }
+        }
+
+        if ($readings === []) {
+            return null;
+        }
+
+        // Одно чтение — без скобок: они ничего не меняют, а запрос в журнале
+        // читается глазами.
+        return count($readings) === 1 ? $readings[0] : '('.implode(') | (', $readings).')';
+    }
+
+    /**
+     * Слова одного чтения, готовые к tsquery.
+     *
+     * Из слов вычищается всё, кроме букв и цифр, и это единственное, что стоит
+     * между пользовательским вводом и синтаксисом tsquery: операторы `&`, `|`,
+     * `:` и `*` в итоговой строке могут появиться только из кода. Без этого «а &
+     * б» уронил бы запрос, а подобранная строка — сделала бы больше.
+     *
+     * Последнее слово ищется по началу: человек ещё печатает «бланк», и находки
+     * должны появляться, не дожидаясь, пока он допишет «бланков».
+     *
+     * @return list<string>
+     */
+    private function terms(string $reading): array
+    {
+        $words = preg_split('/\s+/u', trim($reading), flags: PREG_SPLIT_NO_EMPTY) ?: [];
 
         $terms = [];
 
@@ -156,12 +191,12 @@ final readonly class MessageSearch
         $terms = array_slice($terms, 0, self::MAX_TERMS);
 
         if ($terms === [] || mb_strlen(implode('', $terms)) < self::MIN_LENGTH) {
-            return null;
+            return [];
         }
 
         $last = array_key_last($terms);
         $terms[$last] .= ':*';
 
-        return implode(' & ', $terms);
+        return $terms;
     }
 }

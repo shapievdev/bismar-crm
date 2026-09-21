@@ -72,12 +72,23 @@ final readonly class AnswerFromKnowledgeBase
         $access = CourseAccess::of($reader);
         $relatedLimit = (int) config('ai.related_per_reply');
 
+        // Забытая раскладка — первым делом, до всего остального: «ljrevtyn»
+        // бессмыслен и для поиска, и для модели, а весь дальнейший разбор
+        // строится на словах вопроса. В журнал и сотруднику по-прежнему идёт
+        // набранное им самим, исправленное — строкой «искали вот так».
+        $retyped = $this->knowledge->retyped($question, $access);
+        $question = $retyped ?? $question;
+
         // Разговор нужен раньше поиска, а не только при сборке ответа: «а
         // сколько это сохнет?» ищется впустую, пока в нём не окажется слов о
         // предмете. Дополняется то, по чему ищут, — сотруднику и в журнал идут
         // его собственные слова.
         $conversation = Conversation::of($reader, (int) config('ai.conversation_turns'));
         $restated = $this->restate->handle($question, $conversation);
+
+        // Чем искали, если искали не тем, что набрано: дополненным разговором
+        // вопросом или прочитанным в другой раскладке.
+        $searchedAs = $restated ?? $retyped;
 
         // Вектор вопроса считается здесь и уходит в оба поиска. Прежде за ним
         // ходили и таблицы, и пересортировка фрагментов, каждый сам за себя, —
@@ -108,7 +119,7 @@ final readonly class AnswerFromKnowledgeBase
                 related: $curated->related,
                 privateCourseIds: $this->privateCoursesAmong($curated->all()),
                 privateDocumentIds: $this->privateDocumentsAmong($curated->all()),
-                searchedAs: $restated,
+                searchedAs: $searchedAs,
             );
         }
 
@@ -143,7 +154,7 @@ final readonly class AnswerFromKnowledgeBase
         }
 
         if ($found->isEmpty()) {
-            return new Answer(self::NOTHING_FOUND, [], searchedAs: $restated);
+            return new Answer(self::NOTHING_FOUND, [], searchedAs: $searchedAs);
         }
 
         // Отвечать нечем, но есть что показать: модель зовут, чтобы она честно
@@ -155,7 +166,7 @@ final readonly class AnswerFromKnowledgeBase
             default => AnswerPath::Passages,
         };
 
-        return $this->compose($question, $found, $path, $access, $conversation, $restated);
+        return $this->compose($question, $found, $path, $access, $conversation, $searchedAs);
     }
 
     /**
@@ -176,7 +187,7 @@ final readonly class AnswerFromKnowledgeBase
         AnswerPath $path,
         CourseAccess $access,
         Conversation $conversation,
-        ?string $restated,
+        ?string $searchedAs,
     ): Answer {
         $sources = $found->forPrompt();
 
@@ -219,11 +230,11 @@ final readonly class AnswerFromKnowledgeBase
                 experts: $this->expertsFor($found),
                 privateCourseIds: $private,
                 privateDocumentIds: $privateDocuments,
-                searchedAs: $restated,
+                searchedAs: $searchedAs,
             );
         }
 
-        return $this->withCitations($text, $found, $path, $private, $privateDocuments, $restated);
+        return $this->withCitations($text, $found, $path, $private, $privateDocuments, $searchedAs);
     }
 
     /**
@@ -451,7 +462,7 @@ final readonly class AnswerFromKnowledgeBase
         AnswerPath $path,
         array $privateCourseIds,
         array $privateDocumentIds,
-        ?string $restated,
+        ?string $searchedAs,
     ): Answer {
         $sources = $found->forPrompt();
         $cited = [];
@@ -532,7 +543,7 @@ final readonly class AnswerFromKnowledgeBase
             experts: $experts,
             privateCourseIds: $privateCourseIds,
             privateDocumentIds: $privateDocumentIds,
-            searchedAs: $restated,
+            searchedAs: $searchedAs,
         );
     }
 

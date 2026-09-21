@@ -380,6 +380,67 @@ final class ConsultantTest extends TestCase
             ->assertJsonValidationErrors('question');
     }
 
+    /* ---------- Забытая раскладка ---------- */
+
+    /**
+     * Вопрос, набранный латиницей по русским клавишам.
+     *
+     * Читается он до всего остального и один раз: прочитанное уходит и в поиск, и
+     * модели, — латинская бессмыслица в подсказке означала бы уверенный ответ не
+     * о том. Сотруднику и в журнал остаётся набранное им самим, а рядом — строка
+     * «искали вот так»: разбирающий журнал должен понимать, откуда источники.
+     */
+    public function test_a_question_typed_in_the_forgotten_layout_is_read_as_typed(): void
+    {
+        $this->publishedLesson(
+            'Работа с возражениями',
+            'Когда клиент говорит «дорого», выслушайте и уточните, с чем он сравнивает.',
+        );
+
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying('Выслушайте [источник 1].'));
+
+        $this->actingAs($this->learner())
+            // «rkbtyn ujdjhbn ljhjuj» — это «клиент говорит дорого».
+            ->postJson(route('lms.ask'), ['question' => 'rkbtyn ujdjhbn ljhjuj'])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.sources');
+
+        $sent = json_encode($transport->payload()['messages'], JSON_UNESCAPED_UNICODE);
+
+        $this->assertStringContainsString('клиент говорит дорого', (string) $sent);
+        $this->assertStringNotContainsString('rkbtyn', (string) $sent);
+
+        $logged = ConsultantQuestion::query()->latest('id')->firstOrFail();
+
+        $this->assertSame('rkbtyn ujdjhbn ljhjuj', $logged->question);
+        $this->assertSame('клиент говорит дорого', $logged->searched_as);
+    }
+
+    /**
+     * Латинское слово, которое латинским и было, не перечитывается.
+     *
+     * Решает это не догадка, а сам материал: «pdf» читалось бы как «зва», а
+     * такого слова в базе нет — значит, набрано то, что имелось в виду.
+     */
+    public function test_a_latin_word_the_base_knows_is_left_as_it_is(): void
+    {
+        $this->publishedLesson('Счёт покупателю', 'Счёт выгружается в pdf и отправляется на почту.');
+
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying('Выгрузите [источник 1].'));
+
+        $this->actingAs($this->learner())
+            ->postJson(route('lms.ask'), ['question' => 'pdf'])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.sources');
+
+        $this->assertStringContainsString(
+            'pdf',
+            (string) json_encode($transport->payload()['messages'], JSON_UNESCAPED_UNICODE),
+        );
+
+        $this->assertNull(ConsultantQuestion::query()->latest('id')->firstOrFail()->searched_as);
+    }
+
     /* ---------- helpers ---------- */
 
     /**

@@ -22,11 +22,11 @@ const emit = defineEmits<{ pick: [conversationId: number], close: [] }>()
 const query = ref('')
 
 const options = computed(() => {
-  const needle = query.value.trim().toLowerCase()
+  const needle = query.value.trim()
 
   return props.conversations
     .filter(one => one.id !== props.fromId)
-    .filter(one => needle === '' || one.title.toLowerCase().includes(needle))
+    .filter(one => needle === '' || matchesTyped(one.title, needle))
 })
 </script>
 

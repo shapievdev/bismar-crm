@@ -12,6 +12,7 @@ use App\Enums\Permission;
 use App\Support\Lms\CourseAccess;
 use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\RegulationAccess;
+use App\Support\Search\KeyboardLayout;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -336,6 +337,37 @@ final readonly class KnowledgeBase
             array_slice($ranked, 0, $limit),
             array_slice($ranked, $limit, $relatedLimit),
         );
+    }
+
+    /**
+     * Вопрос, перенабранный в той раскладке, в которой его и набирали.
+     *
+     * «rfr jajhvbnm djpdhfn» — это «как оформить возврат», набранное с забытой
+     * раскладкой. Списки в таком случае ищут по двум чтениям разом (см.
+     * Substring), а консультанту приходится выбрать одно: по вопросу считается
+     * вектор, и тот же вопрос уходит модели, — а модель, получив латинскую
+     * бессмыслицу, отвечает бессмыслицей уверенно.
+     *
+     * Выбирает за него материал, а не догадка: кириллическое чтение принимается
+     * тогда, когда хоть одно его слово в открытом спрашивающему материале
+     * действительно встречается. «pdf» так и останется «pdf» — «зва» в базе не
+     * найдётся, — а «ljrevtyn» станет «документом».
+     *
+     * Спрашивается только у вопросов без единой кириллической буквы, то есть
+     * почти никогда: обычный вопрос до запроса не доходит. Null — «читать как
+     * набрано».
+     */
+    public function retyped(string $question, CourseAccess $access): ?string
+    {
+        $reading = KeyboardLayout::cyrillicReading(trim($question));
+
+        if ($reading === null) {
+            return null;
+        }
+
+        $words = $this->subjectWords($reading, $access, RegulationAccess::of($access->reader()));
+
+        return $words === [] ? null : $reading;
     }
 
     /**

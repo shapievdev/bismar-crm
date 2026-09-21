@@ -39,11 +39,11 @@ const isSearching = computed(() => query.value.trim().length > 0)
 
 /** Разговоры отбираются на месте — мгновенно, без обращения к серверу. */
 const matchedChats = computed(() => {
-  const needle = query.value.trim().toLowerCase()
+  const needle = query.value.trim()
 
   return needle === ''
     ? props.conversations
-    : props.conversations.filter(one => one.title.toLowerCase().includes(needle))
+    : props.conversations.filter(one => matchesTyped(one.title, needle))
 })
 
 const pinnedChats = computed(() => matchedChats.value.filter(one => one.is_pinned))
