@@ -130,9 +130,10 @@ final class RegulationQuizController extends Controller
                 'passed' => $attempt->passed,
                 'completed_at' => $attempt->completed_at?->toIso8601String(),
 
-                // Сдал — значит ознакомился; экран показывает это сразу, без
-                // второго запроса за документом.
-                'is_acknowledged' => $attempt->passed,
+                // Ознакомлен ли на самом деле — спрашивается у отметок, а не у
+                // сданного теста: при документе может стоять ещё и обязательный
+                // опрос, и тогда сдача — не весь долг (см. CreditMaterial).
+                'is_acknowledged' => $this->isAcknowledged($regulation, $reader),
 
                 // Разбор прикладывается сразу: человек хочет знать, где ошибся,
                 // ровно в ту секунду, когда увидел результат.
@@ -245,7 +246,7 @@ final class RegulationQuizController extends Controller
                 'score' => $attempt->score,
                 'passed' => $attempt->passed,
                 'completed_at' => $attempt->completed_at?->toIso8601String(),
-                'is_acknowledged' => $attempt->passed,
+                'is_acknowledged' => $this->isAcknowledged($regulation, $reader),
                 'review' => $this->review->of($attempt, $reader),
             ],
         ], HttpResponse::HTTP_CREATED);
@@ -254,6 +255,18 @@ final class RegulationQuizController extends Controller
     /**
      * Версия чужого документа — тот же случай, что и её отсутствие.
      */
+    /**
+     * Стоит ли на документе отметка этого человека.
+     *
+     * Спрашивается у базы, а не выводится из попытки: с появлением опросника
+     * сдача теста перестала быть единственным условием, и «сдал» больше не
+     * значит «ознакомлен».
+     */
+    private function isAcknowledged(Regulation $regulation, User $reader): bool
+    {
+        return $regulation->acknowledgements()->where('user_id', $reader->getKey())->exists();
+    }
+
     private function ensureBelongs(Regulation $regulation, RegulationVersion $version): void
     {
         abort_if($version->regulation_id !== $regulation->getKey(), HttpResponse::HTTP_NOT_FOUND);

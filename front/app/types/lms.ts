@@ -1,3 +1,4 @@
+import type { Survey } from '~/types/survey'
 import type { JSONContent } from '@tiptap/core'
 import type { Group } from '~/types/structure'
 
@@ -66,6 +67,11 @@ export interface LessonSummary {
   materials?: LessonMaterial[]
   answers?: LessonAnswer[]
   quiz?: Quiz | null
+  /**
+   * Опрос при уроке: мнение о нём, а не проверка. Обязательный держит зачёт
+   * урока так же, как тест.
+   */
+  survey?: Survey | null
   is_completed?: boolean
   /**
    * Урок, из-за которого этот пока нельзя закрыть: курс проходят по порядку.
@@ -404,6 +410,13 @@ export interface Regulation {
    * не нажатием кнопки, и кнопки экран не рисует.
    */
   quiz?: Quiz | null
+
+  /**
+   * Опрос при материале: мнение о нём, а не проверка знаний. Обязательный держит
+   * отметку об ознакомлении так же, как проверка.
+   */
+  survey?: Survey | null
+
   /** Свои прошлые попытки — история и вход в разбор. */
   own_attempts?: QuizAttempt[]
 
@@ -457,6 +470,8 @@ export interface MaterialVersion extends MaterialVersionSummary {
   content_json?: JSONContent | null
   attachments?: LessonAttachment[]
   quiz?: Quiz | null
+  /** Опрос при версии — свой, как и проверка. */
+  survey?: Survey | null
   own_attempts?: QuizAttempt[]
 }
 

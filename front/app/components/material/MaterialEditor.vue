@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type {
   CoursePerson,
   CourseStatus,
@@ -9,6 +10,7 @@ import type {
   QuizPayload,
   RegulationLink,
 } from '~/types/lms'
+import type { SurveyPayload } from '~/types/survey'
 import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 import type { UploadOptions } from '~/utils/upload'
 
@@ -206,6 +208,68 @@ async function persistQuiz(payload: QuizPayload) {
   }
   finally {
     isSavingQuiz.value = false
+  }
+}
+
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос стоит рядом с проверкой и спрашивает о другом: не что человек понял, а
+ * что он думает. Обязательный держит отметку об ознакомлении так же, как
+ * проверка; необязательный не держит ничего.
+ *
+ * Проходят его один раз — поэтому здесь же, в редакторе, лежит и сводка ответов:
+ * переспросить людей нельзя, и читать сказанное приходится тому, кто материал
+ * ведёт.
+ */
+const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+
+const surveyOwner = computed<SurveyOwner>(() => ({
+  kind: 'material',
+  section: copy.section,
+  slug: slug.value,
+}))
+
+const surveyErrors = ref<ValidationErrors>({})
+const isSavingSurvey = ref(false)
+const showSurveyBuilder = ref(false)
+
+watch(() => regulation.value?.id, () => showSurveyBuilder.value = Boolean(regulation.value?.survey), { immediate: true })
+
+async function persistSurvey(payload: SurveyPayload) {
+  isSavingSurvey.value = true
+  surveyErrors.value = {}
+
+  try {
+    await saveSurvey(surveyOwner.value, payload)
+    await refresh()
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      surveyErrors.value = caught.errors
+    }
+    else {
+      generalError.value = 'Не удалось сохранить опрос.'
+    }
+  }
+  finally {
+    isSavingSurvey.value = false
+  }
+}
+
+async function dropSurvey() {
+  isSavingSurvey.value = true
+
+  try {
+    await deleteSurvey(surveyOwner.value)
+    showSurveyBuilder.value = false
+    await refresh()
+  }
+  catch {
+    generalError.value = 'Не удалось удалить опрос.'
+  }
+  finally {
+    isSavingSurvey.value = false
   }
 }
 
@@ -669,6 +733,23 @@ function moveQuestion(document: RegulationLink, delta: number) {
           Добавить проверку
         </button>
       </section>
+
+      <!-- Опрос — о том же материале, но о другом: что человек думает. -->
+      <section v-if="!showSurveyBuilder" class="card editor-panel add-quiz">
+        <div>
+          <h2 class="editor-panel__title">
+            Опрос
+          </h2>
+          <p class="faint">
+            Мнение о материале: правильных ответов нет, проходят один раз.
+            Обязательный опрос держит ознакомление так же, как проверка.
+          </p>
+        </div>
+
+        <button type="button" class="button-secondary" @click="showSurveyBuilder = true">
+          Добавить опрос
+        </button>
+      </section>
     </div>
 
     <QuizBuilder
@@ -680,6 +761,30 @@ function moveQuestion(document: RegulationLink, delta: number) {
       @save="persistQuiz"
       @remove="dropQuiz"
     />
+
+    <SurveyBuilder
+      v-if="showSurveyBuilder"
+      :survey="regulation.survey ?? null"
+      :errors="surveyErrors"
+      :is-submitting="isSavingSurvey"
+      :material-label="copy.materialLabel.toLowerCase()"
+      credit-label="не отметится ознакомленным"
+      @save="persistSurvey"
+      @remove="dropSurvey"
+    />
+
+    <!-- Сводка опроса — здесь же: ответы читает тот, кто материал ведёт, и
+         переспросить людей второй раз нельзя. -->
+    <section v-if="regulation.survey" class="card editor-panel survey-summary">
+      <h2 class="editor-panel__title">
+        Что ответили
+      </h2>
+
+      <SurveySummaryPanel
+        :key="regulation.survey.id"
+        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
+      />
+    </section>
 
     <!-- Разбор проверки живёт не здесь, а на странице материала, рядом с
          остальной статистикой прохождения (решение пользователя 2026-09-12):

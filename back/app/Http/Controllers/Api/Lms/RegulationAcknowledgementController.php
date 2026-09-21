@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Lms\CoursePersonResource;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\MaterialDues;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,6 +31,7 @@ final class RegulationAcknowledgementController extends Controller
         Request $request,
         Regulation $regulation,
         AcknowledgeRegulation $acknowledge,
+        MaterialDues $dues,
     ): JsonResponse {
         Gate::authorize('acknowledge', $regulation);
 
@@ -43,6 +45,12 @@ final class RegulationAcknowledgementController extends Controller
 
         /** @var User $reader */
         $reader = $request->user();
+
+        // Обязательный опрос держит отметку так же, как проверка (решение
+        // пользователя 2026-09-21): сначала высказались, потом «ознакомлен».
+        if ($dues->surveyPending($regulation, $reader)) {
+            throw new ConflictException($dues->pendingMessage($regulation));
+        }
 
         $acknowledgement = $acknowledge->handle($regulation, $reader);
 

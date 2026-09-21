@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\Lms\RegulationPeopleController;
 use App\Http\Controllers\Api\Lms\RegulationQuestionController;
 use App\Http\Controllers\Api\Lms\RegulationQuizController;
 use App\Http\Controllers\Api\Lms\RegulationVersionController;
+use App\Http\Controllers\Api\Lms\SurveyController;
 use App\Http\Controllers\Api\Lms\TrashController;
 use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
@@ -204,6 +205,11 @@ Route::middleware([
                 Route::post('{regulation}/quiz/submit', [RegulationQuizController::class, 'submit'])
                     ->name('quiz.submit');
 
+                // Опрос при материале — рядом с проверкой, но о другом: что
+                // человек думает, а не что он понял. Проходят один раз.
+                Route::post('{regulation}/survey/submit', [SurveyController::class, 'submit'])
+                    ->name('survey.submit');
+
                 // «Ответа не хватило» и «здесь написано неверно» — письмом
                 // тому, кто материал правит. То же, что и у курса.
                 Route::get('{regulation}/appeal/recipients', [AppealController::class, 'materialRecipients'])
@@ -214,6 +220,18 @@ Route::middleware([
             Route::middleware($update)->group(function (): void {
                 Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
                 Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
+
+                Route::put('{regulation}/survey', [SurveyController::class, 'save'])->name('survey.save');
+                Route::delete('{regulation}/survey', [SurveyController::class, 'destroy'])->name('survey.destroy');
+
+                /*
+                 * Сводка ответов — тому, кто ведёт материал, а не только
+                 * администратору: разбор теста говорит о том, чего люди не
+                 * поняли, и потому лежит в статистике прохождения, а опрос
+                 * говорит о самом материале — это работа автора.
+                 */
+                Route::get('{regulation}/survey/summary', [SurveyController::class, 'summary'])
+                    ->name('survey.summary');
             });
 
             /*
@@ -258,11 +276,23 @@ Route::middleware([
                     ->middleware($view)
                     ->name('quiz.submit');
 
+                // Опрос при версии — свой, как и проверка: у версии свой текст,
+                // и спросить о нём стоит своё.
+                Route::post('{version}/survey/submit', [SurveyController::class, 'submit'])
+                    ->middleware($view)
+                    ->name('survey.submit');
+
                 Route::middleware($update)->group(function (): void {
                     Route::put('{version}/quiz', [RegulationQuizController::class, 'saveForVersion'])
                         ->name('quiz.save');
                     Route::delete('{version}/quiz', [RegulationQuizController::class, 'destroyForVersion'])
                         ->name('quiz.destroy');
+
+                    Route::put('{version}/survey', [SurveyController::class, 'save'])->name('survey.save');
+                    Route::delete('{version}/survey', [SurveyController::class, 'destroy'])
+                        ->name('survey.destroy');
+                    Route::get('{version}/survey/summary', [SurveyController::class, 'summary'])
+                        ->name('survey.summary');
 
                     // Файлы версии — свой бланк расчёта у каждой.
                     Route::post('{version}/attachments', [RegulationAttachmentController::class, 'storeForVersion'])
@@ -391,6 +421,12 @@ Route::middleware([
     Route::post('lessons/{lesson}/complete', [LearningController::class, 'completeLesson'])->middleware($view)->name('lessons.complete');
     Route::post('lessons/{lesson}/quiz/submit', [LearningController::class, 'submitQuiz'])->middleware($view)->name('quiz.submit');
 
+    // Опрос при уроке — о том же уроке, но о другом: что человек думает, а не
+    // что он понял. Проходят один раз, второй попытки не бывает.
+    Route::post('lessons/{lesson}/survey/submit', [SurveyController::class, 'submit'])
+        ->middleware($view)
+        ->name('survey.submit');
+
     // Разбор своей попытки. Чужая недоступна — проверяется в контроллере, по
     // спрашивавшему, а не по тому, что попросил клиент.
     Route::get('quiz-attempts/{attempt}', [LearningController::class, 'showAttempt'])
@@ -492,6 +528,15 @@ Route::middleware([
 
         Route::put('lessons/{lesson}/quiz', [QuizController::class, 'save'])->name('quiz.save');
         Route::delete('lessons/{lesson}/quiz', [QuizController::class, 'destroy'])->name('quiz.destroy');
+
+        Route::put('lessons/{lesson}/survey', [SurveyController::class, 'save'])->name('survey.save');
+        Route::delete('lessons/{lesson}/survey', [SurveyController::class, 'destroy'])->name('survey.destroy');
+
+        // Сводка ответов — автору урока, а не только администратору: разбор
+        // теста говорит, чего люди не поняли, а опрос — о самом уроке, и это
+        // работа того, кто его ведёт.
+        Route::get('lessons/{lesson}/survey/summary', [SurveyController::class, 'summary'])
+            ->name('survey.summary');
 
         // Таблица «вопрос — ответ — источник». Право то же, что на правку
         // урока: это часть материала, а не отдельная сущность.
@@ -614,6 +659,13 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('news')->as('
     Route::post('{news}/attachments', [NewsAttachmentController::class, 'store'])->name('attachments.store');
     Route::put('{news}/attachments/{attachment}', [NewsAttachmentController::class, 'update'])->name('attachments.update');
     Route::delete('{news}/attachments/{attachment}', [NewsAttachmentController::class, 'destroy'])->name('attachments.destroy');
+
+    // Опрос при новости. Проходит его всякий, кому новость адресована; заводит
+    // и читает сводку — тот, кто ведёт новости (это проверяет политика).
+    Route::post('{news}/survey/submit', [SurveyController::class, 'submit'])->name('survey.submit');
+    Route::put('{news}/survey', [SurveyController::class, 'save'])->name('survey.save');
+    Route::delete('{news}/survey', [SurveyController::class, 'destroy'])->name('survey.destroy');
+    Route::get('{news}/survey/summary', [SurveyController::class, 'summary'])->name('survey.summary');
 
     Route::put('{news}/quiz', [NewsQuizController::class, 'save'])->name('quiz.save');
     Route::delete('{news}/quiz', [NewsQuizController::class, 'destroy'])->name('quiz.destroy');

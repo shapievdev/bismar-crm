@@ -78,7 +78,11 @@ final class NewsQuizController extends Controller
                 'completed_at' => $attempt->completed_at?->toIso8601String(),
                 // Сдал — значит ознакомился; экран показывает это сразу, без
                 // второго запроса за новостью.
-                'is_acknowledged' => $attempt->passed,
+                // Ознакомлен ли на самом деле: при новости может стоять ещё и
+                // обязательный опрос, и тогда сдача — не весь долг.
+                'is_acknowledged' => $news->acknowledgements()
+                    ->where('user_id', $reader->getKey())
+                    ->exists(),
             ],
         ], HttpResponse::HTTP_CREATED);
     }

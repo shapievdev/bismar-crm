@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\News\NewsPersonResource;
 use App\Models\News;
 use App\Models\User;
+use App\Support\Lms\MaterialDues;
 use App\Support\News\Addressees;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -28,8 +29,12 @@ final class NewsAcknowledgementController extends Controller
      *
      * @throws ConflictException
      */
-    public function store(Request $request, News $news, AcknowledgeNews $acknowledge): JsonResponse
-    {
+    public function store(
+        Request $request,
+        News $news,
+        AcknowledgeNews $acknowledge,
+        MaterialDues $dues,
+    ): JsonResponse {
         Gate::authorize('acknowledge', $news);
 
         /** @var User $reader */
@@ -39,6 +44,12 @@ final class NewsAcknowledgementController extends Controller
         // пользователя 2026-08-27). Иначе нажатие обесценивало бы проверку.
         if ($news->quiz()->exists()) {
             throw new ConflictException('К этой новости приложена проверка — ознакомление засчитывается по ней.');
+        }
+
+        // Обязательный опрос держит отметку так же, как проверка (решение
+        // пользователя 2026-09-21).
+        if ($dues->surveyPending($news, $reader)) {
+            throw new ConflictException($dues->pendingMessage($news));
         }
 
         $acknowledgement = $acknowledge->handle($news, $reader);

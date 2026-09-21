@@ -128,6 +128,16 @@ class Regulation extends Model
     }
 
     /**
+     * Опрос при материале — один на документ или справочник, см. Survey.
+     *
+     * @return MorphOne<Survey, $this>
+     */
+    public function survey(): MorphOne
+    {
+        return $this->morphOne(Survey::class, 'surveyable');
+    }
+
+    /**
      * @return BelongsTo<RegulationCategory, $this>
      */
     public function category(): BelongsTo

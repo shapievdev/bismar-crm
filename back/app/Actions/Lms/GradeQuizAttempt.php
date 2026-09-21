@@ -7,12 +7,9 @@ namespace App\Actions\Lms;
 use App\Enums\AttestationStatus;
 use App\Exceptions\ConflictException;
 use App\Models\Enrollment;
-use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
-use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Lms\AnswerSimilarity;
 use App\Support\Lms\QuestionTable;
@@ -21,8 +18,7 @@ use Illuminate\Support\Facades\DB;
 final readonly class GradeQuizAttempt
 {
     public function __construct(
-        private CompleteLesson $completeLesson,
-        private AcknowledgeRegulation $acknowledgeRegulation,
+        private CreditMaterial $credit,
         private AnswerSimilarity $similarity,
     ) {}
 
@@ -133,48 +129,17 @@ final readonly class GradeQuizAttempt
     }
 
     /**
-     * Что означает сдача — решает владелец теста.
+     * Что означает сдача — решает не этот тест, а материал, при котором он стоит.
      *
-     * У урока это прохождение урока, и только если до него дошли по порядку:
-     * непройденные предыдущие попытку не отменяют — она записана, и урок
-     * зачтётся, как только очередь дойдёт до него.
-     *
-     * У документа это ознакомление: сдал — значит прочитал и понял, и другой
-     * отметки у документа с проверкой нет (решение пользователя 2026-09-01).
+     * Прежде здесь и стояло решение: сдал — зачли урок, сдал — ознакомили с
+     * документом. С появлением опросника требований у материала стало два, и
+     * зачёт переехал в одно место на всё приложение: сдавший тест, но не
+     * ответивший на обязательный опрос, иначе остался бы незачтённым навсегда —
+     * второй попытки у теста может и не быть. См. CreditMaterial.
      */
     private function rewardFor(Quiz $quiz, User $learner, ?Enrollment $enrollment): void
     {
-        $owner = $quiz->quizzable;
-
-        if ($owner instanceof Regulation) {
-            $this->acknowledgeRegulation->handle($owner, $learner);
-
-            return;
-        }
-
-        /*
-         * Проверка при версии засчитывает ознакомление с самим документом
-         * (2026-09-12), а версия остаётся пометкой на отметке.
-         *
-         * Отдельного «ознакомлен с версией» нет намеренно: версия у человека
-         * одна, и сдавший свою прочитал документ — требовать от него ещё и
-         * чужие правила было бы странно.
-         */
-        if ($owner instanceof RegulationVersion) {
-            $regulation = $owner->loadMissing('regulation')->regulation;
-
-            if ($regulation !== null) {
-                $this->acknowledgeRegulation->handle($regulation, $learner, $owner);
-            }
-
-            return;
-        }
-
-        if ($owner instanceof Lesson
-            && $enrollment !== null
-            && $this->completeLesson->blockedBy($enrollment, $owner) === null) {
-            $this->completeLesson->handle($enrollment, $owner);
-        }
+        $this->credit->handle($quiz->quizzable, $learner, $enrollment);
     }
 
     /**

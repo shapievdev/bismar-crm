@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { UploadOptions } from '~/utils/upload'
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { QuizPayload } from '~/types/lms'
+import type { SurveyPayload } from '~/types/survey'
 import type { LinkedMaterialResult, NewsAddressee, NewsAudienceKind, NewsPerson } from '~/types/news'
 import type { Department, Group } from '~/types/structure'
 import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
@@ -235,6 +237,49 @@ async function storeQuiz(payload: QuizPayload) {
 async function dropQuiz() {
   await deleteQuiz(slug.value)
   showQuizBuilder.value = false
+  await refresh()
+}
+
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос при новости: мнение о ней, а не проверка того, что её прочитали.
+ * Обязательный держит подтверждение так же, как проверка; проходят один раз.
+ *
+ * Сводка ответов стоит здесь же: переспросить людей нельзя, и читать сказанное
+ * приходится тому, кто новость ведёт.
+ */
+const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+
+const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'news', slug: slug.value }))
+
+const surveyErrors = ref<ValidationErrors>({})
+const isSavingSurvey = ref(false)
+const showSurveyBuilder = ref(false)
+
+watch(() => news.value?.id, () => showSurveyBuilder.value = Boolean(news.value?.survey), { immediate: true })
+
+async function storeSurvey(payload: SurveyPayload) {
+  isSavingSurvey.value = true
+  surveyErrors.value = {}
+
+  try {
+    await saveSurvey(surveyOwner.value, payload)
+    await refresh()
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      surveyErrors.value = caught.errors
+    }
+  }
+  finally {
+    isSavingSurvey.value = false
+  }
+}
+
+async function dropSurvey() {
+  await deleteSurvey(surveyOwner.value)
+  showSurveyBuilder.value = false
   await refresh()
 }
 
@@ -643,6 +688,42 @@ function dropLink(found: LinkedMaterialResult) {
       <button type="button" class="button-secondary" @click="showQuizBuilder = true">
         Добавить проверку
       </button>
+    </section>
+
+    <!-- Опрос — о той же новости, но о другом: что люди о ней думают. -->
+    <SurveyBuilder
+      v-if="showSurveyBuilder"
+      :survey="news.survey ?? null"
+      :errors="surveyErrors"
+      :is-submitting="isSavingSurvey"
+      material-label="новость"
+      credit-label="не будет подтверждена"
+      @save="storeSurvey"
+      @remove="dropSurvey"
+    />
+
+    <section v-else class="card panel">
+      <h2 class="panel__title">
+        Опрос
+      </h2>
+      <p class="faint">
+        Мнение о новости: правильных ответов нет, проходят один раз. Обязательный
+        опрос держит подтверждение так же, как проверка.
+      </p>
+      <button type="button" class="button-secondary" @click="showSurveyBuilder = true">
+        Добавить опрос
+      </button>
+    </section>
+
+    <section v-if="news.survey" class="card panel">
+      <h2 class="panel__title">
+        Что ответили
+      </h2>
+
+      <SurveySummaryPanel
+        :key="news.survey.id"
+        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
+      />
     </section>
 
     <div class="actions">

@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { LessonAttachment, Quiz } from '~/types/lms'
+import type { Survey } from '~/types/survey'
 
 export type NewsStatus = 'draft' | 'published'
 export type NewsAudienceKind = 'everyone' | 'selected'
@@ -84,6 +85,12 @@ export interface News {
    * тип тот же: разметка редактора у них общая.
    */
   quiz?: Quiz | null
+
+  /**
+   * Опрос при новости — тот же, что при уроке и документе: один полиморфный
+   * опрос на все материалы. Обязательный держит подтверждение.
+   */
+  survey?: Survey | null
 
   is_acknowledged: boolean
   acknowledged_at: string | null

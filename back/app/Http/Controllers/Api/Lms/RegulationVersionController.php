@@ -188,6 +188,7 @@ final class RegulationVersionController extends Controller
             'groups:id,name', 'departments:id,name',
             'attachments',
             'quiz.questions.options',
+            'survey.questions.options',
             'quiz.examiner:id,last_name,first_name,middle_name',
         ]);
 

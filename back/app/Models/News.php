@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
@@ -120,6 +121,20 @@ class News extends Model
     public function quiz(): HasOne
     {
         return $this->hasOne(NewsQuiz::class);
+    }
+
+    /**
+     * Опрос при новости.
+     *
+     * Полиморфный, в отличие от проверки: у проверки при новости своя стопка
+     * таблиц (NewsQuiz), а опрос устроен одинаково у всех материалов, и
+     * повторять эту развилку незачем — см. Survey.
+     *
+     * @return MorphOne<Survey, $this>
+     */
+    public function survey(): MorphOne
+    {
+        return $this->morphOne(Survey::class, 'surveyable');
     }
 
     public function isPublished(): bool

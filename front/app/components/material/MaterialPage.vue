@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { withResolvedMedia } from '~/utils/editor/attachments'
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { CoursePerson, MaterialSection, MaterialVersion, QuizOutcome } from '~/types/lms'
+import type { SurveyAnswer } from '~/types/survey'
+import { withResolvedMedia } from '~/utils/editor/attachments'
 
 /**
  * Страница документа или справочника — один экран на оба раздела.
@@ -237,6 +239,72 @@ async function sendAnswers(answers: Record<number, number[] | string | string[][
   }
 }
 
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос стоит рядом с проверкой и спрашивает о другом: не что человек понял, а
+ * что он думает. Проходят его один раз — второго захода нет, и после отправки
+ * бланк уступает место благодарности.
+ *
+ * Обязательный опрос держит отметку: пока он не отправлен, сервер не примет ни
+ * кнопку «ознакомлен», ни сдачу проверки как ознакомление. Поэтому после
+ * отправки материал перечитывается — отметка могла наступить ровно сейчас.
+ */
+const { submitSurvey } = useSurveyApi()
+
+const survey = computed(() => body.value?.survey ?? null)
+
+const surveyOwner = computed<SurveyOwner>(() => selected.value === null
+  ? { kind: 'material', section, slug: slug.value }
+  : { kind: 'version', section, slug: slug.value, versionId: selected.value.id })
+
+const isSendingSurvey = ref(false)
+const surveyError = ref<string | null>(null)
+const surveyDone = ref(false)
+
+// Сменили версию — бланк снова чужой: у каждой версии свой опрос.
+watch(surveyOwner, () => {
+  surveyDone.value = false
+  surveyError.value = null
+})
+
+/**
+ * Держит ли опрос отметку прямо сейчас. Кнопку гасим и называем причину, а не
+ * даём нажать ради отказа с сервера.
+ */
+const surveyHolds = computed(() => {
+  const own = survey.value
+
+  return own !== null
+    && own.is_required
+    && own.is_open
+    && !(surveyDone.value || own.is_answered)
+})
+
+async function sendSurvey(answers: Record<number, SurveyAnswer>) {
+  isSendingSurvey.value = true
+  surveyError.value = null
+
+  try {
+    await submitSurvey(surveyOwner.value, answers)
+    surveyDone.value = true
+
+    // Отметка об ознакомлении могла наступить только что — спрашиваем сервер, а
+    // не собираем её на экране.
+    await refresh()
+  }
+  catch (caught) {
+    const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
+
+    surveyError.value = failure.data?.errors?.answers?.[0]
+      ?? failure.data?.message
+      ?? 'Не удалось отправить ответы.'
+  }
+  finally {
+    isSendingSurvey.value = false
+  }
+}
+
 /* ---------- Кто прочитал: только тому, кто документ ведёт ---------- */
 
 const readers = ref<CoursePerson[] | null>(null)
@@ -469,15 +537,33 @@ async function toggleReaders() {
               {{ confirmError }}
             </p>
             <p class="faint">
-              {{ copy.acknowledgeHint }}
+              {{ surveyHolds
+                ? 'Сначала ответьте на опрос ниже — он обязательный.'
+                : copy.acknowledgeHint }}
             </p>
-            <button type="button" class="button-primary" :disabled="isConfirming" @click="confirm">
+            <button
+              type="button"
+              class="button-primary"
+              :disabled="isConfirming || surveyHolds"
+              @click="confirm"
+            >
               {{ isConfirming ? 'Отмечаем…' : 'Ознакомлен' }}
             </button>
           </section>
 
           <!-- Прошлые попытки с разбором каждой — как у теста урока. -->
           <QuizAttemptsHistory :attempts="attempts" />
+
+          <!-- Опрос: мнение о материале. Обязательный держит отметку выше. -->
+          <SurveyRunner
+            v-if="survey"
+            :survey="survey"
+            :is-submitting="isSendingSurvey"
+            :error-message="surveyError"
+            :is-done="surveyDone || survey.is_answered"
+            :material-label="copy.materialLabel.toLowerCase()"
+            @submit="sendSurvey"
+          />
         </template>
 
         <!-- «Нашли ответ?» — то же, что и у курса: справочник читают ради

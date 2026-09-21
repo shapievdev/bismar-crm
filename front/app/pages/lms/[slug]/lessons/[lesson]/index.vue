@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { QuizAttempt, QuizReview } from '~/types/lms'
+import type { SurveyAnswer } from '~/types/survey'
 import { withResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
@@ -233,6 +235,61 @@ async function markDone() {
   }
   finally {
     isWorking.value = false
+  }
+}
+
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос об уроке: не что человек понял, а что он думает. Проходят один раз.
+ *
+ * Обязательный держит зачёт урока: пока он не отправлен, сервер не примет ни
+ * «Отметить пройденным», ни зачёт по сданному тесту. Поэтому после отправки урок
+ * перечитывается — он мог зачесться ровно сейчас.
+ */
+const { submitSurvey } = useSurveyApi()
+
+const survey = computed(() => lesson.value?.survey ?? null)
+const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'lesson', id: lessonId.value }))
+
+const isSendingSurvey = ref(false)
+const surveyError = ref<string | null>(null)
+const surveyDone = ref(false)
+
+/**
+ * Держит ли опрос зачёт урока прямо сейчас.
+ *
+ * Кнопку «пройдено» при этом гасим и называем причину — как и с очередью уроков:
+ * дать нажать ради отказа с сервера значит показать человеку ошибку там, где
+ * можно было объяснить заранее.
+ */
+const surveyHolds = computed(() => {
+  const own = survey.value
+
+  return own !== null
+    && own.is_required
+    && own.is_open
+    && !(surveyDone.value || own.is_answered)
+})
+
+async function sendSurvey(answers: Record<number, SurveyAnswer>) {
+  isSendingSurvey.value = true
+  surveyError.value = null
+
+  try {
+    await submitSurvey(surveyOwner.value, answers)
+    surveyDone.value = true
+    await refresh()
+  }
+  catch (caught) {
+    const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
+
+    surveyError.value = failure.data?.errors?.answers?.[0]
+      ?? failure.data?.message
+      ?? 'Не удалось отправить ответы.'
+  }
+  finally {
+    isSendingSurvey.value = false
   }
 }
 
@@ -559,11 +616,15 @@ function formatSize(bytes: number): string {
         <button
           type="button"
           class="button-primary"
-          :disabled="isWorking || blockedBy !== null"
+          :disabled="isWorking || blockedBy !== null || surveyHolds"
           @click="markDone"
         >
           {{ isWorking ? 'Сохраняем…' : 'Отметить пройденным' }}
         </button>
+
+        <p v-if="surveyHolds" class="muted blocked">
+          Сначала ответьте на опрос ниже — он обязательный.
+        </p>
 
         <p v-if="blockedBy" class="muted blocked">
           Сначала пройдите предыдущие уроки — начните с
@@ -572,6 +633,19 @@ function formatSize(bytes: number): string {
           </NuxtLink>.
         </p>
       </div>
+
+      <!-- Опрос об уроке. Стоит после теста и после кнопки «пройдено»: сперва
+           урок, потом мнение о нём. -->
+      <SurveyRunner
+        v-if="survey"
+        :survey="survey"
+        :is-submitting="isSendingSurvey"
+        :error-message="surveyError"
+        :is-done="surveyDone || survey.is_answered"
+        material-label="урок"
+        class="block"
+        @submit="sendSurvey"
+      />
 
       <p v-if="actionError" class="alert alert--danger" role="alert">
         {{ actionError }}

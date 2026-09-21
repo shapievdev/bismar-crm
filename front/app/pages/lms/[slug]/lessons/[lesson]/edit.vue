@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { LessonAnswerPayload, LessonPayload, QuizPayload, RegulationLink, SuggestedAnswer } from '~/types/lms'
+import type { SurveyPayload } from '~/types/survey'
 import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
@@ -267,6 +269,60 @@ async function askForSuggestions(transcriptId?: number) {
   }
 }
 
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос стоит рядом с тестом и спрашивает о другом: не что человек понял, а что
+ * он думает об уроке. Обязательный держит зачёт урока так же, как тест.
+ *
+ * Сводка ответов — здесь же, в редакторе: опрос проходят один раз, переспросить
+ * нельзя, и читать сказанное приходится тому, кто урок ведёт.
+ */
+const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+
+const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'lesson', id: lessonId.value }))
+
+const surveyErrors = ref<ValidationErrors>({})
+const isSavingSurvey = ref(false)
+const showSurveyBuilder = ref(Boolean(lesson.value?.survey))
+
+async function persistSurvey(payload: SurveyPayload) {
+  isSavingSurvey.value = true
+  surveyErrors.value = {}
+
+  try {
+    await saveSurvey(surveyOwner.value, payload)
+    await refresh()
+  }
+  catch (caught) {
+    if (caught instanceof ApiValidationError) {
+      surveyErrors.value = caught.errors
+    }
+    else {
+      generalError.value = 'Не удалось сохранить опрос.'
+    }
+  }
+  finally {
+    isSavingSurvey.value = false
+  }
+}
+
+async function removeSurvey() {
+  isSavingSurvey.value = true
+
+  try {
+    await deleteSurvey(surveyOwner.value)
+    showSurveyBuilder.value = false
+    await refresh()
+  }
+  catch {
+    generalError.value = 'Не удалось удалить опрос.'
+  }
+  finally {
+    isSavingSurvey.value = false
+  }
+}
+
 async function removeQuiz() {
   isSavingQuiz.value = true
 
@@ -449,10 +505,49 @@ async function removeQuiz() {
         Добавить тест к уроку
       </button>
     </section>
+
+    <SurveyBuilder
+      v-if="showSurveyBuilder"
+      :survey="lesson.survey ?? null"
+      :errors="surveyErrors"
+      :is-submitting="isSavingSurvey"
+      material-label="урок"
+      credit-label="не зачтётся"
+      @save="persistSurvey"
+      @remove="removeSurvey"
+    />
+
+    <!-- Сводка опроса — здесь же: ответы читает тот, кто урок ведёт. -->
+    <section v-if="lesson.survey" class="survey-summary card">
+      <h2 class="survey-summary__title">
+        Что ответили об уроке
+      </h2>
+
+      <SurveySummaryPanel
+        :key="lesson.survey.id"
+        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
+      />
+    </section>
+
+    <section v-if="!lesson.survey" class="add-quiz">
+      <button type="button" class="button-plain" @click="showSurveyBuilder = true">
+        Добавить опрос к уроку
+      </button>
+    </section>
   </section>
 </template>
 
 <style scoped>
+.survey-summary {
+  margin-top: 1.25rem;
+  padding: 1.1rem;
+}
+
+.survey-summary__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
 .page-header {
   display: flex;
   align-items: baseline;

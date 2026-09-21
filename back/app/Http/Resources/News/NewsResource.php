@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\News;
 
+use App\Http\Resources\Lms\SurveyResource;
 use App\Models\Department;
 use App\Models\Group;
 use App\Models\News;
@@ -68,6 +69,10 @@ final class NewsResource extends JsonResource
             'links' => NewsLinkResource::collection($this->whenLoaded('links')),
 
             'quiz' => NewsQuizResource::make($this->whenLoaded('quiz')),
+
+            // Опрос при новости — тот же, что при уроке и документе: один
+            // полиморфный опрос на все материалы, см. Survey.
+            'survey' => SurveyResource::make($this->whenLoaded('survey')),
 
             // Проставляет контроллер: он один знает, кто спрашивает.
             'is_acknowledged' => $this->is_acknowledged,

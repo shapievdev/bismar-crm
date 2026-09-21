@@ -102,6 +102,8 @@ final class RegulationController extends Controller
             'experts',
             'quiz.questions.options',
             'quiz.examiner:id,last_name,first_name,middle_name',
+            // Опрос при материале — на той же странице, что и сам материал.
+            'survey.questions.options',
         );
 
         // Соседи — «рядом по теме». Отбираются под того, кто спрашивает: чужой
@@ -283,7 +285,12 @@ final class RegulationController extends Controller
             return;
         }
 
-        $shown->load(['attachments', 'quiz.questions.options', 'quiz.examiner:id,last_name,first_name,middle_name']);
+        $shown->load([
+            'attachments',
+            'quiz.questions.options',
+            'quiz.examiner:id,last_name,first_name,middle_name',
+            'survey.questions.options',
+        ]);
         $shown->setAttribute('sends_content', true);
         $shown->setAttribute('own_attempts', $this->ownAttempts($shown->quiz, $reader));
 

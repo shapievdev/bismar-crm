@@ -41,6 +41,10 @@ final class LessonResource extends JsonResource
             'materials' => LessonMaterialResource::collection($this->whenLoaded('materials')),
             'answers' => LessonAnswerResource::collection($this->whenLoaded('answers')),
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
+
+            // Опрос при уроке — рядом с тестом и о другом: что человек думает.
+            // Обязательный держит зачёт урока, см. MaterialDues.
+            'survey' => SurveyResource::make($this->whenLoaded('survey')),
             // Attached by the controller from the learner's completions.
             'is_completed' => $this->is_completed_by_learner,
 

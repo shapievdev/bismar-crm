@@ -72,6 +72,12 @@ final class RegulationVersionResource extends JsonResource
                 fn () => QuizResource::make($this->whenLoaded('quiz')),
             ),
 
+            // Опрос при версии — свой, как и проверка.
+            'survey' => $this->when(
+                (bool) $this->sends_content,
+                fn () => SurveyResource::make($this->whenLoaded('survey')),
+            ),
+
             // Свои прошлые попытки по этой версии. Проставляет контроллер.
             'own_attempts' => $this->when((bool) $this->sends_content, fn () => $this->own_attempts ?? []),
         ];

@@ -69,6 +69,10 @@ final class RegulationResource extends JsonResource
             // сдав её, и кнопки «ознакомлен» экран не рисует.
             'quiz' => QuizResource::make($this->whenLoaded('quiz')),
 
+            // Опрос при материале. Обязательный держит отметку об ознакомлении
+            // так же, как проверка, — см. MaterialDues.
+            'survey' => SurveyResource::make($this->whenLoaded('survey')),
+
             // Свои прошлые попытки: по ним человек возвращается к разбору.
             // Проставляет контроллер — он один знает, кто спрашивает.
             'own_attempts' => $this->own_attempts,

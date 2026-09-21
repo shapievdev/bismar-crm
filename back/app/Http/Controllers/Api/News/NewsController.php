@@ -119,7 +119,14 @@ final class NewsController extends Controller
         /** @var User $reader */
         $reader = $request->user();
 
-        $news->load('author', 'attachments', 'quiz.questions.options', 'links.linkable');
+        $news->load(
+            'author',
+            'attachments',
+            'quiz.questions.options',
+            // Опрос при новости — на той же странице.
+            'survey.questions.options',
+            'links.linkable',
+        );
 
         // Ссылка на закрытый курс — это его название, а название закрытого
         // курса читателю показывать нельзя. Отбор здесь, а не в ресурсе: ресурс
@@ -223,7 +230,7 @@ final class NewsController extends Controller
     {
         $news->load(
             'author', 'recipients', 'departments', 'groups',
-            'attachments', 'quiz.questions.options', 'links.linkable',
+            'attachments', 'quiz.questions.options', 'survey.questions.options', 'links.linkable',
         );
         $news->loadCount('acknowledgements');
         $news->setAttribute('sends_content', true);

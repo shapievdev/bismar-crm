@@ -118,6 +118,19 @@ class Lesson extends Model implements PartOfCourse
     }
 
     /**
+     * Опрос при уроке: что человек думает, а не что понял.
+     *
+     * Рядом с тестом, а не вместо: у теста есть ключ и планка, у опроса нет ни
+     * того ни другого — см. Survey.
+     *
+     * @return MorphOne<Survey, $this>
+     */
+    public function survey(): MorphOne
+    {
+        return $this->morphOne(Survey::class, 'surveyable');
+    }
+
+    /**
      * Строки таблицы с уже проставленной обратной ссылкой на урок.
      *
      * Обратная ссылка не украшение: каждая строка проверяет, существует ли ещё

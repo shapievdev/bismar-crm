@@ -129,7 +129,14 @@ final class LearningController extends Controller
 
         // Проверяющий едет вместе с тестом: сотруднику важно знать, кому уйдёт
         // работа, — «ждёт проверки» без имени звучит как «ждёт неизвестно чего».
-        $lesson->load('attachments', 'quiz.questions.options', 'quiz.examiner:id,last_name,first_name,middle_name');
+        $lesson->load(
+            'attachments',
+            'quiz.questions.options',
+            'quiz.examiner:id,last_name,first_name,middle_name',
+            // Опрос — вместе с уроком: он стоит на той же странице, и второй
+            // запрос за ним ничего бы не убрал.
+            'survey.questions.options',
+        );
 
         // Строки таблицы едут вместе с уроком: редактор правит их на той же
         // странице, а читателю они показывают, что урок разбирает.

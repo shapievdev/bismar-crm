@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { withResolvedMedia } from '~/utils/editor/attachments'
+import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { NewsAcknowledgements, NewsQuizResult } from '~/types/news'
+import type { SurveyAnswer } from '~/types/survey'
+import { withResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -88,6 +90,54 @@ async function send(answers: Record<number, number[] | string | string[][]>) {
 
 function retry() {
   result.value = null
+}
+
+/* ---------- Опрос ---------- */
+
+/*
+ * Опрос при новости: что человек о ней думает. Проходят один раз.
+ *
+ * Обязательный держит подтверждение: пока он не отправлен, сервер не примет ни
+ * кнопку «ознакомлен», ни сдачу проверки как подтверждение. Поэтому после
+ * отправки новость перечитывается — отметка могла наступить ровно сейчас.
+ */
+const { submitSurvey } = useSurveyApi()
+
+const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'news', slug: slug.value }))
+
+const isSendingSurvey = ref(false)
+const surveyError = ref<string | null>(null)
+const surveyDone = ref(false)
+
+/** Держит ли опрос подтверждение прямо сейчас — см. страницу документа. */
+const surveyHolds = computed(() => {
+  const own = news.value?.survey ?? null
+
+  return own !== null
+    && own.is_required
+    && own.is_open
+    && !(surveyDone.value || own.is_answered)
+})
+
+async function sendSurvey(answers: Record<number, SurveyAnswer>) {
+  isSendingSurvey.value = true
+  surveyError.value = null
+
+  try {
+    await submitSurvey(surveyOwner.value, answers)
+    surveyDone.value = true
+    await refresh()
+  }
+  catch (caught) {
+    const failure = caught as { data?: { message?: string, errors?: Record<string, string[]> } }
+
+    surveyError.value = failure.data?.errors?.answers?.[0]
+      ?? failure.data?.message
+      ?? 'Не удалось отправить ответы.'
+  }
+  finally {
+    isSendingSurvey.value = false
+  }
 }
 
 /* ---------- Кто ознакомился: только тому, кто новость ведёт ---------- */
@@ -255,15 +305,34 @@ async function loadReaders() {
           {{ confirmError }}
         </p>
         <p class="faint">
-          {{ news.awaits_acknowledgement
-            ? 'С этой новостью нужно ознакомиться — отметьтесь, когда прочтёте.'
-            : 'Можно отметить, что вы её прочитали.' }}
+          {{ surveyHolds
+            ? 'Сначала ответьте на опрос ниже — он обязательный.'
+            : news.awaits_acknowledgement
+              ? 'С этой новостью нужно ознакомиться — отметьтесь, когда прочтёте.'
+              : 'Можно отметить, что вы её прочитали.' }}
         </p>
-        <button type="button" class="button-primary" :disabled="isConfirming" @click="confirm">
+        <button
+          type="button"
+          class="button-primary"
+          :disabled="isConfirming || surveyHolds"
+          @click="confirm"
+        >
           {{ isConfirming ? 'Отмечаем…' : 'Ознакомлен' }}
         </button>
       </template>
     </section>
+
+    <!-- Опрос: мнение о новости. Стоит после подтверждения — сперва прочитали,
+         потом высказались. -->
+    <SurveyRunner
+      v-if="news.survey"
+      :survey="news.survey"
+      :is-submitting="isSendingSurvey"
+      :error-message="surveyError"
+      :is-done="surveyDone || news.survey.is_answered"
+      material-label="новость"
+      @submit="sendSurvey"
+    />
   </article>
 </template>
 

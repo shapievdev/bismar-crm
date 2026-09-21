@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\News;
 
-use App\Enums\NewsAcknowledgementSource;
+use App\Actions\Lms\CreditMaterial;
 use App\Exceptions\ConflictException;
 use App\Models\NewsQuiz;
 use App\Models\NewsQuizAttempt;
@@ -17,10 +17,15 @@ use Illuminate\Support\Facades\DB;
  *
  * Тест здесь и есть подтверждение (решение пользователя 2026-08-27): сдал —
  * значит прочитал, отдельной кнопки при тесте не показывают.
+ *
+ * Саму отметку ставит не это действие, а общий зачёт материала: при новости может
+ * стоять ещё и обязательный опрос, и сдавший тест, но не высказавшийся, остался
+ * бы неподтверждённым навсегда — второй попытки у теста может и не быть. См.
+ * CreditMaterial.
  */
 final readonly class GradeNewsQuizAttempt
 {
-    public function __construct(private AcknowledgeNews $acknowledge) {}
+    public function __construct(private CreditMaterial $credit) {}
 
     /**
      * @param  array<int, list<int>>  $answers  Номер вопроса => выбранные варианты.
@@ -62,7 +67,7 @@ final readonly class GradeNewsQuizAttempt
             ]);
 
             if ($passed && $quiz->news !== null) {
-                $this->acknowledge->handle($quiz->news, $reader, NewsAcknowledgementSource::Quiz);
+                $this->credit->handle($quiz->news, $reader);
             }
 
             return $attempt;

@@ -8,12 +8,16 @@ use App\Exceptions\ConflictException;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\LessonCompletion;
+use App\Support\Lms\MaterialDues;
 use App\Support\Lms\ProgressCalculator;
 use Illuminate\Support\Facades\DB;
 
 final readonly class CompleteLesson
 {
-    public function __construct(private ProgressCalculator $progress) {}
+    public function __construct(
+        private ProgressCalculator $progress,
+        private MaterialDues $dues,
+    ) {}
 
     /**
      * Marks a lesson done for this enrolment and closes the course if that was
@@ -26,6 +30,7 @@ final readonly class CompleteLesson
         $this->ensureLessonBelongsToCourse($enrollment, $lesson);
         $this->ensureEarlierLessonsAreDone($enrollment, $lesson);
         $this->ensureQuizWasPassed($enrollment, $lesson);
+        $this->ensureSurveyWasAnswered($enrollment, $lesson);
 
         return DB::transaction(function () use ($enrollment, $lesson): Enrollment {
             LessonCompletion::firstOrCreate(
@@ -41,6 +46,27 @@ final readonly class CompleteLesson
 
             return $this->refreshCourseCompletion($enrollment);
         });
+    }
+
+    /**
+     * Обязательный опрос при уроке держит зачёт так же, как тест (решение
+     * пользователя 2026-09-21): «пройдено» нажимают после того, как высказались,
+     * а не вместо.
+     *
+     * Необязательный не держит ничего — его на то и заводят, чтобы спросить тех,
+     * кому есть что сказать.
+     *
+     * @throws ConflictException
+     */
+    private function ensureSurveyWasAnswered(Enrollment $enrollment, Lesson $lesson): void
+    {
+        $learner = $enrollment->loadMissing('user')->user;
+
+        if ($learner === null || ! $this->dues->surveyPending($lesson, $learner)) {
+            return;
+        }
+
+        throw new ConflictException($this->dues->pendingMessage($lesson));
     }
 
     /**

@@ -109,6 +109,17 @@ class RegulationVersion extends Model
     }
 
     /**
+     * Опрос при версии — свой, как и проверка: у версии свой текст, и спросить
+     * о нём тоже стоит своё.
+     *
+     * @return MorphOne<Survey, $this>
+     */
+    public function survey(): MorphOne
+    {
+        return $this->morphOne(Survey::class, 'surveyable');
+    }
+
+    /**
      * Нарезка текста версии — то, что находит консультант.
      *
      * @return HasMany<TranscriptSegment, $this>
