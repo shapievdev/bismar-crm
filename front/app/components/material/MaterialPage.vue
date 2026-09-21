@@ -255,8 +255,8 @@ const { submitSurvey } = useSurveyApi()
 const survey = computed(() => body.value?.survey ?? null)
 
 const surveyOwner = computed<SurveyOwner>(() => selected.value === null
-  ? { kind: 'material', section, slug: slug.value }
-  : { kind: 'version', section, slug: slug.value, versionId: selected.value.id })
+  ? { kind: 'material', section: props.section, slug: slug.value }
+  : { kind: 'version', section: props.section, slug: slug.value, versionId: selected.value.id })
 
 const isSendingSurvey = ref(false)
 const surveyError = ref<string | null>(null)
