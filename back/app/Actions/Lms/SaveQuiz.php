@@ -7,6 +7,7 @@ namespace App\Actions\Lms;
 use App\Enums\AttestationStatus;
 use App\Enums\QuestionType;
 use App\Enums\QuizKind;
+use App\Jobs\SendPush;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
@@ -14,12 +15,16 @@ use App\Models\QuizOption;
 use App\Models\QuizQuestion;
 use App\Models\Regulation;
 use App\Models\RegulationVersion;
+use App\Support\Lms\MaterialLink;
 use App\Support\Lms\QuestionTable;
+use App\Support\Push\PushMessage;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 final readonly class SaveQuiz
 {
+    public function __construct(private CreditAttempt $credit) {}
+
     /**
      * Сохраняет тест урока или документа целиком: редактор присылает его весь,
      * поэтому одно действие вместо пары «создать — изменить».
@@ -35,6 +40,9 @@ final readonly class SaveQuiz
      * Убранное из присланного удаляется — вместе с попытками оно уносит и свою
      * часть разбора, но иначе снятый вопрос жил бы в тесте вечно.
      *
+     * Смена вида теста разбирается здесь же и целиком: аттестация, ставшая
+     * обычным тестом, не бросает сданное на полпути — см. waitingWork().
+     *
      * @param  array{
      *     title: string,
      *     description?: ?string,
@@ -43,9 +51,6 @@ final readonly class SaveQuiz
      *     examiner_id?: ?int,
      *     questions: array<int, array{id?: ?int, text: string, type: string, points: int, expected_answer?: ?string, table?: ?array<string, mixed>, options?: array<int, array{id?: ?int, text: string, is_correct: bool}>}>
      * } $attributes
-     *
-     * @throws ValidationException Когда аттестацию с непроверенными работами
-     *                             пытаются сделать обычным тестом.
      */
     public function handle(Lesson|Regulation|RegulationVersion $owner, array $attributes): Quiz
     {
@@ -56,9 +61,9 @@ final readonly class SaveQuiz
 
         [$kind, $examiner] = $this->reviewerOf($existing, $attributes);
 
-        $this->guardAgainstStrandedWork($owner, $kind);
+        $stranded = $this->waitingWork($existing, $kind);
 
-        return DB::transaction(function () use ($owner, $attributes, $kind, $examiner): Quiz {
+        $quiz = DB::transaction(function () use ($owner, $attributes, $kind, $examiner, $stranded): Quiz {
             $quiz = Quiz::updateOrCreate(
                 [
                     // Вид и номер вместе: урок №3 и документ №3 — разные вещи.
@@ -90,8 +95,99 @@ final readonly class SaveQuiz
 
             $quiz->questions()->whereNotIn('id', $kept)->delete();
 
+            $this->settle($quiz, $stranded);
+
             return $quiz->load('questions.options');
         });
+
+        $this->tellThemItWasGraded($quiz, $stranded);
+
+        return $quiz;
+    }
+
+    /**
+     * Работы, оставшиеся без проверяющего: аттестацию сделали обычным тестом, а
+     * их ещё не разобрали.
+     *
+     * Бросать их нельзя — именно так они и пропадали: очередь ищет работы по
+     * `examiner_id`, и вместе с видом теста обнулялся он, а сданное оставалось
+     * лежать в базе «на проверке» навсегда (боевой, 2026-09-25). Но и запрещать
+     * перевод незачем: работа, которую некому больше читать, не пропала — её
+     * просто оценивает теперь приложение, как всякую сдачу обычного теста.
+     *
+     * @return Collection<int, QuizAttempt>
+     */
+    private function waitingWork(?Quiz $existing, QuizKind $kind): Collection
+    {
+        if ($existing === null || $kind->isAttestation() || ! $existing->isAttestation()) {
+            return new Collection;
+        }
+
+        return $existing->attempts()
+            ->where('review_status', AttestationStatus::Pending)
+            ->with('user')
+            ->get();
+    }
+
+    /**
+     * Приговор по тому, что приложение уже посчитало.
+     *
+     * Баллы у аттестации считаются в момент сдачи и лежат в попытке: решения по
+     * ним приложение не выносило, но справку проверяющему готовило. Теперь по
+     * этой же справке выносится и решение — пересчитывать нечего, да и не по
+     * чему: вопросы к этой минуте уже переписаны, а ответы разложены по прежним.
+     *
+     * @param  Collection<int, QuizAttempt>  $stranded
+     */
+    private function settle(Quiz $quiz, Collection $stranded): void
+    {
+        foreach ($stranded as $attempt) {
+            $attempt->fill([
+                'review_status' => AttestationStatus::Auto,
+                'passed' => $attempt->score >= $quiz->passing_score,
+            ])->save();
+
+            if ($attempt->passed) {
+                $this->credit->handle($attempt);
+            }
+        }
+    }
+
+    /**
+     * Говорит сдавшим, что ответа больше можно не ждать.
+     *
+     * Они отправили работу человеку и ждут его слова — иногда неделями. Сменить
+     * правила молча значит оставить их ждать того, чего не будет: пусть узнают
+     * тем же путём, каким узнали бы вердикт. См. ReviewAttestation.
+     *
+     * @param  Collection<int, QuizAttempt>  $stranded
+     */
+    private function tellThemItWasGraded(Quiz $quiz, Collection $stranded): void
+    {
+        if ($stranded->isEmpty()) {
+            return;
+        }
+
+        $material = MaterialLink::for($quiz->loadMissing('quizzable')->quizzable);
+
+        foreach ($stranded as $attempt) {
+            $learner = $attempt->user;
+
+            if ($learner === null || $learner->dismissed_at !== null) {
+                continue;
+            }
+
+            SendPush::dispatch([(int) $learner->getKey()], new PushMessage(
+                title: $attempt->passed ? 'Работа зачтена' : 'Работа не зачтена',
+                body: PushMessage::shorten(sprintf(
+                    'Проверку теперь делает приложение%s. Ваш результат: %d%%.',
+                    $material === null ? '' : ' — '.$material->caption(),
+                    $attempt->score,
+                )),
+                url: $material?->url ?? '/lms/plan',
+                tag: sprintf('attestation-verdict-%d', $attempt->getKey()),
+            ));
+        }
     }
 
     /**
@@ -121,47 +217,6 @@ final readonly class SaveQuiz
         // У обычного теста проверяющего нет вовсе — даже если его прислали:
         // такую пару не принимает и проверка на входе.
         return [$kind, $kind->isAttestation() ? $attributes['examiner_id'] ?? null : null];
-    }
-
-    /**
-     * Нельзя разжаловать аттестацию, пока по ней ждут ответа.
-     *
-     * Работы в очереди держатся на проверяющем: находит их запрос по
-     * `quizzes.examiner_id`, и вместе с видом теста обнуляется он. Сданное
-     * остаётся в базе, но не показывается больше никому — ни тому, кто
-     * проверяет, ни тому, кто ждёт: у него работа так и висит «на проверке», а
-     * урок не зачитывается никогда. Именно так на боевом 2026-09-25 повисли
-     * четыре аттестации разом, и заметил это не отчёт, а человек.
-     *
-     * Смену проверяющего это не запрещает: очередь тогда не пропадает, а
-     * переходит к новому — обычное дело, когда прежний в отпуске или уволился.
-     *
-     * @throws ValidationException
-     */
-    private function guardAgainstStrandedWork(Lesson|Regulation|RegulationVersion $owner, QuizKind $kind): void
-    {
-        if ($kind->isAttestation()) {
-            return;
-        }
-
-        $waiting = QuizAttempt::query()
-            ->where('review_status', AttestationStatus::Pending)
-            ->whereHas('quiz', fn ($query) => $query
-                ->where('quizzable_type', $owner->getMorphClass())
-                ->where('quizzable_id', $owner->getKey())
-                ->where('kind', QuizKind::Attestation))
-            ->count();
-
-        if ($waiting === 0) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'kind' => sprintf(
-                'Сперва разберите очередь — сданных работ ждёт ответа: %d. Пока они не проверены, сделать аттестацию обычным тестом нельзя: работы пропадут из очереди, а материал у сдавших так и не зачтётся.',
-                $waiting,
-            ),
-        ]);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Lms;
 
+use App\Enums\AttestationStatus;
 use App\Models\Quiz;
 use App\Models\QuizQuestion;
 use Illuminate\Http\Request;
@@ -41,6 +42,14 @@ final class QuizResource extends JsonResource
                 'id' => $this->examiner_id,
                 'name' => $this->whenLoaded('examiner', fn () => $this->examiner?->name),
             ],
+
+            // Сколько работ ждёт вердикта — правящему, и только ему: в
+            // редакторе от этого числа зависит, что случится при переводе
+            // аттестации в обычный тест (их оценит приложение), и предупредить
+            // об этом надо до сохранения, а не после.
+            'pending_reviews' => $revealAnswers && $this->resource->isAttestation()
+                ? $this->resource->attempts()->where('review_status', AttestationStatus::Pending)->count()
+                : null,
             'questions' => $this->whenLoaded('questions', fn () => $this->questions->map(
                 fn ($question): array => [
                     'id' => $question->id,

@@ -84,49 +84,71 @@ final class AttestationTest extends TestCase
     }
 
     /**
-     * Аттестацию нельзя разжаловать, пока очередь не разобрана.
+     * Аттестация, ставшая обычным тестом, не бросает сданное на полпути.
      *
-     * Так и случилось на боевом 2026-09-25: тест пересохранили обычным, и
-     * четыре сданные работы разом пропали из очереди — искать их там некому,
-     * запрос ходит по `examiner_id`, а он обнулился вместе с видом.
+     * Так на боевом 2026-09-25 повисли четыре работы: вид теста сменили, вместе
+     * с ним обнулился проверяющий, и очередь — она ходит по `examiner_id` —
+     * перестала их находить. Работы остались «на проверке» навсегда. Теперь
+     * приговор по ним выносит приложение, по тем самым баллам, которые оно и
+     * так посчитало при сдаче.
      */
-    public function test_an_attestation_with_work_in_the_queue_stays_an_attestation(): void
+    public function test_dropping_the_attestation_grades_the_work_left_waiting(): void
     {
-        [$lesson, $quiz, $examiner] = $this->attestation();
+        Queue::fake();
 
-        $this->submit($this->learner(), $lesson, $quiz);
+        [$lesson, $quiz] = $this->attestation();
 
-        $this->actingAs($this->author())
-            ->putJson(route('lms.quiz.save', $lesson), $this->payload(kind: QuizKind::Standard))
-            ->assertJsonValidationErrorFor('kind');
+        $passing = $this->learner();
+        $failing = $this->learner();
 
-        $quiz->refresh();
-
-        $this->assertTrue($quiz->isAttestation(), 'Вид теста всё-таки сбросили.');
-        $this->assertSame($examiner->getKey(), $quiz->examiner_id, 'Проверяющий потерялся.');
-
-        // Главное — работа по-прежнему видна тому, кто её ждёт.
-        $this->actingAs($examiner)
-            ->getJson(route('lms.attestations.index'))
-            ->assertOk()
-            ->assertJsonCount(1, 'data');
-    }
-
-    /** Разобранная очередь никого не держит: вид теста снова свободен. */
-    public function test_an_attestation_becomes_an_ordinary_quiz_once_the_queue_is_clear(): void
-    {
-        [$lesson, $quiz, $examiner] = $this->attestation();
-
-        $this->submit($this->learner(), $lesson, $quiz);
-
-        $this->actingAs($examiner)
-            ->postJson(route('lms.attestations.verdict', QuizAttempt::query()->sole()), ['is_accepted' => true])
-            ->assertOk();
+        $this->submit($passing, $lesson, $quiz);
+        $this->submitWrongly($failing, $lesson, $quiz);
 
         $this->actingAs($this->author())
             ->putJson(route('lms.quiz.save', $lesson), $this->payload(kind: QuizKind::Standard))
             ->assertOk()
             ->assertJsonPath('data.kind', QuizKind::Standard->value);
+
+        $passed = QuizAttempt::query()->where('user_id', $passing->getKey())->sole();
+        $failed = QuizAttempt::query()->where('user_id', $failing->getKey())->sole();
+
+        $this->assertSame(AttestationStatus::Auto, $passed->review_status, 'Работа так и висит на проверке.');
+        $this->assertSame(AttestationStatus::Auto, $failed->review_status);
+        $this->assertTrue($passed->passed, 'Сто процентов не зачли.');
+        $this->assertFalse($failed->passed, 'Зачли работу ниже планки.');
+
+        $this->assertSame(1, LessonCompletion::query()->count(), 'Урок сдавшему не закрыли.');
+
+        // Ждали человека — узнают, что ответа больше не будет.
+        Queue::assertPushed(SendPush::class, fn (SendPush $job): bool => $this->recipientsOf($job) === [$passing->id]
+            && $this->messageOf($job)->title === 'Работа зачтена');
+
+        Queue::assertPushed(SendPush::class, fn (SendPush $job): bool => $this->recipientsOf($job) === [$failing->id]
+            && $this->messageOf($job)->title === 'Работа не зачтена');
+    }
+
+    /** Разобранную очередь смена вида не трогает: у неё уже есть вердикты. */
+    public function test_dropping_the_attestation_leaves_reviewed_work_alone(): void
+    {
+        [$lesson, $quiz, $examiner] = $this->attestation();
+
+        $this->submit($this->learner(), $lesson, $quiz);
+
+        $this->actingAs($examiner)
+            ->postJson(route('lms.attestations.verdict', QuizAttempt::query()->sole()), [
+                'is_accepted' => false,
+                'comment' => 'Переделайте таблицу.',
+            ])
+            ->assertOk();
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.quiz.save', $lesson), $this->payload(kind: QuizKind::Standard))
+            ->assertOk();
+
+        $attempt = QuizAttempt::query()->sole();
+
+        $this->assertSame(AttestationStatus::Failed, $attempt->review_status, 'Чужой вердикт переписали.');
+        $this->assertSame('Переделайте таблицу.', $attempt->review_comment);
     }
 
     /**
@@ -460,6 +482,19 @@ final class AttestationTest extends TestCase
     {
         $this->actingAs($learner)
             ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
+            ->assertCreated();
+    }
+
+    /** Работа с неверным ответом: ниже планки, но сданная и ждущая ответа. */
+    private function submitWrongly(User $learner, Lesson $lesson, Quiz $quiz): void
+    {
+        $answers = $quiz->questions()->with('options')->get()
+            ->mapWithKeys(fn ($question): array => [
+                $question->id => [$question->options->firstWhere('is_correct', false)->id],
+            ])->all();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $answers])
             ->assertCreated();
     }
 

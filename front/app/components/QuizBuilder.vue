@@ -239,6 +239,13 @@ function errorFor(path: string): string | null {
   return props.errors[path]?.[0] ?? null
 }
 
+/**
+ * Сколько сданных работ останется без проверяющего, если сохранить тест
+ * обычным. Считает сервер — у редактора очереди нет, а число берётся у теста,
+ * каким он лежит в базе, а не каким его сейчас правят.
+ */
+const strandedWork = computed(() => props.quiz?.pending_reviews ?? 0)
+
 /* ---------- Кому сдают работы ---------- */
 
 const { searchExaminers } = useLmsApi()
@@ -352,9 +359,14 @@ function onKindChange() {
         </span>
       </label>
 
-      <!-- Сюда приходит отказ снять аттестацию, по которой ещё не разобрали
-           сданные работы: ответ сервера должен стоять у самого переключателя,
-           иначе непонятно, что именно не дало сохранить. -->
+      <!-- Что станет с уже сданными работами, сказать надо до сохранения, а не
+           после: люди отправили их человеку и ждут его слова. -->
+      <p v-if="strandedWork > 0 && draft.kind !== 'attestation'" class="kind__warning">
+        Работ ждёт вашего ответа: {{ strandedWork }}. Если сохранить тест обычным,
+        их оценит приложение по уже посчитанным баллам, а сдавшим придёт
+        уведомление, что ответа больше не будет.
+      </p>
+
       <p v-if="errorFor('kind')" class="field__error">
         {{ errorFor('kind') }}
       </p>
@@ -585,6 +597,18 @@ function onKindChange() {
   display: block;
   margin-top: 0.15rem;
   color: var(--color-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* Предупреждение о сданных работах: не ошибка — их не потеряют, — но и не
+   мелкая подсказка, поэтому цвет свой, а не приглушённый. */
+.kind__warning {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
   font-size: 0.82rem;
   line-height: 1.45;
 }

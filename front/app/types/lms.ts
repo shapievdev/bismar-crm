@@ -183,6 +183,11 @@ export interface Quiz {
   kind: QuizKind
   /** Кому уходят работы. Null у обычного теста. */
   examiner: { id: number, name?: string | null } | null
+  /**
+   * Сколько сданных работ ждёт вердикта. Приходит только тому, кто правит
+   * материал, и только у аттестации — остальным null.
+   */
+  pending_reviews?: number | null
 }
 
 export interface CourseModule {

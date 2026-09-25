@@ -7,10 +7,7 @@ namespace App\Actions\Lms;
 use App\Enums\AttestationStatus;
 use App\Exceptions\ConflictException;
 use App\Jobs\SendPush;
-use App\Models\Enrollment;
-use App\Models\Lesson;
 use App\Models\QuizAttempt;
-use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Lms\MaterialLink;
 use App\Support\Push\PushMessage;
@@ -31,10 +28,7 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class ReviewAttestation
 {
-    public function __construct(
-        private CompleteLesson $completeLesson,
-        private AcknowledgeRegulation $acknowledgeRegulation,
-    ) {}
+    public function __construct(private CreditAttempt $credit) {}
 
     /**
      * @throws ConflictException
@@ -55,7 +49,10 @@ final readonly class ReviewAttestation
             ])->save();
 
             if ($isAccepted) {
-                $this->rewardFor($attempt);
+                // Что означает зачёт, решает материал, при котором стоит тест,
+                // — и решает одинаково, кто бы зачёт ни поставил. См.
+                // CreditAttempt.
+                $this->credit->handle($attempt);
             }
 
             return $attempt;
@@ -117,43 +114,5 @@ final readonly class ReviewAttestation
         $said = trim((string) $comment);
 
         return $said === '' ? $about : $about.' '.$said;
-    }
-
-    /**
-     * Что означает зачёт — решает владелец теста, ровно как при обычной сдаче.
-     *
-     * Урок засчитывается той же дорогой, что и всегда (CompleteLesson знает про
-     * порядок уроков и про запись на курс), документ — ознакомлением. Записи на
-     * курс у сдававшего может и не быть: работу сдают и по назначенному плану,
-     * и по своей воле — тогда зачитывать нечего, и это не ошибка.
-     */
-    private function rewardFor(QuizAttempt $attempt): void
-    {
-        $owner = $attempt->loadMissing('quiz.quizzable', 'user')->quiz?->quizzable;
-        $learner = $attempt->user;
-
-        if ($learner === null) {
-            return;
-        }
-
-        if ($owner instanceof Lesson) {
-            $enrollment = Enrollment::query()
-                ->where('user_id', $learner->getKey())
-                ->where('course_id', $owner->loadMissing('module.course')->module?->course?->getKey())
-                ->first();
-
-            // Непройденные предыдущие уроки зачёт не отменяют: он записан, и
-            // урок закроется, как только очередь дойдёт до него, — та же
-            // оговорка, что и при обычной сдаче, см. GradeQuizAttempt.
-            if ($enrollment !== null && $this->completeLesson->blockedBy($enrollment, $owner) === null) {
-                $this->completeLesson->handle($enrollment, $owner);
-            }
-
-            return;
-        }
-
-        if ($owner instanceof Regulation) {
-            $this->acknowledgeRegulation->handle($owner, $learner);
-        }
     }
 }
