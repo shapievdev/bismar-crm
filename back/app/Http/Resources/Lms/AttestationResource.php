@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Lms;
 
-use App\Models\Lesson;
 use App\Models\QuizAttempt;
-use App\Models\Regulation;
+use App\Support\Lms\MaterialLink;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -50,41 +49,11 @@ final class AttestationResource extends JsonResource
 
             // Куда работа относится: без этого в очереди из двадцати строк
             // непонятно, о каком уроке речь.
-            'material' => $this->material($owner),
+            'material' => MaterialLink::for($owner)?->toArray(),
 
             'reviewed_at' => $this->reviewed_at?->toIso8601String(),
             'reviewed_by' => $this->whenLoaded('reviewer', fn () => $this->reviewer?->name),
             'comment' => $this->review_comment,
         ];
-    }
-
-    /**
-     * Материал, к которому привязан тест, и адрес его страницы.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function material(mixed $owner): ?array
-    {
-        if ($owner instanceof Lesson) {
-            $course = $owner->loadMissing('module.course')->module?->course;
-
-            return [
-                'kind' => 'lesson',
-                'title' => $owner->title,
-                'course' => $course?->title,
-                'url' => $course === null ? null : "/lms/{$course->slug}/lessons/{$owner->getKey()}",
-            ];
-        }
-
-        if ($owner instanceof Regulation) {
-            return [
-                'kind' => $owner->kind->value,
-                'title' => $owner->title,
-                'course' => null,
-                'url' => $owner->path(),
-            ];
-        }
-
-        return null;
     }
 }

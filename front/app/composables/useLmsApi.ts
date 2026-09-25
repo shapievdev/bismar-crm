@@ -205,9 +205,12 @@ export function useLmsApi() {
         body,
       }).catch(toValidationError),
 
-    /** Сколько работ ждёт ответа — для значка в навигации. */
-    fetchPendingAttestations: (): Promise<{ data: { pending: number } }> =>
-      $api<{ data: { pending: number } }>('/api/lms/attestations/pending-count'),
+    /**
+     * Сколько работ ждёт ответа — для значка в навигации, и поручено ли этому
+     * человеку проверять вообще: по нему решается, показывать ли раздел.
+     */
+    fetchPendingAttestations: (): Promise<{ data: { pending: number, is_examiner: boolean } }> =>
+      $api<{ data: { pending: number, is_examiner: boolean } }>('/api/lms/attestations/pending-count'),
 
     /** Кого можно назначить проверяющим. */
     searchExaminers: (search = ''): Promise<ResourceResponse<CoursePerson[]>> =>

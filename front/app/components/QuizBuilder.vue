@@ -351,6 +351,13 @@ function onKindChange() {
           </span>
         </span>
       </label>
+
+      <!-- Сюда приходит отказ снять аттестацию, по которой ещё не разобрали
+           сданные работы: ответ сервера должен стоять у самого переключателя,
+           иначе непонятно, что именно не дало сохранить. -->
+      <p v-if="errorFor('kind')" class="field__error">
+        {{ errorFor('kind') }}
+      </p>
     </fieldset>
 
     <div v-if="draft.kind === 'attestation'" class="field examiner">

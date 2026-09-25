@@ -6,13 +6,16 @@ namespace App\Actions\Lms;
 
 use App\Enums\AttestationStatus;
 use App\Exceptions\ConflictException;
+use App\Jobs\SendPush;
 use App\Models\Enrollment;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Support\Lms\AnswerSimilarity;
+use App\Support\Lms\MaterialLink;
 use App\Support\Lms\QuestionTable;
+use App\Support\Push\PushMessage;
 use Illuminate\Support\Facades\DB;
 
 final readonly class GradeQuizAttempt
@@ -90,7 +93,7 @@ final readonly class GradeQuizAttempt
         $isAttestation = $quiz->isAttestation();
         $passed = ! $isAttestation && $score >= $quiz->passing_score;
 
-        return DB::transaction(function () use ($quiz, $learner, $answers, $scores, $score, $passed, $isAttestation, $enrollment): QuizAttempt {
+        $attempt = DB::transaction(function () use ($quiz, $learner, $answers, $scores, $score, $passed, $isAttestation, $enrollment): QuizAttempt {
             $attempt = QuizAttempt::create([
                 'quiz_id' => $quiz->getKey(),
                 'user_id' => $learner->getKey(),
@@ -108,6 +111,50 @@ final readonly class GradeQuizAttempt
 
             return $attempt;
         });
+
+        if ($isAttestation) {
+            $this->tellExaminer($quiz, $learner);
+        }
+
+        return $attempt;
+    }
+
+    /**
+     * Говорит проверяющему, что работа пришла.
+     *
+     * Аттестация — единственное место, где движение дальше зависит от другого
+     * человека: пока он не прочитает работу, урок у сдавшего не зачтётся, а сам
+     * сдавший ничего сделать не может. Надеяться, что проверяющий сам заглянет
+     * в раздел, здесь нельзя — очередь не на виду, и работа молча ждёт неделями.
+     *
+     * Себе не сообщаем: проверяющий, сдавший собственную аттестацию, и так
+     * знает, что она сдана.
+     *
+     * Имя уведомления — тест и сдавший вместе: пересдача **заменяет** прежнее
+     * извещение (важна последняя работа, а не то, сколько раз её присылали), а
+     * работы разных людей ложатся на экран по отдельности — каждую читать
+     * отдельно.
+     */
+    private function tellExaminer(Quiz $quiz, User $learner): void
+    {
+        $examiner = $quiz->loadMissing('examiner')->examiner;
+
+        if ($examiner === null || $examiner->is($learner) || $examiner->dismissed_at !== null) {
+            return;
+        }
+
+        $material = MaterialLink::for($quiz->loadMissing('quizzable')->quizzable);
+
+        SendPush::dispatch([(int) $examiner->getKey()], new PushMessage(
+            title: 'Работа на проверку',
+            body: PushMessage::shorten(sprintf(
+                '%s сдал аттестацию%s',
+                $learner->name,
+                $material === null ? '' : ': '.$material->caption(),
+            )),
+            url: '/lms/attestations',
+            tag: sprintf('attestation-%d-%d', $quiz->getKey(), $learner->getKey()),
+        ));
     }
 
     /**

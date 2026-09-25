@@ -6,11 +6,14 @@ namespace App\Actions\Lms;
 
 use App\Enums\AttestationStatus;
 use App\Exceptions\ConflictException;
+use App\Jobs\SendPush;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\MaterialLink;
+use App\Support\Push\PushMessage;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -42,7 +45,7 @@ final readonly class ReviewAttestation
             throw new ConflictException('Эту работу уже проверили.');
         }
 
-        return DB::transaction(function () use ($attempt, $examiner, $isAccepted, $comment): QuizAttempt {
+        $reviewed = DB::transaction(function () use ($attempt, $examiner, $isAccepted, $comment): QuizAttempt {
             $attempt->fill([
                 'review_status' => $isAccepted ? AttestationStatus::Passed : AttestationStatus::Failed,
                 'passed' => $isAccepted,
@@ -57,6 +60,63 @@ final readonly class ReviewAttestation
 
             return $attempt;
         });
+
+        $this->tellLearner($reviewed, $examiner, $isAccepted, $comment);
+
+        return $reviewed;
+    }
+
+    /**
+     * Говорит сдавшему, чем кончилось.
+     *
+     * Ожидание здесь — не минуты, а дни, и всё это время человек не знает,
+     * зачли ему урок или придётся переделывать. Отказ без причины заставляет
+     * переспрашивать в мессенджере, поэтому комментарий проверяющего едет
+     * прямо в уведомлении: он и есть ответ на «что не так».
+     *
+     * Себе не сообщаем — проверяющий, разобравший собственную работу, о своём
+     * решении уже знает.
+     *
+     * Имя уведомления — сама работа: вердикт по ней выносится один раз, и
+     * заменять тут нечего.
+     */
+    private function tellLearner(QuizAttempt $attempt, User $examiner, bool $isAccepted, ?string $comment): void
+    {
+        $learner = $attempt->loadMissing('user')->user;
+
+        if ($learner === null || $learner->is($examiner) || $learner->dismissed_at !== null) {
+            return;
+        }
+
+        $material = MaterialLink::for($attempt->loadMissing('quiz.quizzable')->quiz?->quizzable);
+
+        SendPush::dispatch([(int) $learner->getKey()], new PushMessage(
+            title: $isAccepted ? 'Аттестация зачтена' : 'Аттестация не зачтена',
+            body: PushMessage::shorten($this->verdict($material, $isAccepted, $comment)),
+            // Ведём к материалу, а не в очередь: очередь — раздел проверяющего,
+            // сдавшему в ней нечего делать. Некуда вести — остаётся план: там
+            // видно, что осталось пройти.
+            url: $material?->url ?? '/lms/plan',
+            tag: sprintf('attestation-verdict-%d', $attempt->getKey()),
+        ));
+    }
+
+    /**
+     * Что человек прочтёт на экране телефона: по какой работе ответ и, если
+     * проверяющий написал, почему.
+     */
+    private function verdict(?MaterialLink $material, bool $isAccepted, ?string $comment): string
+    {
+        $about = $material === null
+            ? ($isAccepted ? 'Работа принята.' : 'Работу нужно переделать.')
+            : sprintf(
+                $isAccepted ? 'Работа принята: %s.' : 'Работу нужно переделать: %s.',
+                $material->caption(),
+            );
+
+        $said = trim((string) $comment);
+
+        return $said === '' ? $about : $about.' '.$said;
     }
 
     /**

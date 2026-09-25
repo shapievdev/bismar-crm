@@ -34,12 +34,16 @@ export function useNavigation() {
   const pendingNews = useState('nav.pending-news', () => 0)
 
   /**
-   * Сколько работ ждут вашей проверки.
+   * Сколько работ ждут вашей проверки и поручено ли вам проверять вообще.
    *
-   * По этому же числу решается, показывать ли вкладку «Аттестация»: назначения
-   * есть не у всех, и пустой раздел в меню — обещание, за которым ничего нет.
-   * Разобранные работы в счёт не идут, но вкладка остаётся видна тому, у кого
-   * они были: к ним возвращаются.
+   * Второе спрашивается у сервера отдельно, и от него зависит, показывать ли
+   * вкладку «Аттестация»: назначения есть не у всех, и пустой раздел в меню —
+   * обещание, за которым ничего нет.
+   *
+   * По числу ждущих это решалось прежде, и решалось неверно: вкладка пропадала,
+   * едва проверяющий разбирал очередь, — а с нею пропадал и путь к разобранным
+   * работам, к которым возвращаются. Следующую сданную работу он находил уже
+   * случайно.
    */
   const pendingAttestations = useState('nav.pending-attestations', () => 0)
   const hasAttestations = useState('nav.has-attestations', () => false)
@@ -53,10 +57,10 @@ export function useNavigation() {
     }
 
     try {
-      const pending = (await fetchPendingAttestations()).data.pending
+      const { pending, is_examiner } = (await fetchPendingAttestations()).data
 
       pendingAttestations.value = pending
-      hasAttestations.value = hasAttestations.value || pending > 0
+      hasAttestations.value = is_examiner
     }
     catch {
       pendingAttestations.value = 0

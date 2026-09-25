@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\ReviewAttestationRequest;
 use App\Http\Resources\Lms\AttestationResource;
 use App\Http\Resources\Lms\CoursePersonResource;
+use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Support\Lms\QuizReview;
@@ -82,8 +83,16 @@ final class AttestationController extends Controller
     }
 
     /**
-     * Сколько работ ждёт ответа. Нужен значку в навигации, поэтому отвечает
-     * одним числом, а не списком.
+     * Сколько работ ждёт ответа и поручено ли этому человеку вообще проверять.
+     *
+     * Второе спрашивается отдельно и нужно навигации: по числу ждущих решать,
+     * показывать ли раздел, нельзя. Пустая очередь и отсутствие назначения — не
+     * одно и то же: у первого раздел просто пуст сегодня, у второго его нет
+     * вовсе. Пока вкладка держалась на числе, назначенный проверяющий терял её
+     * из виду, едва разобрав очередь, — и следующую работу находил только
+     * случайно.
+     *
+     * Отвечает двумя числами, а не списком: значок висит на каждой странице.
      */
     public function pendingCount(Request $request): JsonResponse
     {
@@ -96,6 +105,12 @@ final class AttestationController extends Controller
                     ->where('review_status', AttestationStatus::Pending)
                     ->whereHas('quiz', fn ($query) => $query->where('examiner_id', $examiner->getKey()))
                     ->count(),
+
+                // Назначение, а не право: аттестацию поручают человеку, выбрав
+                // его в тесте, — см. докблок класса.
+                'is_examiner' => Quiz::query()
+                    ->where('examiner_id', $examiner->getKey())
+                    ->exists(),
             ],
         ]);
     }

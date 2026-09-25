@@ -7,13 +7,16 @@ namespace Tests\Feature\Lms;
 use App\Enums\AttestationStatus;
 use App\Enums\QuestionType;
 use App\Enums\QuizKind;
+use App\Jobs\SendPush;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\LessonCompletion;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
+use App\Support\Push\PushMessage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
@@ -78,6 +81,74 @@ final class AttestationTest extends TestCase
                 examiner: $this->learner(),
             ))
             ->assertJsonValidationErrorFor('examiner_id');
+    }
+
+    /**
+     * Аттестацию нельзя разжаловать, пока очередь не разобрана.
+     *
+     * Так и случилось на боевом 2026-09-25: тест пересохранили обычным, и
+     * четыре сданные работы разом пропали из очереди — искать их там некому,
+     * запрос ходит по `examiner_id`, а он обнулился вместе с видом.
+     */
+    public function test_an_attestation_with_work_in_the_queue_stays_an_attestation(): void
+    {
+        [$lesson, $quiz, $examiner] = $this->attestation();
+
+        $this->submit($this->learner(), $lesson, $quiz);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.quiz.save', $lesson), $this->payload(kind: QuizKind::Standard))
+            ->assertJsonValidationErrorFor('kind');
+
+        $quiz->refresh();
+
+        $this->assertTrue($quiz->isAttestation(), 'Вид теста всё-таки сбросили.');
+        $this->assertSame($examiner->getKey(), $quiz->examiner_id, 'Проверяющий потерялся.');
+
+        // Главное — работа по-прежнему видна тому, кто её ждёт.
+        $this->actingAs($examiner)
+            ->getJson(route('lms.attestations.index'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
+    /** Разобранная очередь никого не держит: вид теста снова свободен. */
+    public function test_an_attestation_becomes_an_ordinary_quiz_once_the_queue_is_clear(): void
+    {
+        [$lesson, $quiz, $examiner] = $this->attestation();
+
+        $this->submit($this->learner(), $lesson, $quiz);
+
+        $this->actingAs($examiner)
+            ->postJson(route('lms.attestations.verdict', QuizAttempt::query()->sole()), ['is_accepted' => true])
+            ->assertOk();
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.quiz.save', $lesson), $this->payload(kind: QuizKind::Standard))
+            ->assertOk()
+            ->assertJsonPath('data.kind', QuizKind::Standard->value);
+    }
+
+    /**
+     * Правка вопросов не решает за автора, кто выносит приговор.
+     *
+     * Запрос без поля `kind` — не просьба сделать тест обычным: о виде в нём не
+     * сказано ничего, и трогать его нечем.
+     */
+    public function test_saving_without_a_kind_keeps_the_examiner(): void
+    {
+        [$lesson, $quiz, $examiner] = $this->attestation();
+
+        $payload = $this->payload(kind: QuizKind::Attestation, examiner: $examiner);
+        unset($payload['kind'], $payload['examiner_id']);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.quiz.save', $lesson), $payload)
+            ->assertOk()
+            ->assertJsonPath('data.kind', QuizKind::Attestation->value)
+            ->assertJsonPath('data.examiner.id', $examiner->getKey());
+
+        $this->assertTrue($quiz->refresh()->isAttestation());
     }
 
     /* ---------- Что происходит при сдаче ---------- */
@@ -269,6 +340,96 @@ final class AttestationTest extends TestCase
             ->assertConflict();
     }
 
+    /* ---------- Кому об этом говорят ---------- */
+
+    /**
+     * Проверяющему звонит телефон: иначе о работе узнаёт только тот, кто сам
+     * заглянет в раздел, а движение вперёд здесь зависит именно от него.
+     */
+    public function test_the_examiner_is_told_that_work_has_arrived(): void
+    {
+        Queue::fake();
+
+        [$lesson, $quiz, $examiner] = $this->attestation();
+        $learner = $this->learner();
+
+        $this->submit($learner, $lesson, $quiz);
+
+        Queue::assertPushed(SendPush::class, function (SendPush $job) use ($examiner, $learner, $lesson): bool {
+            $message = $this->messageOf($job);
+
+            return $this->recipientsOf($job) === [$examiner->id]
+                && $message->url === '/lms/attestations'
+                && str_contains($message->body, $learner->name)
+                && str_contains($message->body, (string) $lesson->title);
+        });
+    }
+
+    /** Обычный тест приложение проверяет само — будить телефон незачем. */
+    public function test_an_ordinary_quiz_wakes_nobody(): void
+    {
+        Queue::fake();
+
+        $lesson = $this->lesson();
+        $quiz = Quiz::factory()->withQuestions(1)->forLesson($lesson)->create();
+
+        $this->submit($this->learner(), $lesson, $quiz->load('questions.options'));
+
+        Queue::assertNotPushed(SendPush::class);
+    }
+
+    /**
+     * Сдавший узнаёт, чем кончилось, — вместе с причиной: ждут здесь днями, а
+     * «не зачтено» без объяснения заставляет переспрашивать в мессенджере.
+     */
+    public function test_the_learner_is_told_about_the_verdict(): void
+    {
+        [$lesson, $quiz, $examiner] = $this->attestation();
+        $learner = $this->learner();
+
+        $this->submit($learner, $lesson, $quiz);
+
+        Queue::fake();
+
+        $this->actingAs($examiner)
+            ->postJson(route('lms.attestations.verdict', QuizAttempt::query()->sole()), [
+                'is_accepted' => false,
+                'comment' => 'В таблице перепутаны месяцы.',
+            ])
+            ->assertOk();
+
+        Queue::assertPushed(SendPush::class, function (SendPush $job) use ($learner, $lesson): bool {
+            $message = $this->messageOf($job);
+
+            return $this->recipientsOf($job) === [$learner->id]
+                && $message->title === 'Аттестация не зачтена'
+                && str_contains($message->body, 'В таблице перепутаны месяцы.')
+                && str_contains((string) $message->url, (string) $lesson->getKey());
+        });
+    }
+
+    /**
+     * Раздел держится на назначении, а не на длине очереди.
+     *
+     * Пока он появлялся от «есть непроверенные работы», проверяющий терял его
+     * из виду, едва разобрав очередь, — и следующую работу находил случайно.
+     */
+    public function test_the_examiner_keeps_the_section_with_an_empty_queue(): void
+    {
+        [, , $examiner] = $this->attestation();
+
+        $this->actingAs($examiner)
+            ->getJson(route('lms.attestations.pending-count'))
+            ->assertOk()
+            ->assertJsonPath('data.pending', 0)
+            ->assertJsonPath('data.is_examiner', true);
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.attestations.pending-count'))
+            ->assertOk()
+            ->assertJsonPath('data.is_examiner', false);
+    }
+
     /* ---------- helpers ---------- */
 
     private function lesson(): Lesson
@@ -300,6 +461,22 @@ final class AttestationTest extends TestCase
         $this->actingAs($learner)
             ->postJson(route('lms.quiz.submit', $lesson), ['answers' => $this->correctAnswers($quiz)])
             ->assertCreated();
+    }
+
+    /**
+     * Кому ушло уведомление и что в нём написано: поля задания закрыты, а
+     * проверяется здесь именно они.
+     *
+     * @return list<int>
+     */
+    private function recipientsOf(SendPush $job): array
+    {
+        return (fn (): array => $this->userIds)->call($job);
+    }
+
+    private function messageOf(SendPush $job): PushMessage
+    {
+        return (fn (): PushMessage => $this->message)->call($job);
     }
 
     /**
