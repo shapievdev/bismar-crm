@@ -6,9 +6,9 @@ namespace Database\Factories;
 
 use App\Enums\SurveyQuestionType;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\Survey;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -49,7 +49,7 @@ final class SurveyFactory extends Factory
         return $this->forOwner($regulation);
     }
 
-    public function forVersion(RegulationVersion $version): self
+    public function forVersion(MaterialVersion $version): self
     {
         return $this->forOwner($version);
     }
@@ -134,7 +134,7 @@ final class SurveyFactory extends Factory
     }
 
     /**
-     * @param  Lesson|Regulation|RegulationVersion|News  $owner
+     * @param  Lesson|Regulation|MaterialVersion|News  $owner
      */
     private function forOwner($owner): self
     {

@@ -43,11 +43,11 @@ class RegulationAcknowledgement extends Model
      * ознакомления со всеми значило бы требовать прочитать чужие правила. Null
      * — общая версия, то есть всё, что отмечено до появления версий.
      *
-     * @return BelongsTo<RegulationVersion, $this>
+     * @return BelongsTo<MaterialVersion, $this>
      */
     public function version(): BelongsTo
     {
-        return $this->belongsTo(RegulationVersion::class, 'version_id');
+        return $this->belongsTo(MaterialVersion::class, 'version_id');
     }
 
     /**

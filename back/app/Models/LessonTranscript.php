@@ -52,11 +52,11 @@ class LessonTranscript extends Model implements PartOfCourse
     /**
      * Версия документа, из текста которой выведена расшифровка. Null — общая.
      *
-     * @return BelongsTo<RegulationVersion, $this>
+     * @return BelongsTo<MaterialVersion, $this>
      */
     public function version(): BelongsTo
     {
-        return $this->belongsTo(RegulationVersion::class, 'version_id');
+        return $this->belongsTo(MaterialVersion::class, 'version_id');
     }
 
     /**

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
-import type { SurveyOwner } from '~/composables/useSurveyApi'
-import type { MaterialSection, MaterialVersion, QuizPayload } from '~/types/lms'
+import type { VersionsTarget } from '~/composables/useVersionsApi'
+import type { MaterialVersion, QuizPayload } from '~/types/lms'
 import type { SurveyPayload } from '~/types/survey'
 import type { Group } from '~/types/structure'
 import { type FlatDepartment, flattenDepartments } from '~/utils/departments'
@@ -9,54 +9,49 @@ import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachm
 import type { UploadOptions } from '~/utils/upload'
 
 /**
- * Правка одной версии материала — один экран на оба раздела.
+ * Правка одной версии материала — один экран на документ, справочник и урок.
  *
- * У версии своё тело: статья, файлы и проверка. Всё остальное — заголовок,
- * категория, слова поиска, ответственные, соседи, допуск — общее на документ и
- * правится там же, где правился всегда.
+ * У версии своё тело: статья, файлы, проверка, а у версии урока ещё и запись.
+ * Всё остальное — заголовок, категория, слова поиска, ответственные, соседи,
+ * допуск, место в модуле — общее на материал и правится там же, где правилось
+ * всегда.
  *
- * Отдельным экраном, а не вкладкой в редакторе документа: это полноценное
+ * Отдельным экраном, а не вкладкой в редакторе материала: это полноценное
  * тело со своим редактором статьи, своим списком файлов и своим конструктором
  * вопросов, и втискивать второй такой же набор в уже плотный экран значило бы
  * запутать, какой текст сейчас правят.
  */
-const props = defineProps<{ section: MaterialSection }>()
+const props = defineProps<{
+  target: VersionsTarget
+  /** Название материала и путь назад — их знает вызывающий экран. */
+  materialTitle: string
+  /** Чем материал называть в тексте: «урок», «документ», «справочник». */
+  articlePlaceholder: string
+  /** Что означает сдача проверки при этой версии, словами для автора. */
+  creditLabel: string
+}>()
 
-const copy = useMaterialSection(props.section)
+const api = useVersionsApi(props.target)
 
 const route = useRoute()
 const router = useRouter()
 
-const slug = computed(() => String(route.params.slug))
 const versionId = computed(() => Number(route.params.version))
-
-const {
-  fetchRegulation,
-  fetchVersion,
-  updateVersion,
-  saveVersionQuiz,
-  deleteVersionQuiz,
-  uploadVersionAttachment,
-  updateAttachment,
-  deleteAttachment,
-  attachVersionDriveFile,
-} = useMaterialsApi(props.section)
+const isLessonVersion = computed(() => props.target.kind === 'lesson')
 
 const { fetchGroups } = useGroupsApi()
 const { fetchStructure } = useStructureApi()
 
 const { data, error, refresh } = await useAsyncData(
-  () => `lms.${props.section}.version.${versionId.value}`,
+  () => `lms.version.${props.target.kind}.${versionId.value}`,
   async () => {
-    const [material, version, groups, structure] = await Promise.all([
-      fetchRegulation(slug.value),
-      fetchVersion(slug.value, versionId.value),
+    const [version, groups, structure] = await Promise.all([
+      api.read(versionId.value),
       fetchGroups(),
       fetchStructure(),
     ])
 
     return {
-      material: material.data,
       version: version.data,
       groups: groups.data,
       departments: flattenDepartments(structure.data),
@@ -68,7 +63,6 @@ if (error.value) {
   throw createError({ statusCode: 404, statusMessage: 'Версия не найдена', fatal: true })
 }
 
-const material = computed(() => data.value?.material ?? null)
 const version = computed<MaterialVersion | null>(() => data.value?.version ?? null)
 const groups = computed<Group[]>(() => data.value?.groups ?? [])
 const departments = computed<FlatDepartment[]>(() => data.value?.departments ?? [])
@@ -82,6 +76,8 @@ const form = reactive({
   is_private: false,
   groups: [] as number[],
   departments: [] as number[],
+  /** Ссылка на запись — только у версии урока; у документа поле не рисуется. */
+  video_url: '' as string,
 })
 
 // Заполняется один раз на версию, а не при каждом перечитывании записи:
@@ -98,7 +94,61 @@ watch(() => version.value?.id, () => {
   form.is_private = value.is_private
   form.groups = (value.groups ?? []).map(group => group.id)
   form.departments = (value.departments ?? []).map(unit => unit.id)
+
+  // Подписанный адрес загруженного файла в поле не кладём: там место ссылке
+  // на YouTube, а загруженная запись живёт своей строкой ниже.
+  form.video_url = value.video_name ? '' : (value.video_url ?? '')
 }, { immediate: true })
+
+/* ---------- Запись версии урока ---------- */
+
+const isUploadingVideo = ref(false)
+const videoProgress = ref(0)
+
+/** Загруженная запись версии — у неё есть имя файла; ссылка имени не имеет. */
+const uploadedVideo = computed(() => version.value?.video_name ?? null)
+
+async function uploadVideo(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+
+  if (!file) {
+    return
+  }
+
+  isUploadingVideo.value = true
+  videoProgress.value = 0
+
+  try {
+    await api.uploadVideo(versionId.value, file, {
+      onProgress: progress => videoProgress.value = progress.percent,
+    })
+
+    await refresh()
+  }
+  catch {
+    generalError.value = 'Не удалось загрузить запись.'
+  }
+  finally {
+    isUploadingVideo.value = false
+    input.value = ''
+  }
+}
+
+async function dropVideo() {
+  isUploadingVideo.value = true
+
+  try {
+    await api.removeVideo(versionId.value)
+    await refresh()
+  }
+  catch {
+    generalError.value = 'Не удалось убрать запись.'
+  }
+  finally {
+    isUploadingVideo.value = false
+  }
+}
 
 /**
  * Статья версии. Адреса вложенных картинок живут час, а текст — годы: версия
@@ -134,15 +184,16 @@ async function save() {
   generalError.value = null
 
   try {
-    await updateVersion(slug.value, versionId.value, {
+    await api.update(versionId.value, {
       name: form.name,
       is_private: form.is_private,
       groups: form.groups,
       departments: form.departments,
       content_json: withoutResolvedMedia(document.value),
+      ...isLessonVersion.value ? { video_url: form.video_url } : {},
     })
 
-    await router.push(`/lms/${copy.section}/${slug.value}/edit`)
+    await router.push(api.materialPath())
   }
   catch (caught) {
     if (caught instanceof ApiValidationError) {
@@ -182,7 +233,7 @@ async function persistQuiz(payload: QuizPayload) {
   quizErrors.value = {}
 
   try {
-    await saveVersionQuiz(slug.value, versionId.value, payload)
+    await api.saveQuiz(versionId.value, payload)
     await refresh()
   }
   catch (caught) {
@@ -207,12 +258,7 @@ async function persistQuiz(payload: QuizPayload) {
  */
 const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
 
-const surveyOwner = computed<SurveyOwner>(() => ({
-  kind: 'version',
-  section: props.section,
-  slug: slug.value,
-  versionId: versionId.value,
-}))
+const surveyOwner = computed(() => api.surveyOwner(versionId.value))
 
 const surveyErrors = ref<ValidationErrors>({})
 const isSavingSurvey = ref(false)
@@ -261,7 +307,7 @@ async function dropQuiz() {
   isSavingQuiz.value = true
 
   try {
-    await deleteVersionQuiz(slug.value, versionId.value)
+    await api.deleteQuiz(versionId.value)
     showQuizBuilder.value = false
     await refresh()
   }
@@ -279,7 +325,7 @@ async function dropQuiz() {
  * версией.
  */
 async function uploadInline(file: File, options: UploadOptions, label: string): Promise<UploadedMedia> {
-  const { data: attachment } = await uploadVersionAttachment(slug.value, versionId.value, file, label, options)
+  const { data: attachment } = await api.uploadAttachment(versionId.value, file, label, options)
 
   void refresh()
 
@@ -288,20 +334,20 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
 </script>
 
 <template>
-  <section v-if="version && material" class="version-editor">
+  <section v-if="version" class="version-editor">
     <header class="page-header">
       <div>
         <p class="faint">
-          <NuxtLink :to="`/lms/${copy.section}/${slug}/edit`">
-            ← {{ material.title }}
+          <NuxtLink :to="api.materialPath()">
+            ← {{ materialTitle }}
           </NuxtLink>
         </p>
         <h1 class="page-title">
           Версия «{{ version.name }}»
         </h1>
         <p class="page-subtitle">
-          Своя статья, свои файлы и своя проверка. Заголовок, категория,
-          ответственные и допуск — общие на весь {{ copy.materialLabel.toLowerCase() }}.
+          Своё тело: статья, файлы и проверка. Всё остальное — общее на весь
+          {{ api.materialLabel }}.
         </p>
       </div>
     </header>
@@ -374,12 +420,57 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
         Закрытая — видна только выбранным отделам и группам
       </label>
 
+      <!-- Запись версии — только у урока: у розницы своё видео, у офиса своё.
+           Ссылка и загруженный файл не складываются: заводят одно из двух. -->
+      <template v-if="isLessonVersion">
+        <div class="field">
+          <label class="field-label" for="version-video">Ссылка на запись</label>
+          <input
+            id="version-video"
+            v-model.trim="form.video_url"
+            class="input"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=…"
+            :disabled="Boolean(uploadedVideo)"
+          >
+          <p class="faint field-hint">
+            YouTube или Vimeo. Если запись загружена файлом, ссылка не нужна.
+          </p>
+          <p v-if="errors.video_url?.length" class="field-error">
+            {{ errors.video_url[0] }}
+          </p>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Или загрузите запись</span>
+
+          <p v-if="uploadedVideo" class="version-video">
+            <span>{{ uploadedVideo }}</span>
+            <button
+              type="button"
+              class="button-ghost button-sm"
+              :disabled="isUploadingVideo"
+              @click="dropVideo"
+            >
+              Убрать
+            </button>
+          </p>
+
+          <template v-else>
+            <input type="file" accept="video/*" :disabled="isUploadingVideo" @change="uploadVideo">
+            <p v-if="isUploadingVideo" class="faint field-hint">
+              Загружаем… {{ videoProgress }}%
+            </p>
+          </template>
+        </div>
+      </template>
+
       <div class="field">
         <span class="field-label">Статья версии</span>
         <ClientOnly>
           <EditorRichTextEditor
             v-model="document"
-            :placeholder="copy.articlePlaceholder"
+            :placeholder="articlePlaceholder"
             :upload-image="(file, options) => uploadInline(file, options, 'Изображение в версии')"
             :upload-video="(file, options) => uploadInline(file, options, 'Видео в версии')"
           />
@@ -391,10 +482,10 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
          идут общими адресами документа — файл при нём и лежит. -->
     <AttachmentManager
       :attachments="version.attachments ?? []"
-      :upload-file="(file, description, options) => uploadVersionAttachment(slug, versionId, file, description, options)"
-      :rename-file="(id, description) => updateAttachment(slug, id, description)"
-      :remove-file="(id) => deleteAttachment(slug, id)"
-      :attach-drive-file="(file) => attachVersionDriveFile(slug, versionId, file)"
+      :upload-file="(file, description, options) => api.uploadAttachment(versionId, file, description, options)"
+      :rename-file="(id, description) => api.renameAttachment(id, description)"
+      :remove-file="(id) => api.removeAttachment(id)"
+      :attach-drive-file="(file) => api.attachDriveFile(versionId, file)"
       @changed="refresh"
     />
 
@@ -404,9 +495,8 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
           Проверка версии
         </h2>
         <p class="faint">
-          Своя у каждой версии. Сдал — {{ copy.materialLabel.toLowerCase() }}
-          зачтётся прочитанным: отметка одна на человека, и версия остаётся на
-          ней пометкой.
+          Своя у каждой версии. Сдал — {{ creditLabel }}: отметка одна на
+          человека, и версия остаётся на ней пометкой.
         </p>
       </div>
 
@@ -446,7 +536,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
       :survey="version.survey ?? null"
       :errors="surveyErrors"
       :is-submitting="isSavingSurvey"
-      :material-label="copy.materialLabel.toLowerCase()"
+      :material-label="api.materialLabel"
       credit-label="не отметится ознакомленным"
       @save="persistSurvey"
       @remove="dropSurvey"
@@ -551,6 +641,18 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+/* Загруженная запись версии: имя файла и кнопка «убрать» одной строкой. */
+.version-video {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .actions {

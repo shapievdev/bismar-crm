@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Lms;
 
-use App\Models\RegulationVersion;
+use App\Models\MaterialVersion;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,9 +15,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * весил бы пятью статьями, а читают за раз одну. Тот же приём, что и у самого
  * документа в каталоге, — см. `sends_content` в RegulationResource.
  *
- * @mixin RegulationVersion
+ * @mixin MaterialVersion
  */
-final class RegulationVersionResource extends JsonResource
+final class MaterialVersionResource extends JsonResource
 {
     /**
      * @return array<string, mixed>
@@ -61,9 +61,36 @@ final class RegulationVersionResource extends JsonResource
 
             'content_json' => $this->when((bool) $this->sends_content, fn () => $this->content_json),
 
+            /*
+             * Файлы версии. Таблица у них разная — у урока своя, у документа
+             * своя, — и ресурс тоже: у вложения урока есть поля, которых у
+             * документа нет. Какие показывать, решает материал версии.
+             */
             'attachments' => $this->when(
                 (bool) $this->sends_content,
-                fn (): array => RegulationAttachmentResource::collection($this->attachments)->resolve(),
+                fn (): array => $this->resource->isOfLesson()
+                    ? LessonAttachmentResource::collection($this->resource->files())->resolve()
+                    : RegulationAttachmentResource::collection($this->resource->files())->resolve(),
+            ),
+
+            /*
+             * Запись версии — то, чего у документа не бывает вовсе
+             * (2026-09-25): у розницы своё видео, у офиса своё.
+             *
+             * Адрес загруженного файла — подписанный и недолгий, как у самого
+             * урока; ссылка на YouTube едет как есть.
+             */
+            'video_url' => $this->when(
+                (bool) $this->sends_content && $this->resource->isOfLesson(),
+                fn (): ?string => $this->video_url,
+            ),
+            'video_upload_url' => $this->when(
+                (bool) $this->sends_content && $this->resource->isOfLesson(),
+                fn (): ?string => $this->resource->videoUrl(),
+            ),
+            'video_name' => $this->when(
+                (bool) $this->sends_content && $this->resource->isOfLesson(),
+                fn (): ?string => $this->video_name,
             ),
 
             // Проверка при версии: сдал её — значит ознакомился с документом.

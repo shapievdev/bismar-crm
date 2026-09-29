@@ -96,7 +96,7 @@ final class RegulationResource extends JsonResource
              */
             'versions' => $this->when(
                 $this->available_versions !== null,
-                fn (): array => RegulationVersionResource::collection($this->available_versions)->resolve(),
+                fn (): array => MaterialVersionResource::collection($this->available_versions)->resolve(),
             ),
 
             /*
@@ -110,7 +110,7 @@ final class RegulationResource extends JsonResource
              */
             'version' => $this->when(
                 $this->shown_version !== null,
-                fn () => RegulationVersionResource::make($this->shown_version),
+                fn () => MaterialVersionResource::make($this->shown_version),
             ),
         ];
     }

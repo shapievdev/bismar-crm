@@ -8,8 +8,11 @@ use App\Exceptions\ConflictException;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\LessonCompletion;
+use App\Models\MaterialVersion;
 use App\Support\Lms\MaterialDues;
+use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\ProgressCalculator;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 final readonly class CompleteLesson
@@ -17,25 +20,38 @@ final readonly class CompleteLesson
     public function __construct(
         private ProgressCalculator $progress,
         private MaterialDues $dues,
+        private MaterialVersions $versions,
     ) {}
 
     /**
      * Marks a lesson done for this enrolment and closes the course if that was
      * the last one.
      *
+     * Отметка одна на человека, а версия — пометка на ней (2026-09-25): версия
+     * у него одна, и требовать пройти все значило бы требовать выучить чужие
+     * правила. Какую именно он прошёл, спрашивается здесь же, если не сказали:
+     * сдать могли и с общей страницы урока.
+     *
      * @throws ConflictException
      */
-    public function handle(Enrollment $enrollment, Lesson $lesson): Enrollment
+    public function handle(Enrollment $enrollment, Lesson $lesson, ?MaterialVersion $version = null): Enrollment
     {
+        $version ??= $this->versionFor($enrollment, $lesson);
+
         $this->ensureLessonBelongsToCourse($enrollment, $lesson);
         $this->ensureEarlierLessonsAreDone($enrollment, $lesson);
-        $this->ensureQuizWasPassed($enrollment, $lesson);
-        $this->ensureSurveyWasAnswered($enrollment, $lesson);
 
-        return DB::transaction(function () use ($enrollment, $lesson): Enrollment {
+        // Требования спрашиваются у того текста, который человеку и
+        // предназначен: свой тест и свой опрос у версии, общие — у урока.
+        $required = $version ?? $lesson;
+
+        $this->ensureQuizWasPassed($enrollment, $required);
+        $this->ensureSurveyWasAnswered($enrollment, $required);
+
+        return DB::transaction(function () use ($enrollment, $lesson, $version): Enrollment {
             LessonCompletion::firstOrCreate(
                 ['enrollment_id' => $enrollment->getKey(), 'lesson_id' => $lesson->getKey()],
-                ['completed_at' => now()],
+                ['completed_at' => now(), 'version_id' => $version?->getKey()],
             );
 
             // Пройденный урок — это «взялся за курс», даже если кнопку начала
@@ -49,6 +65,17 @@ final readonly class CompleteLesson
     }
 
     /**
+     * Версия урока, которую проходит этот человек. Null — общая, то есть сам
+     * урок; так и у большинства уроков, которые на версии не делили вовсе.
+     */
+    private function versionFor(Enrollment $enrollment, Lesson $lesson): ?MaterialVersion
+    {
+        $learner = $enrollment->loadMissing('user')->user;
+
+        return $learner === null ? null : $this->versions->defaultFor($lesson, $learner);
+    }
+
+    /**
      * Обязательный опрос при уроке держит зачёт так же, как тест (решение
      * пользователя 2026-09-21): «пройдено» нажимают после того, как высказались,
      * а не вместо.
@@ -56,17 +83,20 @@ final readonly class CompleteLesson
      * Необязательный не держит ничего — его на то и заводят, чтобы спросить тех,
      * кому есть что сказать.
      *
+     * @param  Lesson|MaterialVersion  $required  урок или та его версия, которую
+     *                                            проходит этот человек
+     *
      * @throws ConflictException
      */
-    private function ensureSurveyWasAnswered(Enrollment $enrollment, Lesson $lesson): void
+    private function ensureSurveyWasAnswered(Enrollment $enrollment, Model $required): void
     {
         $learner = $enrollment->loadMissing('user')->user;
 
-        if ($learner === null || ! $this->dues->surveyPending($lesson, $learner)) {
+        if ($learner === null || ! $this->dues->surveyPending($required, $learner)) {
             return;
         }
 
-        throw new ConflictException($this->dues->pendingMessage($lesson));
+        throw new ConflictException($this->dues->pendingMessage($required));
     }
 
     /**
@@ -158,17 +188,23 @@ final readonly class CompleteLesson
      * Сдать — значит ответить верно на все вопросы: планка теста при уроке
      * равна ста процентам, см. Quiz::PASSING_SCORE.
      *
+     * Спрашивается тест того текста, который человеку предназначен: у версии он
+     * свой, и требовать сдачи общего значило бы спросить с розницы по бланку
+     * офиса.
+     *
+     * @param  Lesson|MaterialVersion  $required
+     *
      * @throws ConflictException
      */
-    private function ensureQuizWasPassed(Enrollment $enrollment, Lesson $lesson): void
+    private function ensureQuizWasPassed(Enrollment $enrollment, Model $required): void
     {
-        $lesson->loadMissing('quiz');
+        $required->loadMissing('quiz');
 
-        if ($lesson->quiz === null) {
+        if ($required->quiz === null) {
             return;
         }
 
-        $passed = $lesson->quiz->attempts()
+        $passed = $required->quiz->attempts()
             ->where('user_id', $enrollment->user_id)
             ->where('passed', true)
             ->exists();

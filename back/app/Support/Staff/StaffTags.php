@@ -71,12 +71,14 @@ final readonly class StaffTags
             by_plan_document as (
                 select i.user_id, p.id as quiz_id
                 from probation p
-                left join regulation_versions v
-                    on p.quizzable_type = 'regulation_version' and v.id = p.quizzable_id
+                left join material_versions v
+                    on p.quizzable_type = 'material_version'
+                    and v.versionable_type = 'regulation'
+                    and v.id = p.quizzable_id
                 join learning_plan_items i
                     on i.plannable_type = 'regulation'
-                    and i.plannable_id = coalesce(v.regulation_id, p.quizzable_id)
-                where p.quizzable_type in ('regulation', 'regulation_version')
+                    and i.plannable_id = coalesce(v.versionable_id, p.quizzable_id)
+                where p.quizzable_type in ('regulation', 'material_version')
                   and i.user_id = any(?)
             ),
             assigned as (

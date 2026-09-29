@@ -6,8 +6,8 @@ namespace App\Actions\Lms;
 
 use App\Enums\AnswerSource;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Support\Lms\BlockIdentifier;
 use App\Support\Lms\RichTextExtractor;
 use App\Support\Lms\TranscriptCue;
@@ -47,7 +47,7 @@ final readonly class SyncLessonTranscripts
      *
      * @return int сколько блоков получили выведенную расшифровку
      */
-    public function handle(Lesson|Regulation|RegulationVersion $material): int
+    public function handle(Lesson|Regulation|MaterialVersion $material): int
     {
         $blocks = $this->blocks($material);
 
@@ -71,12 +71,12 @@ final readonly class SyncLessonTranscripts
             }
 
             $transcript = $material->transcripts()->create([
-                // У версии хозяев два: сам документ — им идёт отбор в поиске,
+                // У версии хозяев два: сам материал — им идёт отбор в поиске,
                 // — и версия, которая сужает выбранное. Проверка в базе
-                // требует ровно одного из урока и документа, и документ здесь
-                // обязателен.
-                ...$material instanceof RegulationVersion
-                    ? ['regulation_id' => $material->regulation_id]
+                // требует ровно одного из урока и документа, и владелец версии
+                // здесь обязателен — какой именно, зависит от того, чья она.
+                ...$material instanceof MaterialVersion
+                    ? $this->ownerColumn($material)
                     : [],
                 'source_kind' => AnswerSource::Text,
                 // Одна на весь текст урока, а не на каждый абзац: у статьи на
@@ -103,16 +103,30 @@ final readonly class SyncLessonTranscripts
             match (true) {
                 $material instanceof Lesson => $transcript->setRelation('lesson', $material),
                 $material instanceof Regulation => $transcript->setRelation('regulation', $material),
-                default => $transcript->setRelation(
-                    'regulation',
-                    $material->loadMissing('regulation')->regulation,
-                ),
+                $material->isOfLesson() => $transcript->setRelation('lesson', $material->lesson()),
+                default => $transcript->setRelation('regulation', $material->regulation()),
             };
 
             $this->segments->handle($transcript, $this->cues($blocks));
 
             return 1;
         });
+    }
+
+    /**
+     * Чей это кусок — столбцом, которым он привязан к материалу.
+     *
+     * Версия сама по себе в корпусе не живёт: отбор (состояние, раздел,
+     * закрытость) идёт по уроку или документу, а версия лишь сужает выбранное
+     * до того текста, который этому человеку и предназначен.
+     *
+     * @return array<string, int|null>
+     */
+    private function ownerColumn(MaterialVersion $version): array
+    {
+        return $version->isOfLesson()
+            ? ['lesson_id' => $version->versionable_id]
+            : ['regulation_id' => $version->versionable_id];
     }
 
     /**
@@ -149,7 +163,7 @@ final readonly class SyncLessonTranscripts
      *
      * @return array<string|null, string>
      */
-    private function blocks(Lesson|Regulation|RegulationVersion $material): array
+    private function blocks(Lesson|Regulation|MaterialVersion $material): array
     {
         $document = $material->content_json;
 

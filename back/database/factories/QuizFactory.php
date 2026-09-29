@@ -7,9 +7,9 @@ namespace Database\Factories;
 use App\Enums\QuestionType;
 use App\Enums\QuizKind;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -62,7 +62,7 @@ final class QuizFactory extends Factory
      * Версий у документа бывает несколько, и проверка у каждой своя: каждый
      * проходит ту, что адресована его группе.
      */
-    public function forVersion(RegulationVersion $version): self
+    public function forVersion(MaterialVersion $version): self
     {
         return $this->state([
             'quizzable_type' => $version->getMorphClass(),

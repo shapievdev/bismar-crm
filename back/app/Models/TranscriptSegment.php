@@ -57,11 +57,11 @@ class TranscriptSegment extends Model
      * закрытость, раздел, состояние, — а версия лишь сужает выбранное до того
      * текста, который этому человеку и предназначен.
      *
-     * @return BelongsTo<RegulationVersion, $this>
+     * @return BelongsTo<MaterialVersion, $this>
      */
     public function version(): BelongsTo
     {
-        return $this->belongsTo(RegulationVersion::class, 'version_id');
+        return $this->belongsTo(MaterialVersion::class, 'version_id');
     }
 
     /**

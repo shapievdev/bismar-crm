@@ -32,10 +32,10 @@ class RegulationAttachment extends Model
      * Версия, к которой файл приложен. Null — общая: у документа без версий
      * так лежат все файлы, и ничего для них не изменилось.
      *
-     * @return BelongsTo<RegulationVersion, $this>
+     * @return BelongsTo<MaterialVersion, $this>
      */
     public function version(): BelongsTo
     {
-        return $this->belongsTo(RegulationVersion::class, 'version_id');
+        return $this->belongsTo(MaterialVersion::class, 'version_id');
     }
 }

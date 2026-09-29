@@ -6,9 +6,9 @@ namespace App\Actions\Lms;
 
 use App\Enums\SurveyQuestionType;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\Survey;
 use App\Models\SurveyOption;
 use App\Models\SurveyQuestion;
@@ -52,7 +52,7 @@ final readonly class SaveSurvey
      *     }>
      * } $attributes
      */
-    public function handle(Lesson|Regulation|RegulationVersion|News $owner, array $attributes): Survey
+    public function handle(Lesson|Regulation|MaterialVersion|News $owner, array $attributes): Survey
     {
         return DB::transaction(function () use ($owner, $attributes): Survey {
             $survey = Survey::updateOrCreate(

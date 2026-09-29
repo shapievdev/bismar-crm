@@ -7,8 +7,8 @@ namespace Tests\Feature\Ai;
 use Anthropic\Client;
 use Anthropic\RequestOptions;
 use App\Models\Group;
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
@@ -138,8 +138,8 @@ final class VersionsInTheBaseTest extends TestCase
         Group $group,
         string $text,
         bool $private = false,
-    ): RegulationVersion {
-        /** @var RegulationVersion $version */
+    ): MaterialVersion {
+        /** @var MaterialVersion $version */
         $version = $regulation->versions()->create([
             'name' => $name,
             'is_private' => $private,

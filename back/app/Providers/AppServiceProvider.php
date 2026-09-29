@@ -10,7 +10,7 @@ use App\Models\CourseModule;
 use App\Models\Lesson;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
+use App\Models\MaterialVersion;
 use App\Models\User;
 use App\Support\Ai\Embedder;
 use App\Support\Ai\ModelSettings;
@@ -80,7 +80,7 @@ class AppServiceProvider extends ServiceProvider
 
             // Версия документа — третий владелец теста (2026-09-12): у неё своя
             // проверка, а устройство теста от владельца не зависит.
-            'regulation_version' => RegulationVersion::class,
+            'material_version' => MaterialVersion::class,
 
             // Новость попала в карту вместе с опросником (2026-09-21): опрос
             // полиморфен и висит при всех четырёх материалах сразу, а без имени

@@ -71,9 +71,20 @@ final class LearningReport
                     where deleted_at is null and kind = ? and status = ?
                 ) as published_handbooks,
                 (
+                    -- Версии считаются у всех материалов сразу: у документа,
+                    -- справочника и урока они значат одно и то же — тот же
+                    -- материал, написанный для своих людей. Удалённые не в
+                    -- счёт: их версии никто уже не читает.
                     select count(v.id)
-                    from regulation_versions v
-                    join regulations r on r.id = v.regulation_id and r.deleted_at is null
+                    from material_versions v
+                    left join regulations r on v.versionable_type = 'regulation'
+                        and r.id = v.versionable_id
+                    left join lessons l on v.versionable_type = 'lesson'
+                        and l.id = v.versionable_id
+                    left join course_modules m on m.id = l.module_id
+                    left join courses c on c.id = m.course_id
+                    where (r.id is not null and r.deleted_at is null)
+                       or (l.id is not null and c.deleted_at is null)
                 ) as versions,
                 (
                     select count(l.id)
@@ -271,7 +282,8 @@ final class LearningReport
                 r.status,
                 coalesce(circle.people, 0) as audience,
                 (
-                    select count(*) from regulation_versions v where v.regulation_id = r.id
+                    select count(*) from material_versions v
+                    where v.versionable_type = 'regulation' and v.versionable_id = r.id
                 ) as versions,
                 count(distinct a.user_id) filter (where u.dismissed_at is null) as acknowledged
             from regulations r
@@ -336,7 +348,14 @@ final class LearningReport
                 q.id,
                 q.title,
                 q.kind as quiz_kind,
-                q.quizzable_type as owner,
+                -- Проверка при версии урока показывается уроком: экран рисует
+                -- по этому полю подпись и ссылку, а чья версия — скажет
+                -- version_name.
+                case
+                    when q.quizzable_type = 'material_version' and v.versionable_type = 'lesson'
+                        then 'lesson'
+                    else q.quizzable_type
+                end as owner,
                 l.id as lesson_id,
                 l.title as lesson_title,
                 c.slug as course_slug,
@@ -352,15 +371,19 @@ final class LearningReport
                 coalesce(round(avg(best.best_score)), 0) as average_score
             from quizzes q
             left join best on best.quiz_id = q.id
-            left join lessons l on q.quizzable_type = 'lesson' and l.id = q.quizzable_id
+            -- Версия идёт первой: по ней ищут и урок, и документ, при которых
+            -- она стоит.
+            left join material_versions v on q.quizzable_type = 'material_version'
+                and v.id = q.quizzable_id
+            left join lessons l on (q.quizzable_type = 'lesson' and l.id = q.quizzable_id)
+                or (v.versionable_type = 'lesson' and l.id = v.versionable_id)
             left join course_modules m on m.id = l.module_id
             left join courses c on c.id = m.course_id and c.deleted_at is null
             left join regulations r on q.quizzable_type = 'regulation' and r.id = q.quizzable_id
                 and r.deleted_at is null
-            left join regulation_versions v on q.quizzable_type = 'regulation_version'
-                and v.id = q.quizzable_id
-            left join regulations vr on vr.id = v.regulation_id and vr.deleted_at is null
-            group by q.id, q.title, q.kind, q.quizzable_type,
+            left join regulations vr on v.versionable_type = 'regulation'
+                and vr.id = v.versionable_id and vr.deleted_at is null
+            group by q.id, q.title, q.kind, q.quizzable_type, v.versionable_type,
                 l.id, l.title, c.slug, c.title,
                 r.slug, r.kind, r.title, vr.slug, vr.kind, vr.title, v.name
             order by
@@ -432,7 +455,13 @@ final class LearningReport
                 s.is_required,
                 s.is_anonymous,
                 s.closes_at,
-                s.surveyable_type as owner,
+                -- Опрос при версии урока показывается уроком, как и проверка:
+                -- чья версия, скажет version_name.
+                case
+                    when s.surveyable_type = 'material_version' and v.versionable_type = 'lesson'
+                        then 'lesson'
+                    else s.surveyable_type
+                end as owner,
                 l.id as lesson_id,
                 l.title as lesson_title,
                 c.slug as course_slug,
@@ -451,14 +480,16 @@ final class LearningReport
                     where sc.survey_id = s.id
                 ) as answered
             from surveys s
-            left join lessons l on s.surveyable_type = 'lesson' and l.id = s.surveyable_id
+            left join material_versions v on s.surveyable_type = 'material_version'
+                and v.id = s.surveyable_id
+            left join lessons l on (s.surveyable_type = 'lesson' and l.id = s.surveyable_id)
+                or (v.versionable_type = 'lesson' and l.id = v.versionable_id)
             left join course_modules m on m.id = l.module_id
             left join courses c on c.id = m.course_id and c.deleted_at is null
             left join regulations r on s.surveyable_type = 'regulation' and r.id = s.surveyable_id
                 and r.deleted_at is null
-            left join regulation_versions v on s.surveyable_type = 'regulation_version'
-                and v.id = s.surveyable_id
-            left join regulations vr on vr.id = v.regulation_id and vr.deleted_at is null
+            left join regulations vr on v.versionable_type = 'regulation'
+                and vr.id = v.versionable_id and vr.deleted_at is null
             left join news n on s.surveyable_type = 'news' and n.id = s.surveyable_id
                 and n.deleted_at is null
             order by
@@ -824,7 +855,7 @@ final class LearningReport
             from regulation_acknowledgements a
             join users u on u.id = a.user_id and u.dismissed_at is null
             join regulations r on r.id = a.regulation_id and r.deleted_at is null
-            left join regulation_versions v on v.id = a.version_id
+            left join material_versions v on v.id = a.version_id
             order by a.acknowledged_at desc
             limit %d
             SQL, $this->nameSql(), self::PEOPLE), [], fn (object $row): array => [
@@ -868,14 +899,16 @@ final class LearningReport
             from quiz_attempts t
             join users u on u.id = t.user_id and u.dismissed_at is null
             join quizzes q on q.id = t.quiz_id
-            left join lessons l on q.quizzable_type = 'lesson' and l.id = q.quizzable_id
+            left join material_versions v on q.quizzable_type = 'material_version'
+                and v.id = q.quizzable_id
+            left join lessons l on (q.quizzable_type = 'lesson' and l.id = q.quizzable_id)
+                or (v.versionable_type = 'lesson' and l.id = v.versionable_id)
             left join course_modules m on m.id = l.module_id
             left join courses c on c.id = m.course_id and c.deleted_at is null
             left join regulations r on q.quizzable_type = 'regulation' and r.id = q.quizzable_id
                 and r.deleted_at is null
-            left join regulation_versions v on q.quizzable_type = 'regulation_version'
-                and v.id = q.quizzable_id
-            left join regulations vr on vr.id = v.regulation_id and vr.deleted_at is null
+            left join regulations vr on v.versionable_type = 'regulation'
+                and vr.id = v.versionable_id and vr.deleted_at is null
             where t.review_status = ?
             order by t.completed_at
             limit %d
@@ -1103,10 +1136,11 @@ final class LearningReport
 
                     union
 
-                    select v.regulation_id, t.user_id
+                    select v.versionable_id, t.user_id
                     from quiz_attempts t
-                    join quizzes q on q.id = t.quiz_id and q.quizzable_type = 'regulation_version'
-                    join regulation_versions v on v.id = q.quizzable_id
+                    join quizzes q on q.id = t.quiz_id and q.quizzable_type = 'material_version'
+                    join material_versions v on v.id = q.quizzable_id
+                        and v.versionable_type = 'regulation'
                     join users u on u.id = t.user_id and u.dismissed_at is null
                 ) circle
                 group by regulation_id

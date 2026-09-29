@@ -36,19 +36,19 @@ class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
 
         // Проверка при версии — часть документа: доступ к ней решает он, а не
         // версия сама по себе.
-        if ($owner instanceof RegulationVersion) {
-            return $owner->loadMissing('regulation')->regulation;
+        if ($owner instanceof MaterialVersion) {
+            return $owner->regulation();
         }
 
         return $owner instanceof Regulation ? $owner : null;
     }
 
     /** Версия, при которой стоит проверка. Null у общей и у теста урока. */
-    public function owningVersion(): ?RegulationVersion
+    public function owningVersion(): ?MaterialVersion
     {
         $owner = $this->owner();
 
-        return $owner instanceof RegulationVersion ? $owner : null;
+        return $owner instanceof MaterialVersion ? $owner : null;
     }
 
     private function owner(): ?Model

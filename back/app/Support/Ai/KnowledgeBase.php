@@ -158,7 +158,7 @@ final readonly class KnowledgeBase
     {
         return sprintf(<<<'SQL'
             WHERE (
-                (courses.id IS NOT NULL AND courses.status = ? AND courses.deleted_at IS NULL%1$s%3$s)
+                (courses.id IS NOT NULL AND courses.status = ? AND courses.deleted_at IS NULL%1$s%3$s%6$s)
                 OR
                 (regulations.id IS NOT NULL AND regulations.status = ? AND regulations.deleted_at IS NULL%4$s%2$s%5$s)
             )
@@ -167,51 +167,61 @@ final readonly class KnowledgeBase
             $documents->sqlCondition(),
             $this->openCourses($access),
             $this->openSections($access),
-            $this->myVersion($access),
+            $this->myVersion($access, 'regulation', 'transcript_segments.regulation_id'),
+            $this->myVersion($access, 'lesson', 'transcript_segments.lesson_id'),
         );
     }
 
     /**
-     * Версия документа, по которой отвечают этому человеку (2026-09-12).
+     * Версия материала, по которой отвечают этому человеку (2026-09-12,
+     * уроки — 2026-09-25).
      *
-     * У документа бывает несколько текстов: общий и версии для разных групп.
+     * У материала бывает несколько текстов: общий и версии для разных групп.
      * Отвечать надо по тому, который этому человеку и предназначен, — иначе
      * рознице пересказали бы расчёт офиса, а закрытая версия ушла бы наружу
      * пересказом, что не лучше открытой страницы.
      *
-     * Правило поэтому одно на оба случая: из документа, где у человека есть
+     * Правило поэтому одно на оба случая: из материала, где у человека есть
      * своя версия, в корпус идёт только она; из остальных — только общий
      * текст. Чужие версии не попадают в ответ никогда, и закрытость проверять
      * отдельно уже незачем.
+     *
+     * Ветки при этом две — уроки и документы, — и условие каждой смотрит на
+     * свой столбец: версия урока и версия документа различаются не номером, а
+     * тем, при ком она стоит.
+     *
+     * @param  string  $morph  вид материала в карте морфов
+     * @param  string  $column  столбец куска, которым он привязан к материалу
      */
-    private function myVersion(CourseAccess $access): string
+    private function myVersion(CourseAccess $access, string $morph, string $column): string
     {
-        $mine = app(MaterialVersions::class)->mineAcross($access->reader());
+        $mine = app(MaterialVersions::class)->mineAcross($access->reader(), $morph);
 
         if ($mine === []) {
             return ' AND transcript_segments.version_id IS NULL';
         }
 
         $versions = implode(', ', array_fill(0, count($mine), '?'));
-        $documents = implode(', ', array_fill(0, count($mine), '?'));
+        $materials = implode(', ', array_fill(0, count($mine), '?'));
 
         return sprintf(
             ' AND (transcript_segments.version_id IN (%1$s)'
-            .' OR (transcript_segments.version_id IS NULL AND transcript_segments.regulation_id NOT IN (%2$s)))',
+            .' OR (transcript_segments.version_id IS NULL AND %3$s NOT IN (%2$s)))',
             $versions,
-            $documents,
+            $materials,
+            $column,
         );
     }
 
     /**
      * Подстановки к myVersion(), в том же порядке: сперва мои версии, затем
-     * документы, у которых они есть.
+     * материалы, у которых они есть.
      *
      * @return list<int>
      */
-    private function myVersionBindings(CourseAccess $access): array
+    private function myVersionBindings(CourseAccess $access, string $morph): array
     {
-        $mine = app(MaterialVersions::class)->mineAcross($access->reader());
+        $mine = app(MaterialVersions::class)->mineAcross($access->reader(), $morph);
 
         return [...array_values($mine), ...array_keys($mine)];
     }
@@ -252,13 +262,15 @@ final readonly class KnowledgeBase
         return [
             CourseStatus::Published->value,
             ...$access->sqlBindings(),
+            // Версия урока — последнее условие ветки курсов, см. visible().
+            ...$this->myVersionBindings($access, 'lesson'),
             CourseStatus::Published->value,
             // Ровно там, где стоят их вопросительные знаки: раздел проверяется
             // до закрытости, см. visible().
             ...MaterialKind::valuesOf(MaterialKind::viewableBy($access->reader())),
             ...$documents->sqlBindings(),
             // Версия — последнее условие документной ветки, см. visible().
-            ...$this->myVersionBindings($access),
+            ...$this->myVersionBindings($access, 'regulation'),
         ];
     }
 

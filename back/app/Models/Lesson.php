@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\HasVersions;
 use App\Models\Contracts\PartOfCourse;
 use App\Observers\LessonObserver;
 use App\Support\Lms\BlockIdentifier;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Storage;
 class Lesson extends Model implements PartOfCourse
 {
     /** @use HasFactory<LessonFactory> */
-    use HasFactory;
+    use HasFactory, HasVersions;
 
     public function owningCourse(): ?Course
     {
@@ -50,9 +51,27 @@ class Lesson extends Model implements PartOfCourse
     }
 
     /**
+     * Файлы общей версии урока.
+     *
+     * Файлы версий сюда не попадают намеренно (2026-09-25), как и у документа:
+     * у каждой версии свой бланк, и общий список означал бы, что розница видит
+     * приложение офиса просто потому, что оно лежит при том же уроке. Всё
+     * вместе — только для уборки, см. allAttachments().
+     *
      * @return HasMany<LessonAttachment, $this>
      */
     public function attachments(): HasMany
+    {
+        return $this->hasMany(LessonAttachment::class)->whereNull('version_id');
+    }
+
+    /**
+     * Все файлы урока, включая версии, — для уборки за удалённым: строки уйдут
+     * каскадом, а файлы остались бы лежать в хранилище навсегда.
+     *
+     * @return HasMany<LessonAttachment, $this>
+     */
+    public function allAttachments(): HasMany
     {
         return $this->hasMany(LessonAttachment::class);
     }

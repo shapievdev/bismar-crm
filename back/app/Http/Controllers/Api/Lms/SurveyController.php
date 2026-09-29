@@ -15,9 +15,9 @@ use App\Http\Resources\Lms\SurveyResource;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Lms\SurveySummary;
 use Illuminate\Database\Eloquent\Model;
@@ -146,11 +146,11 @@ final class SurveyController extends Controller
      * Версия ищется раньше документа: в её адресе стоят оба, и опрос при версии —
      * не опрос при документе.
      */
-    private function owner(Request $request): Lesson|Regulation|RegulationVersion|News
+    private function owner(Request $request): Lesson|Regulation|MaterialVersion|News
     {
-        /** @var array<string, class-string<Lesson|Regulation|RegulationVersion|News>> $kinds */
+        /** @var array<string, class-string<Lesson|Regulation|MaterialVersion|News>> $kinds */
         $kinds = [
-            'version' => RegulationVersion::class,
+            'version' => MaterialVersion::class,
             'lesson' => Lesson::class,
             'news' => News::class,
             'regulation' => Regulation::class,
@@ -170,7 +170,7 @@ final class SurveyController extends Controller
 
             abort_if($owner === null, HttpResponse::HTTP_NOT_FOUND);
 
-            if ($owner instanceof RegulationVersion) {
+            if ($owner instanceof MaterialVersion) {
                 $this->ensureVersionBelongs($request, $owner);
             }
 
@@ -181,23 +181,37 @@ final class SurveyController extends Controller
     }
 
     /**
-     * Версия — из того документа, в адресе которого она стоит.
+     * Версия — из того материала, в адресе которого она стоит.
      *
      * Иначе правом на свой документ правился бы опрос при чужой версии: номер
-     * версии приходит из адреса, и проверять его происхождение обязаны мы.
+     * версии приходит из адреса, и проверять его происхождение обязаны мы. С
+     * версиями урока (2026-09-25) материалов стало два, и смотреть надо на оба:
+     * в адресе версии стоит либо документ, либо урок.
      */
-    private function ensureVersionBelongs(Request $request, RegulationVersion $version): void
+    private function ensureVersionBelongs(Request $request, MaterialVersion $version): void
     {
-        $value = $request->route('regulation');
+        /** @var array<string, class-string<Lesson|Regulation>> $owners */
+        $owners = ['regulation' => Regulation::class, 'lesson' => Lesson::class];
 
-        $regulation = $value instanceof Regulation
-            ? $value
-            : (new Regulation)->resolveRouteBinding($value);
+        foreach ($owners as $key => $class) {
+            $value = $request->route($key);
 
-        abort_if(
-            $regulation === null || (int) $version->regulation_id !== (int) $regulation->getKey(),
-            HttpResponse::HTTP_NOT_FOUND,
-        );
+            if ($value === null) {
+                continue;
+            }
+
+            $material = $value instanceof Model ? $value : (new $class)->resolveRouteBinding($value);
+
+            abort_if(
+                $material === null || ! $version->belongsToMaterial($material),
+                HttpResponse::HTTP_NOT_FOUND,
+            );
+
+            return;
+        }
+
+        // Версия без материала в адресе — адрес, которого у нас нет.
+        abort(HttpResponse::HTTP_NOT_FOUND);
     }
 
     /**
@@ -211,7 +225,9 @@ final class SurveyController extends Controller
         match (true) {
             $owner instanceof Lesson => Gate::authorize('update', $this->courseOf($owner)),
             $owner instanceof Regulation => Gate::authorize('update', $owner),
-            $owner instanceof RegulationVersion => Gate::authorize('update', $this->regulationOf($owner)),
+            // Версия правится правом своего материала: у документа — его
+            // собственным, у урока — правом на курс.
+            $owner instanceof MaterialVersion => $this->authorizeEditing($this->materialOf($owner)),
             $owner instanceof News => Gate::authorize('update', $owner),
             default => abort(HttpResponse::HTTP_NOT_FOUND),
         };
@@ -229,7 +245,9 @@ final class SurveyController extends Controller
         match (true) {
             $owner instanceof Lesson => Gate::authorize('view', $this->courseOf($owner)),
             $owner instanceof Regulation => Gate::authorize('acknowledge', $owner),
-            $owner instanceof RegulationVersion => Gate::authorize('acknowledge', $this->regulationOf($owner)),
+            // Отвечать на опрос версии вправе тот, кому открыт её материал, —
+            // тем же правилом, что и у него самого.
+            $owner instanceof MaterialVersion => $this->authorizeAnswering($this->materialOf($owner)),
             $owner instanceof News => Gate::authorize('acknowledge', $owner),
             default => abort(HttpResponse::HTTP_NOT_FOUND),
         };
@@ -247,11 +265,10 @@ final class SurveyController extends Controller
             return $owner->acknowledgements()->where('user_id', $reader->getKey())->exists();
         }
 
-        if ($owner instanceof RegulationVersion) {
-            return $this->regulationOf($owner)
-                ->acknowledgements()
-                ->where('user_id', $reader->getKey())
-                ->exists();
+        // Зачёт у версии тот же, что у её материала: прошедший свою версию
+        // прошёл урок, прочитавший свою — прочитал документ.
+        if ($owner instanceof MaterialVersion) {
+            return $this->isCredited($this->materialOf($owner), $reader);
         }
 
         if ($owner instanceof News) {
@@ -301,12 +318,18 @@ final class SurveyController extends Controller
         return $course;
     }
 
-    private function regulationOf(RegulationVersion $version): Regulation
+    /**
+     * Материал, при котором стоит версия: документ или урок.
+     *
+     * Права у версии не свои — они всегда материала, — поэтому вопрос о правах
+     * переадресуется ему, а не решается здесь второй раз.
+     */
+    private function materialOf(MaterialVersion $version): Lesson|Regulation
     {
-        $regulation = $version->loadMissing('regulation')->regulation;
+        $material = $version->owner();
 
-        abort_if($regulation === null, HttpResponse::HTTP_NOT_FOUND);
+        abort_unless($material instanceof Lesson || $material instanceof Regulation, HttpResponse::HTTP_NOT_FOUND);
 
-        return $regulation;
+        return $material;
     }
 }

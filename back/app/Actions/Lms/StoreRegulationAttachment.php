@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Actions\Lms;
 
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
 use App\Models\RegulationAttachment;
-use App\Models\RegulationVersion;
 use Illuminate\Http\UploadedFile;
 
 /**
@@ -21,14 +21,14 @@ final readonly class StoreRegulationAttachment
     private const DISK = 's3';
 
     /**
-     * @param  ?RegulationVersion  $version  версия, к которой файл приложен;
-     *                                       null — общая, то есть сам документ
+     * @param  ?MaterialVersion  $version  версия, к которой файл приложен;
+     *                                     null — общая, то есть сам документ
      */
     public function handle(
         Regulation $regulation,
         UploadedFile $file,
         ?string $description = null,
-        ?RegulationVersion $version = null,
+        ?MaterialVersion $version = null,
     ): RegulationAttachment {
         // Имя объекту даёт Laravel: враждебный клиент не выбирает ключ и не
         // перезапишет чужой файл.

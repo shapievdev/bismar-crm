@@ -8,10 +8,10 @@ use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\LearningPlanItem;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use Illuminate\Contracts\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Eloquent\Builder;
@@ -240,7 +240,7 @@ final readonly class ProgressReport
          * разговаривать пошли бы не с тем.
          */
         $quizzes = $regulation->versions()->with('quiz')->get()
-            ->map(static fn (RegulationVersion $version): ?Quiz => $version->quiz)
+            ->map(static fn (MaterialVersion $version): ?Quiz => $version->quiz)
             ->filter()
             ->when($quiz !== null, static fn (Collection $all): Collection => $all->prepend($quiz))
             ->values();

@@ -14,8 +14,10 @@ use App\Http\Requests\Lms\StoreVideoRequest;
 use App\Http\Requests\Lms\UpdateAttachmentRequest;
 use App\Http\Resources\Lms\LessonAttachmentResource;
 use App\Http\Resources\Lms\LessonResource;
+use App\Http\Resources\Lms\MaterialVersionResource;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
+use App\Models\MaterialVersion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
@@ -88,5 +90,90 @@ final class LessonAttachmentController extends Controller
     public function destroyVideo(Lesson $lesson, StoreLessonVideo $storeVideo): LessonResource
     {
         return LessonResource::make($storeVideo->remove($lesson));
+    }
+
+    /* ---------- То же, но при версии урока (2026-09-25) ---------- */
+
+    /**
+     * Файл версии: своё приложение у каждой.
+     *
+     * Общий список файлов версиям не годится — он показал бы рознице бланк
+     * офиса просто потому, что оба лежат при одном уроке, см. Lesson::attachments().
+     */
+    public function storeForVersion(
+        StoreAttachmentRequest $request,
+        Lesson $lesson,
+        MaterialVersion $version,
+        StoreLessonAttachment $storeAttachment,
+    ): JsonResponse {
+        $this->ensureBelongs($lesson, $version);
+
+        $attachment = $storeAttachment->handle(
+            $lesson,
+            $request->file('file'),
+            $request->validated('description'),
+            $version,
+        );
+
+        return LessonAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    public function storeFromDriveForVersion(
+        AttachDriveFileRequest $request,
+        Lesson $lesson,
+        MaterialVersion $version,
+        AttachDriveFile $attach,
+    ): JsonResponse {
+        $this->ensureBelongs($lesson, $version);
+
+        /** @var array{external_id: string, name: string, mime_type?: ?string, description?: ?string} $file */
+        $file = $request->validated();
+
+        /** @var LessonAttachment $attachment */
+        $attachment = $attach->handle($lesson, $file, $version);
+
+        return LessonAttachmentResource::make($attachment)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Запись версии: у розницы своя, у офиса своя.
+     *
+     * Отдаётся сама версия, а не урок: экран правки версии перерисовывает по
+     * ответу свой проигрыватель, и урок ему для этого не нужен.
+     */
+    public function storeVersionVideo(
+        StoreVideoRequest $request,
+        Lesson $lesson,
+        MaterialVersion $version,
+        StoreLessonVideo $storeVideo,
+    ): MaterialVersionResource {
+        $this->ensureBelongs($lesson, $version);
+
+        $saved = $storeVideo->handle($version, $request->file('video'));
+        $saved->setAttribute('sends_content', true);
+
+        return MaterialVersionResource::make($saved);
+    }
+
+    public function destroyVersionVideo(
+        Lesson $lesson,
+        MaterialVersion $version,
+        StoreLessonVideo $storeVideo,
+    ): MaterialVersionResource {
+        $this->ensureBelongs($lesson, $version);
+
+        $saved = $storeVideo->remove($version);
+        $saved->setAttribute('sends_content', true);
+
+        return MaterialVersionResource::make($saved);
+    }
+
+    private function ensureBelongs(Lesson $lesson, MaterialVersion $version): void
+    {
+        abort_unless($version->belongsToMaterial($lesson), HttpResponse::HTTP_NOT_FOUND);
     }
 }

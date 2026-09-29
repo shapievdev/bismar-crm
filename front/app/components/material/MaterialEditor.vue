@@ -673,7 +673,7 @@ function moveQuestion(document: RegulationLink, delta: number) {
         заводят и расставляют по порядку — им решается спор, когда человек
         попал в две версии сразу.
       -->
-      <MaterialVersionsPanel :section="copy.section" :slug="slug" />
+      <MaterialVersionsPanel :target="{ kind: copy.section, slug }" />
 
       <!-- Что читать рядом. Список сохраняется сразу — как и списки людей. -->
       <RelatedDocumentsPanel

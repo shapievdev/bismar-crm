@@ -11,9 +11,9 @@ use App\Http\Requests\Lms\AttachDriveFileRequest;
 use App\Http\Requests\Lms\StoreAttachmentRequest;
 use App\Http\Requests\Lms\UpdateAttachmentRequest;
 use App\Http\Resources\Lms\RegulationAttachmentResource;
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
 use App\Models\RegulationAttachment;
-use App\Models\RegulationVersion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
@@ -74,7 +74,7 @@ final class RegulationAttachmentController extends Controller
     public function storeForVersion(
         StoreAttachmentRequest $request,
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         StoreRegulationAttachment $storeAttachment,
     ): JsonResponse {
         Gate::authorize('update', $regulation);
@@ -102,7 +102,7 @@ final class RegulationAttachmentController extends Controller
     public function storeFromDriveForVersion(
         AttachDriveFileRequest $request,
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         AttachDriveFile $attach,
     ): JsonResponse {
         Gate::authorize('update', $regulation);
@@ -124,9 +124,9 @@ final class RegulationAttachmentController extends Controller
     /**
      * Версия чужого документа — тот же случай, что и её отсутствие.
      */
-    private function ensureVersionBelongs(Regulation $regulation, RegulationVersion $version): void
+    private function ensureVersionBelongs(Regulation $regulation, MaterialVersion $version): void
     {
-        abort_if($version->regulation_id !== $regulation->getKey(), HttpResponse::HTTP_NOT_FOUND);
+        abort_unless($version->belongsToMaterial($regulation), HttpResponse::HTTP_NOT_FOUND);
     }
 
     /**

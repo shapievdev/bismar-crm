@@ -8,6 +8,7 @@ use App\Actions\Lms\CompleteLesson;
 use App\Actions\Lms\EnrollLearner;
 use App\Actions\Lms\GradeQuizAttempt;
 use App\Exceptions\ConflictException;
+use App\Http\Controllers\Concerns\ShowsMaterialVersions;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SubmitQuizRequest;
 use App\Http\Resources\Lms\EnrollmentResource;
@@ -16,9 +17,11 @@ use App\Http\Resources\Lms\QuizAttemptResource;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Support\Lms\LearningPlan;
+use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\ProgressCalculator;
 use App\Support\Lms\QuizReview;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -34,10 +37,13 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class LearningController extends Controller
 {
+    use ShowsMaterialVersions;
+
     public function __construct(
         private readonly ProgressCalculator $progress,
         private readonly CompleteLesson $completeLesson,
         private readonly QuizReview $review,
+        private readonly MaterialVersions $versions,
     ) {}
 
     /**
@@ -206,6 +212,11 @@ final class LearningController extends Controller
                 'reviewed_by' => $attempt->reviewer?->name,
             ])->all());
 
+        // Версии урока и та из них, что открывается этому человеку первой
+        // (2026-09-25). Круг групп — только тому, кто ведёт курс: читателю
+        // важно, какая версия его, а не для кого написаны остальные.
+        $this->attachVersions($lesson, $reader, $request->query('version'), $reader->can('update', $course));
+
         return LessonResource::make($lesson);
     }
 
@@ -248,6 +259,47 @@ final class LearningController extends Controller
 
         // Разбор прикладывается сразу: человек хочет знать, где ошибся, ровно
         // в ту секунду, когда увидел результат, а не после отдельного запроса.
+        $attempt->setAttribute('review', $this->review->of($attempt, $learner));
+
+        return QuizAttemptResource::make($attempt)
+            ->response()
+            ->setStatusCode(HttpResponse::HTTP_CREATED);
+    }
+
+    /**
+     * Сдать тест при версии урока (2026-09-25).
+     *
+     * Всё то же, что у теста самого урока, — разница лишь в том, чей тест
+     * сдают: у версии он свой, и зачёт он ставит той же дорогой (CreditMaterial
+     * знает, что версия урока закрывает урок).
+     *
+     * Закрытая чужая версия отвечает «не найдено»: сдать проверку по тексту,
+     * которого тебе не показывали, нельзя.
+     *
+     * @throws ConflictException
+     */
+    public function submitVersionQuiz(
+        SubmitQuizRequest $request,
+        Lesson $lesson,
+        MaterialVersion $version,
+        GradeQuizAttempt $gradeQuizAttempt,
+        MaterialVersions $versions,
+    ): JsonResponse {
+        $enrollment = $this->requireEnrollment($request, $this->courseFor($lesson));
+
+        abort_unless($version->belongsToMaterial($lesson), HttpResponse::HTTP_NOT_FOUND);
+
+        /** @var User $learner */
+        $learner = $request->user();
+
+        abort_unless($versions->allows($version, $learner), HttpResponse::HTTP_NOT_FOUND);
+
+        $quiz = $version->quiz;
+
+        abort_if($quiz === null, HttpResponse::HTTP_NOT_FOUND);
+
+        $attempt = $gradeQuizAttempt->handle($quiz, $learner, $request->answers(), $enrollment);
+
         $attempt->setAttribute('review', $this->review->of($attempt, $learner));
 
         return QuizAttemptResource::make($attempt)

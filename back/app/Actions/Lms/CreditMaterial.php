@@ -8,9 +8,9 @@ use App\Actions\News\AcknowledgeNews;
 use App\Enums\NewsAcknowledgementSource;
 use App\Models\Enrollment;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Lms\MaterialDues;
 use Illuminate\Database\Eloquent\Model;
@@ -58,15 +58,25 @@ final readonly class CreditMaterial
         }
 
         /*
-         * Сданное при версии засчитывает ознакомление с самим документом
-         * (2026-09-12), а версия остаётся пометкой на отметке: версия у человека
-         * одна, и прочитавший свою прочитал документ.
+         * Сданное при версии засчитывает сам материал (2026-09-12, уроки —
+         * 2026-09-25), а версия остаётся пометкой на отметке: версия у человека
+         * одна, и прошедший свою прошёл материал.
          */
-        if ($owner instanceof RegulationVersion) {
-            $regulation = $owner->loadMissing('regulation')->regulation;
+        if ($owner instanceof MaterialVersion) {
+            $material = $owner->owner();
 
-            if ($regulation !== null) {
-                $this->acknowledgeRegulation->handle($regulation, $reader, $owner);
+            if ($material instanceof Regulation) {
+                $this->acknowledgeRegulation->handle($material, $reader, $owner);
+
+                return;
+            }
+
+            // Версия урока закрывает урок — той же дорогой и с той же
+            // оговоркой про очередь курса, см. ниже.
+            if ($material instanceof Lesson
+                && $enrollment !== null
+                && $this->completeLesson->blockedBy($enrollment, $material) === null) {
+                $this->completeLesson->handle($enrollment, $material, $owner);
             }
 
             return;

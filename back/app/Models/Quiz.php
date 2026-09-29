@@ -84,13 +84,31 @@ class Quiz extends Model
 
         return match (true) {
             $owner instanceof Regulation => $user->can($owner->kind->updatePermission()->value),
-            // Проверка при версии правится тем же правом, что и сам документ:
-            // версия — его часть, а не отдельный материал.
-            $owner instanceof RegulationVersion => $owner->loadMissing('regulation')->regulation !== null
-                && $user->can($owner->regulation->kind->updatePermission()->value),
+            // Проверка при версии правится тем же правом, что и сам материал:
+            // версия — его часть, а не отдельный материал. Какое это право,
+            // зависит от материала: у документа своё на раздел, у урока — общее
+            // право на курсы.
+            $owner instanceof MaterialVersion => $this->mayEditVersion($owner, $user),
             $owner instanceof Lesson => $user->can(Permission::UpdateCourses->value),
             // Владельца не нашли — значит материал удалён вместе с ним; ключ в
             // таком случае не показывает никто.
+            default => false,
+        };
+    }
+
+    /**
+     * Вправе ли человек править версию — а значит, и её проверку.
+     *
+     * Спрашивается у материала, которому версия принадлежит: правило одно и то
+     * же («версия — часть материала»), а права у материалов разные.
+     */
+    private function mayEditVersion(MaterialVersion $version, User $user): bool
+    {
+        $owner = $version->owner();
+
+        return match (true) {
+            $owner instanceof Regulation => $user->can($owner->kind->updatePermission()->value),
+            $owner instanceof Lesson => $user->can(Permission::UpdateCourses->value),
             default => false,
         };
     }

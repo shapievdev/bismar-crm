@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Support\Lms;
 
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\Survey;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -73,7 +73,7 @@ final readonly class MaterialDues
                 ->exists();
         }
 
-        if ($owner instanceof Lesson || $owner instanceof Regulation || $owner instanceof RegulationVersion) {
+        if ($owner instanceof Lesson || $owner instanceof Regulation || $owner instanceof MaterialVersion) {
             $quiz = $owner->loadMissing('quiz')->quiz;
 
             return $quiz === null || $quiz->attempts()
@@ -111,7 +111,7 @@ final readonly class MaterialDues
     {
         if ($owner instanceof Lesson
             || $owner instanceof Regulation
-            || $owner instanceof RegulationVersion
+            || $owner instanceof MaterialVersion
             || $owner instanceof News) {
             return $owner->loadMissing('survey')->survey;
         }

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Actions\Lms;
 
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
-use App\Models\RegulationVersion;
 use App\Models\User;
 
 /**
@@ -27,7 +27,7 @@ final readonly class AcknowledgeRegulation
     public function handle(
         Regulation $regulation,
         User $reader,
-        ?RegulationVersion $version = null,
+        ?MaterialVersion $version = null,
     ): RegulationAcknowledgement {
         return RegulationAcknowledgement::firstOrCreate(
             ['regulation_id' => $regulation->getKey(), 'user_id' => $reader->getKey()],

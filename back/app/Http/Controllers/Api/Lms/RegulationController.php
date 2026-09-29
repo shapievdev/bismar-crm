@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Lms;
 
 use App\Actions\Lms\SaveRegulation;
 use App\Enums\MaterialKind;
+use App\Http\Controllers\Concerns\ShowsMaterialVersions;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveRegulationRequest;
 use App\Http\Resources\Lms\RegulationResource;
@@ -34,6 +35,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class RegulationController extends Controller
 {
+    use ShowsMaterialVersions;
+
     public function __construct(
         private readonly CatalogSearch $search,
         private readonly MaterialVersions $versions,
@@ -129,7 +132,7 @@ final class RegulationController extends Controller
         $regulation->setAttribute('sends_content', true);
 
         // Версии и та из них, что открывается этому человеку первой.
-        $this->attachVersions($regulation, $reader, $request->query('version'));
+        $this->attachVersions($regulation, $reader, $request->query('version'), $reader->can('update', $regulation));
 
         return RegulationResource::make($this->attachOwnState($regulation, $reader));
     }
@@ -246,55 +249,6 @@ final class RegulationController extends Controller
                 'reviewed_at' => $attempt->reviewed_at?->toIso8601String(),
                 'reviewed_by' => $attempt->reviewer?->name,
             ])->all();
-    }
-
-    /**
-     * Версии документа и та из них, что открывается этому человеку первой.
-     *
-     * Переключатель приходит названиями, а тело — только у открытой: пять
-     * версий весили бы пятью статьями, а читают за раз одну. Какую именно
-     * открыть, можно попросить прямо (`?version=`) — так работает сам
-     * переключатель и так же приходят по ссылке из ответа консультанта.
-     */
-    private function attachVersions(Regulation $regulation, User $reader, ?string $asked): void
-    {
-        $available = $this->versions->visibleTo($regulation, $reader);
-        $mine = $this->versions->mineAmong($available, $reader);
-
-        // Для кого версия написана — только тому, кто документ ведёт. Читателю
-        // список групп ни о чём не говорит: ему важно, какая версия его.
-        $forEditor = $reader->can('update', $regulation);
-
-        foreach ($available as $version) {
-            $version->setAttribute('is_mine', $mine?->getKey() === $version->getKey());
-
-            if (! $forEditor) {
-                $version->unsetRelation('groups');
-            }
-        }
-
-        $regulation->setAttribute('available_versions', $available);
-
-        // Общую просят пустой строкой: «открой мне не мою версию, а исходную».
-        // Отличить это от «не просили ничего» иначе нечем.
-        // Строка берётся из того же списка, а не спрашивается заново: на ней
-        // уже стоит признак «моя», и двойник ушёл бы на экран без него.
-        $shown = $asked === null ? $mine : $available->firstWhere('id', (int) $asked);
-
-        if ($shown === null) {
-            return;
-        }
-
-        $shown->load([
-            'attachments',
-            'quiz.questions.options',
-            'quiz.examiner:id,last_name,first_name,middle_name',
-            'survey.questions.options',
-        ]);
-        $shown->setAttribute('sends_content', true);
-        $shown->setAttribute('own_attempts', $this->ownAttempts($shown->quiz, $reader));
-
-        $regulation->setAttribute('shown_version', $shown);
     }
 
     /**

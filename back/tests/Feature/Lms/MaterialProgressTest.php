@@ -10,10 +10,10 @@ use App\Models\Enrollment;
 use App\Models\Group;
 use App\Models\LearningPlanItem;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -275,12 +275,12 @@ final class MaterialProgressTest extends TestCase
         $salesman = $this->learner();
         $group->members()->attach($salesman);
 
-        /** @var RegulationVersion $version */
+        /** @var MaterialVersion $version */
         $version = $document->versions()->create(['name' => 'Для розницы', 'position' => 1]);
         $version->groups()->sync([$group->id]);
 
         $versionQuiz = Quiz::factory()->withQuestions(1)->create([
-            'quizzable_type' => 'regulation_version',
+            'quizzable_type' => 'material_version',
             'quizzable_id' => $version->id,
         ]);
 

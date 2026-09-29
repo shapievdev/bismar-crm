@@ -10,6 +10,7 @@ use App\Http\Requests\Lms\SaveQuizRequest;
 use App\Http\Resources\Lms\QuizAttemptResource;
 use App\Http\Resources\Lms\QuizResource;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\QuizAttempt;
 use App\Support\Lms\QuizReview;
 use App\Support\Lms\QuizStatistics;
@@ -38,6 +39,80 @@ final class QuizController extends Controller
         $lesson->loadMissing('quiz')->quiz?->delete();
 
         return response()->noContent();
+    }
+
+    /* ---------- То же, но при версии урока (2026-09-25) ---------- */
+
+    /*
+     * Версия — часть урока, а не отдельный материал: права спрашиваются у
+     * курса маршрутом, а меняется лишь то, при чём стоит тест. Поэтому здесь
+     * короткие двойники, а не второй контроллер — устройство теста от владельца
+     * не зависит, см. RegulationQuizController.
+     */
+
+    public function saveForVersion(
+        SaveQuizRequest $request,
+        Lesson $lesson,
+        MaterialVersion $version,
+        SaveQuiz $saveQuiz,
+    ): QuizResource {
+        $this->ensureBelongs($lesson, $version);
+
+        /** @var array{title: string, description?: ?string, passing_score: int, max_attempts?: ?int, questions: array<int, array{text: string, type: string, points: int, options: array<int, array{text: string, is_correct: bool}>}>} $attributes */
+        $attributes = $request->validated();
+
+        return QuizResource::make($saveQuiz->handle($version, $attributes));
+    }
+
+    public function destroyForVersion(Lesson $lesson, MaterialVersion $version): Response
+    {
+        $this->ensureBelongs($lesson, $version);
+
+        $version->quiz()->delete();
+
+        return response()->noContent();
+    }
+
+    public function statisticsForVersion(
+        Lesson $lesson,
+        MaterialVersion $version,
+        QuizStatistics $statistics,
+    ): JsonResponse {
+        $this->ensureBelongs($lesson, $version);
+
+        $quiz = $version->quiz;
+
+        abort_if($quiz === null, HttpResponse::HTTP_NOT_FOUND);
+
+        return response()->json(['data' => $statistics->of($quiz)]);
+    }
+
+    public function attemptForVersion(
+        Lesson $lesson,
+        MaterialVersion $version,
+        QuizAttempt $attempt,
+        QuizReview $review,
+    ): QuizAttemptResource {
+        $this->ensureBelongs($lesson, $version);
+
+        $quiz = $version->quiz;
+
+        abort_if(
+            $quiz === null || $attempt->quiz_id !== $quiz->getKey(),
+            HttpResponse::HTTP_NOT_FOUND,
+        );
+
+        $attempt->setAttribute('review', $review->forAuthor($attempt));
+
+        return QuizAttemptResource::make($attempt);
+    }
+
+    /**
+     * Версия чужого урока — тот же случай, что и её отсутствие.
+     */
+    private function ensureBelongs(Lesson $lesson, MaterialVersion $version): void
+    {
+        abort_unless($version->belongsToMaterial($lesson), HttpResponse::HTTP_NOT_FOUND);
     }
 
     /**

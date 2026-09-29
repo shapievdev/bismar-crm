@@ -8,10 +8,10 @@ use App\Enums\DepartmentRole;
 use App\Enums\QuestionType;
 use App\Models\Department;
 use App\Models\Group;
+use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
@@ -511,8 +511,8 @@ final class MaterialVersionTest extends TestCase
         array $groups,
         bool $private = false,
         ?string $text = null,
-    ): RegulationVersion {
-        /** @var RegulationVersion $version */
+    ): MaterialVersion {
+        /** @var MaterialVersion $version */
         $version = $regulation->versions()->create([
             'name' => $name,
             'is_private' => $private,

@@ -17,6 +17,9 @@ import type {
   LearningPlanItem,
   MaterialAccess,
   MaterialProgress,
+  MaterialVersion,
+  MaterialVersionPayload,
+  MaterialVersionSummary,
   PlannableItem,
   PlannableKind,
   LessonAnswer,
@@ -354,6 +357,112 @@ export function useLmsApi() {
 
     deleteQuiz: (lessonId: number | string) =>
       $api(`/api/lms/lessons/${lessonId}/quiz`, { method: 'DELETE' }),
+
+    /* ---------- Версии урока: тот же урок для своих людей ---------- */
+
+    /**
+     * Все версии — тому, кто ведёт курс: названиями и кругом групп, без тел.
+     * Читателю отдельного запроса не нужно — переключатель приходит вместе с
+     * уроком.
+     */
+    fetchVersions: (lessonId: number | string): Promise<ResourceResponse<MaterialVersionSummary[]>> =>
+      $api<ResourceResponse<MaterialVersionSummary[]>>(`/api/lms/lessons/${lessonId}/versions`),
+
+    /** Одна версия целиком: статья, запись, файлы и проверка. */
+    fetchVersion: (lessonId: number | string, versionId: number): Promise<ResourceResponse<MaterialVersion>> =>
+      $api<ResourceResponse<MaterialVersion>>(`/api/lms/lessons/${lessonId}/versions/${versionId}`),
+
+    createVersion: (
+      lessonId: number | string,
+      body: MaterialVersionPayload,
+    ): Promise<ResourceResponse<MaterialVersionSummary>> =>
+      $api<ResourceResponse<MaterialVersionSummary>>(`/api/lms/lessons/${lessonId}/versions`, {
+        method: 'POST',
+        body,
+      }).catch(toValidationError),
+
+    updateVersion: (
+      lessonId: number | string,
+      versionId: number,
+      body: MaterialVersionPayload,
+    ): Promise<ResourceResponse<MaterialVersionSummary>> =>
+      $api<ResourceResponse<MaterialVersionSummary>>(`/api/lms/lessons/${lessonId}/versions/${versionId}`, {
+        method: 'PUT',
+        body,
+      }).catch(toValidationError),
+
+    /**
+     * Порядок версий: им же решается спор, когда человек попал в две сразу.
+     * Присылается целиком — «пусть будет вот так».
+     */
+    reorderVersions: (
+      lessonId: number | string,
+      versions: number[],
+    ): Promise<ResourceResponse<MaterialVersionSummary[]>> =>
+      $api<ResourceResponse<MaterialVersionSummary[]>>(`/api/lms/lessons/${lessonId}/versions/order`, {
+        method: 'PUT',
+        body: { versions },
+      }),
+
+    deleteVersion: (lessonId: number | string, versionId: number): Promise<void> =>
+      $api(`/api/lms/lessons/${lessonId}/versions/${versionId}`, { method: 'DELETE' }),
+
+    /** Проверка при версии — своя у каждой; сдача по-прежнему закрывает урок. */
+    submitVersionQuiz: (
+      lessonId: number | string,
+      versionId: number,
+      answers: Record<number, number[] | string | string[][]>,
+    ): Promise<ResourceResponse<QuizAttempt>> =>
+      $api<ResourceResponse<QuizAttempt>>(`/api/lms/lessons/${lessonId}/versions/${versionId}/quiz/submit`, {
+        method: 'POST',
+        body: { answers },
+      }),
+
+    saveVersionQuiz: (
+      lessonId: number | string,
+      versionId: number,
+      body: QuizPayload,
+    ): Promise<ResourceResponse<Quiz>> =>
+      $api<ResourceResponse<Quiz>>(`/api/lms/lessons/${lessonId}/versions/${versionId}/quiz`, {
+        method: 'PUT',
+        body,
+      }).catch(toValidationError),
+
+    deleteVersionQuiz: (lessonId: number | string, versionId: number): Promise<void> =>
+      $api(`/api/lms/lessons/${lessonId}/versions/${versionId}/quiz`, { method: 'DELETE' }),
+
+    /** Файл при версии — своё приложение у каждой. */
+    uploadVersionAttachment: (
+      lessonId: number | string,
+      versionId: number,
+      file: File,
+      description: string | null,
+      options: UploadOptions = {},
+    ): Promise<ResourceResponse<LessonAttachment>> => {
+      const body = new FormData()
+
+      body.append('file', file)
+
+      if (description) {
+        body.append('description', description)
+      }
+
+      return $upload<ResourceResponse<LessonAttachment>>(
+        `/api/lms/lessons/${lessonId}/versions/${versionId}/attachments`,
+        body,
+        options,
+      )
+    },
+
+    attachVersionDriveFile: (
+      lessonId: number | string,
+      versionId: number,
+      file: DriveFile,
+    ): Promise<ResourceResponse<LessonAttachment>> =>
+      $api<ResourceResponse<LessonAttachment>>(
+        `/api/lms/lessons/${lessonId}/versions/${versionId}/attachments/drive`,
+        { method: 'POST', body: { ...file, description: null } },
+      ),
 
     /** Таблица урока целиком, взамен той, что была. */
     saveAnswers: (

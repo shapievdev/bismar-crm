@@ -55,6 +55,33 @@ final class LessonResource extends JsonResource
             'course_title' => $this->course_title,
             'course_slug' => $this->course_slug,
             'own_attempts' => $this->own_attempts,
+
+            /*
+             * Версии урока — тот же урок, рассказанный своим людям
+             * (2026-09-25).
+             *
+             * Только названиями, без тел: пять версий весили бы пятью
+             * статьями, а смотрят за раз одну. Общей версии в списке нет — она
+             * сам урок, и экран ставит её первой строкой сам.
+             */
+            'versions' => $this->when(
+                $this->available_versions !== null,
+                fn (): array => MaterialVersionResource::collection($this->available_versions)->resolve(),
+            ),
+
+            /*
+             * Тело, которое открывается первым: версия этого человека, а если
+             * ни одна не совпала — ничего, и смотрится общий урок.
+             *
+             * Статья, запись, файлы и проверка урока выше остаются общей
+             * версией всегда и при любом выборе: по ним работает редактор, и
+             * подмена содержимого под ним однажды сохранила бы текст версии в
+             * сам урок.
+             */
+            'version' => $this->when(
+                $this->shown_version !== null,
+                fn () => MaterialVersionResource::make($this->shown_version),
+            ),
         ];
     }
 }

@@ -14,7 +14,6 @@ use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\Survey;
 use App\Models\SurveyCompletion;
 use App\Models\SurveyResponse;
@@ -587,8 +586,7 @@ final class LearningAnalyticsTest extends TestCase
     {
         $document = Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
 
-        $version = RegulationVersion::query()->create([
-            'regulation_id' => $document->id,
+        $version = $document->versions()->create([
             'name' => 'Для кассиров',
             'position' => 1,
         ]);
@@ -612,7 +610,7 @@ final class LearningAnalyticsTest extends TestCase
         )->firstWhere('id', $quiz->id);
 
         $this->assertNotNull($row, 'Проверка версии в отчёт не попала.');
-        $this->assertSame('regulation_version', $row['owner']);
+        $this->assertSame('material_version', $row['owner']);
         $this->assertSame('Кассовая дисциплина', $row['material']);
         $this->assertSame('Для кассиров', $row['version_name']);
         $this->assertSame($document->slug, $row['document_slug']);

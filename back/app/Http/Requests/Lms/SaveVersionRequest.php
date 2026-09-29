@@ -39,6 +39,11 @@ final class SaveVersionRequest extends FormRequest
             // Статья приходит с экрана правки версии, а с формы заведения —
             // нет: там называют версию и выбирают, для кого она.
             'content_json' => ['sometimes', 'nullable', 'array'],
+
+            // Ссылка на запись — у версии урока (2026-09-25). Загруженный файл
+            // приходит своим маршрутом, как и у самого урока; здесь только
+            // ссылка на YouTube или Vimeo.
+            'video_url' => ['sometimes', 'nullable', 'string', 'max:255', 'url'],
         ];
     }
 
@@ -65,6 +70,12 @@ final class SaveVersionRequest extends FormRequest
             'name' => (string) $this->validated('name'),
             'is_private' => (bool) $this->boolean('is_private'),
             ...$this->has('content_json') ? ['content_json' => $this->validated('content_json')] : [],
+
+            // Пустая строка снимает прежнюю ссылку: «убрать запись» и «не
+            // трогать её» — разные просьбы, и отличить их иначе нечем.
+            ...$this->has('video_url')
+                ? ['video_url' => $this->filled('video_url') ? (string) $this->validated('video_url') : null]
+                : [],
         ];
     }
 

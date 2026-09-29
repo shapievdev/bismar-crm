@@ -7,6 +7,7 @@ namespace App\Actions\Lms;
 use App\Enums\AttachmentSource;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
 use App\Models\RegulationAttachment;
 
@@ -26,16 +27,24 @@ final readonly class AttachDriveFile
 {
     /**
      * @param  array{external_id: string, name: string, mime_type?: ?string, description?: ?string}  $file
+     * @param  MaterialVersion|null  $version  версия материала, если файл её:
+     *                                         у каждой версии свои приложения
      */
-    public function handle(Lesson|Regulation $owner, array $file): LessonAttachment|RegulationAttachment
-    {
+    public function handle(
+        Lesson|Regulation $owner,
+        array $file,
+        ?MaterialVersion $version = null,
+    ): LessonAttachment|RegulationAttachment {
         $attributes = [
             'source' => AttachmentSource::GoogleDrive,
             'external_id' => $file['external_id'],
+            // Тот же файл при разных версиях — разные строки: подпись к нему
+            // своя у каждой, и список версии собирается по этому столбцу.
+            'version_id' => $version?->getKey(),
         ];
 
         /** @var LessonAttachment|RegulationAttachment $attachment */
-        $attachment = $owner->attachments()->firstOrNew($attributes);
+        $attachment = $owner->allAttachments()->firstOrNew($attributes);
 
         $attachment->fill([
             // Имя берётся с Диска заново: файл там могли переименовать, и в

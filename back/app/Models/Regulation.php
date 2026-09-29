@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
+use App\Models\Concerns\HasVersions;
 use App\Models\Concerns\LenientlySearchable;
 use App\Observers\RegulationObserver;
 use App\Support\Lms\RegulationAccess;
@@ -39,7 +40,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Regulation extends Model
 {
     /** @use HasFactory<RegulationFactory> */
-    use HasFactory, LenientlySearchable, SoftDeletes;
+    use HasFactory, HasVersions, LenientlySearchable, SoftDeletes;
 
     /**
      * Вид проставлен ещё до записи в базу.
@@ -284,19 +285,6 @@ class Regulation extends Model
     public function allAttachments(): HasMany
     {
         return $this->hasMany(RegulationAttachment::class)->orderBy('id');
-    }
-
-    /**
-     * Версии — то же правило, написанное для своих людей (2026-09-12).
-     *
-     * Общей версии среди них нет: она — сам документ. Кому какая достаётся,
-     * решает App\Support\Lms\MaterialVersions.
-     *
-     * @return HasMany<RegulationVersion, $this>
-     */
-    public function versions(): HasMany
-    {
-        return $this->hasMany(RegulationVersion::class)->ordered();
     }
 
     /**

@@ -12,9 +12,9 @@ use App\Http\Requests\Lms\SaveQuizRequest;
 use App\Http\Requests\Lms\SubmitQuizRequest;
 use App\Http\Resources\Lms\QuizAttemptResource;
 use App\Http\Resources\Lms\QuizResource;
+use App\Models\MaterialVersion;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 use App\Models\User;
 use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\QuizReview;
@@ -154,7 +154,7 @@ final class RegulationQuizController extends Controller
     public function saveForVersion(
         SaveQuizRequest $request,
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         SaveQuiz $saveQuiz,
     ): QuizResource {
         Gate::authorize('update', $regulation);
@@ -166,7 +166,7 @@ final class RegulationQuizController extends Controller
         return QuizResource::make($saveQuiz->handle($version, $attributes));
     }
 
-    public function destroyForVersion(Regulation $regulation, RegulationVersion $version): Response
+    public function destroyForVersion(Regulation $regulation, MaterialVersion $version): Response
     {
         Gate::authorize('update', $regulation);
         $this->ensureBelongs($regulation, $version);
@@ -178,7 +178,7 @@ final class RegulationQuizController extends Controller
 
     public function statisticsForVersion(
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         QuizStatistics $statistics,
     ): JsonResponse {
         Gate::authorize('update', $regulation);
@@ -193,7 +193,7 @@ final class RegulationQuizController extends Controller
 
     public function attemptForVersion(
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         QuizAttempt $attempt,
     ): QuizAttemptResource {
         Gate::authorize('update', $regulation);
@@ -220,7 +220,7 @@ final class RegulationQuizController extends Controller
     public function submitForVersion(
         SubmitQuizRequest $request,
         Regulation $regulation,
-        RegulationVersion $version,
+        MaterialVersion $version,
         GradeQuizAttempt $grade,
         MaterialVersions $versions,
     ): JsonResponse {
@@ -267,8 +267,8 @@ final class RegulationQuizController extends Controller
         return $regulation->acknowledgements()->where('user_id', $reader->getKey())->exists();
     }
 
-    private function ensureBelongs(Regulation $regulation, RegulationVersion $version): void
+    private function ensureBelongs(Regulation $regulation, MaterialVersion $version): void
     {
-        abort_if($version->regulation_id !== $regulation->getKey(), HttpResponse::HTTP_NOT_FOUND);
+        abort_unless($version->belongsToMaterial($regulation), HttpResponse::HTTP_NOT_FOUND);
     }
 }

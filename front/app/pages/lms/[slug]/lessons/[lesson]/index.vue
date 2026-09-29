@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SurveyOwner } from '~/composables/useSurveyApi'
-import type { QuizAttempt, QuizReview } from '~/types/lms'
+import type { MaterialVersion, QuizAttempt, QuizReview } from '~/types/lms'
 import type { SurveyAnswer } from '~/types/survey'
 import { withResolvedMedia } from '~/utils/editor/attachments'
 
@@ -12,6 +12,7 @@ const {
   fetchCourse,
   completeLesson,
   submitQuiz,
+  submitVersionQuiz,
   fetchAttempt,
   fetchLessonProgress,
   fetchQuizStatistics,
@@ -48,6 +49,68 @@ const course = computed(() => data.value?.course)
 
 useHead(() => ({ title: lesson.value?.title ?? 'Урок' }))
 
+/* ---------- Версии урока (2026-09-25) ---------- */
+
+/**
+ * Тот же урок, рассказанный своим людям: у магазина своя запись и свой бланк.
+ *
+ * Общая версия — сам урок: она стоит в переключателе первой строкой, а
+ * `selectedVersion` при ней пуст. Своя версия открывается сама — её присылает
+ * сервер вместе с уроком, и спрашивать его об этом второй раз незачем.
+ */
+const { fetchVersion } = useLmsApi()
+
+const versions = computed(() => lesson.value?.versions ?? [])
+const selectedVersion = ref<MaterialVersion | null>(lesson.value?.version ?? null)
+const isSwitchingVersion = ref(false)
+
+/*
+ * Перечитали урок — перечитываем и открытую версию: в её теле лежит история
+ * попыток, и после сдачи она устаревает вместе с уроком. Подменять открытое
+ * на общую тоже нельзя — текст сменился бы под читателем.
+ */
+watch(lesson, async (value) => {
+  const open = selectedVersion.value
+
+  if (open === null) {
+    selectedVersion.value = value?.version ?? null
+
+    return
+  }
+
+  selectedVersion.value = (value?.versions ?? []).some(one => one.id === open.id)
+    ? (await fetchVersion(lessonId.value, open.id)).data
+    : null
+})
+
+/**
+ * Тело страницы: статья, запись, файлы и проверка выбранной версии — или общие,
+ * если выбрана общая. Всё остальное (название, соседи, таблица «вопрос —
+ * ответ», приложенные документы) у урока одно на всех.
+ */
+const body = computed(() => selectedVersion.value ?? lesson.value)
+
+async function openVersion(versionId: number | null) {
+  if (versionId === null) {
+    selectedVersion.value = null
+
+    return
+  }
+
+  if (selectedVersion.value?.id === versionId) {
+    return
+  }
+
+  isSwitchingVersion.value = true
+
+  try {
+    selectedVersion.value = (await fetchVersion(lessonId.value, versionId)).data
+  }
+  finally {
+    isSwitchingVersion.value = false
+  }
+}
+
 const completedIds = computed(() => new Set(course.value?.enrollment?.completed_lesson_ids ?? []))
 const isEnrolled = computed(() => Boolean(course.value?.enrollment))
 /**
@@ -69,7 +132,7 @@ const targetBlock = computed(() => {
   return typeof raw === 'string' && raw !== '' ? raw : null
 })
 
-const embedUrl = computed(() => toEmbedUrl(lesson.value?.video_url, startSeconds.value))
+const embedUrl = computed(() => toEmbedUrl(body.value?.video_url, startSeconds.value))
 
 const uploadedVideo = useTemplateRef<HTMLVideoElement>('uploadedVideo')
 
@@ -114,7 +177,7 @@ watch(targetBlock, async (blockId) => {
  * The document stores attachment ids; the signatures are minted per request.
  */
 const article = computed(() =>
-  withResolvedMedia(lesson.value?.content_json ?? null, lesson.value?.attachments ?? []),
+  withResolvedMedia(body.value?.content_json ?? null, body.value?.attachments ?? []),
 )
 
 /** The body is plain text; blank lines separate paragraphs. */
@@ -140,16 +203,16 @@ const isWorking = ref(false)
 const answers = ref<Record<number, number[] | string | string[][]>>({})
 const attempt = ref<QuizAttempt | null>(null)
 
-const attemptsUsed = computed(() => lesson.value?.own_attempts?.length ?? 0)
+const attemptsUsed = computed(() => body.value?.own_attempts?.length ?? 0)
 const attemptsLeft = computed(() => {
-  const max = lesson.value?.quiz?.max_attempts
+  const max = body.value?.quiz?.max_attempts
 
   return max === null || max === undefined ? null : Math.max(0, max - attemptsUsed.value)
 })
 
 /* ---------- Аттестация ---------- */
 
-const isAttestation = computed(() => lesson.value?.quiz?.kind === 'attestation')
+const isAttestation = computed(() => body.value?.quiz?.kind === 'attestation')
 
 /**
  * Последняя работа этого человека — свежая с сервера или только что
@@ -159,7 +222,7 @@ const isAttestation = computed(() => lesson.value?.quiz?.kind === 'attestation')
  * работу отправили вчера, а ответ пришёл сегодня — и человек должен увидеть
  * его, просто открыв урок.
  */
-const lastAttempt = computed(() => attempt.value ?? lesson.value?.own_attempts?.[0] ?? null)
+const lastAttempt = computed(() => attempt.value ?? body.value?.own_attempts?.[0] ?? null)
 
 /** Пока работа на проверке, отвечать заново нечего — и незачем. */
 const isAwaitingReview = computed(() => lastAttempt.value?.review_status === 'pending')
@@ -249,8 +312,14 @@ async function markDone() {
  */
 const { submitSurvey } = useSurveyApi()
 
-const survey = computed(() => lesson.value?.survey ?? null)
-const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'lesson', id: lessonId.value }))
+const survey = computed(() => body.value?.survey ?? null)
+/*
+ * Опрос спрашивают у того текста, который человеку открыт: у версии он свой,
+ * как и проверка.
+ */
+const surveyOwner = computed<SurveyOwner>(() => selectedVersion.value === null
+  ? { kind: 'lesson', id: lessonId.value }
+  : { kind: 'lesson-version', lessonId: lessonId.value, versionId: selectedVersion.value.id })
 
 const isSendingSurvey = ref(false)
 const surveyError = ref<string | null>(null)
@@ -298,7 +367,11 @@ async function sendQuiz() {
   actionError.value = null
 
   try {
-    const { data: result } = await submitQuiz(lessonId.value, answers.value)
+    // Сдают свой текст: у версии проверка своя, и зачёт она ставит тому же
+    // уроку — см. CreditMaterial на сервере.
+    const { data: result } = selectedVersion.value === null
+      ? await submitQuiz(lessonId.value, answers.value)
+      : await submitVersionQuiz(lessonId.value, selectedVersion.value.id, answers.value)
     attempt.value = result
     await refresh()
   }
@@ -369,6 +442,41 @@ function formatSize(bytes: number): string {
           <h1 class="page-title">
             {{ lesson.title }}
           </h1>
+
+          <!--
+            Версии урока: тот же урок, рассказанный своим людям.
+
+            Общая стоит первой и всегда — она сам урок. Своя версия открыта с
+            самого начала, но посмотреть соседнюю не запрещено. Закрытая
+            помечена: пересказывать её тому, кого в группу не внесли, не стоит.
+          -->
+          <nav v-if="versions.length" class="versions" aria-label="Версии урока">
+            <button
+              type="button"
+              class="versions__item"
+              :class="{ 'versions__item--current': selectedVersion === null }"
+              :aria-pressed="selectedVersion === null"
+              :disabled="isSwitchingVersion"
+              @click="openVersion(null)"
+            >
+              Общая
+            </button>
+
+            <button
+              v-for="version in versions"
+              :key="version.id"
+              type="button"
+              class="versions__item"
+              :class="{ 'versions__item--current': selectedVersion?.id === version.id }"
+              :aria-pressed="selectedVersion?.id === version.id"
+              :disabled="isSwitchingVersion"
+              @click="openVersion(version.id)"
+            >
+              {{ version.name }}
+              <span v-if="version.is_mine" class="versions__mark">ваша</span>
+              <span v-else-if="version.is_private" class="versions__mark">закрытая</span>
+            </button>
+          </nav>
         </div>
 
         <div class="head__side">
@@ -399,8 +507,8 @@ function formatSize(bytes: number): string {
         </div>
       </header>
 
-      <div v-if="lesson.video_upload_url" class="video">
-        <video ref="uploadedVideo" :src="lesson.video_upload_url" controls preload="metadata" />
+      <div v-if="body?.video_upload_url" class="video">
+        <video ref="uploadedVideo" :src="body?.video_upload_url" controls preload="metadata" />
       </div>
 
       <div v-else-if="embedUrl" class="video">
@@ -413,13 +521,13 @@ function formatSize(bytes: number): string {
         />
       </div>
 
-      <p v-else-if="lesson.video_url" class="video-link">
-        <a :href="lesson.video_url" target="_blank" rel="noopener noreferrer">Открыть видео →</a>
+      <p v-else-if="body?.video_url" class="video-link">
+        <a :href="body?.video_url" target="_blank" rel="noopener noreferrer">Открыть видео →</a>
       </p>
 
       <div class="prose">
         <ClientOnly>
-          <EditorRichTextRenderer :content="article" :fallback-text="lesson.content" />
+          <EditorRichTextRenderer :content="article" :fallback-text="selectedVersion ? null : lesson.content" />
 
           <template #fallback>
             <p v-for="(paragraph, index) in paragraphs" :key="index">
@@ -448,12 +556,12 @@ function formatSize(bytes: number): string {
         </div>
       </section>
 
-      <section v-if="lesson.attachments?.length" class="block">
+      <section v-if="body?.attachments?.length" class="block">
         <h2 class="block__title">
           Файлы
         </h2>
         <ul class="files">
-          <li v-for="file in lesson.attachments" :key="file.id" class="file">
+          <li v-for="file in body?.attachments ?? []" :key="file.id" class="file">
             <div class="file__row">
               <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
 
@@ -485,16 +593,16 @@ function formatSize(bytes: number): string {
         </ul>
       </section>
 
-      <section v-if="lesson.quiz" class="block quiz card">
+      <section v-if="body?.quiz" class="block quiz card">
         <header class="quiz__head">
           <div>
             <h2 class="block__title">
-              {{ lesson.quiz.title }}
+              {{ body?.quiz?.title }}
             </h2>
             <p class="muted quiz__rules">
               <template v-if="isAttestation">
                 Работу читает
-                {{ lesson.quiz.examiner?.name ?? 'назначенный проверяющий' }}:
+                {{ body?.quiz?.examiner?.name ?? 'назначенный проверяющий' }}:
                 урок зачтётся после его ответа, а не сразу.
               </template>
               <template v-else>
@@ -516,7 +624,7 @@ function formatSize(bytes: number): string {
         <AttestationStatusPanel
           v-if="isAttestation && lastAttempt"
           :attempt="lastAttempt"
-          :examiner="lesson.quiz.examiner?.name"
+          :examiner="body?.quiz?.examiner?.name"
         />
 
         <div
@@ -543,7 +651,7 @@ function formatSize(bytes: number): string {
         <QuizReviewPanel v-if="!isAttestation && attempt?.review" :review="attempt.review" />
 
         <template v-if="!isCompleted && !attempt?.passed && !isAwaitingReview">
-          <div v-for="(question, index) in lesson.quiz.questions ?? []" :key="question.id" class="question">
+          <div v-for="(question, index) in body?.quiz?.questions ?? []" :key="question.id" class="question">
             <p class="question__text">
               <span class="question__num">{{ index + 1 }}.</span>
               {{ question.text }}
@@ -606,7 +714,7 @@ function formatSize(bytes: number): string {
           </button>
         </template>
 
-        <QuizAttemptsHistory :attempts="lesson.own_attempts ?? []" />
+        <QuizAttemptsHistory :attempts="body?.own_attempts ?? []" />
       </section>
 
       <div v-else-if="isEnrolled && !isCompleted" class="block">
@@ -680,6 +788,57 @@ function formatSize(bytes: number): string {
 </template>
 
 <style scoped>
+/* Переключатель версий — тот же, что на странице документа: правила у них
+   общие, и выглядеть по-разному им незачем. */
+.versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+}
+
+.versions__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.87rem;
+  cursor: pointer;
+}
+
+.versions__item:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.versions__item:disabled {
+  cursor: progress;
+}
+
+/* Выбранная — заливкой, а не одним цветом текста: вкладок бывает пять, и
+   разницу в оттенке между ними глазом не поймать. */
+.versions__item--current {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 550;
+}
+
+.versions__mark {
+  color: var(--color-text-faint);
+  font-size: 0.75rem;
+}
+
+.versions__item--current .versions__mark {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .written {
   width: 100%;
   margin-top: 0.35rem;

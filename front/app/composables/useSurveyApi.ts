@@ -21,6 +21,7 @@ export type SurveyOwner =
   | { kind: 'lesson', id: number }
   | { kind: 'material', section: MaterialSection, slug: string }
   | { kind: 'version', section: MaterialSection, slug: string, versionId: number }
+  | { kind: 'lesson-version', lessonId: number | string, versionId: number }
   | { kind: 'news', slug: string }
 
 function baseOf(owner: SurveyOwner): string {
@@ -31,6 +32,9 @@ function baseOf(owner: SurveyOwner): string {
       return `/api/lms/${owner.section}/${owner.slug}/survey`
     case 'version':
       return `/api/lms/${owner.section}/${owner.slug}/versions/${owner.versionId}/survey`
+    // Версия урока (2026-09-25): опрос у неё свой, как и у версии документа.
+    case 'lesson-version':
+      return `/api/lms/lessons/${owner.lessonId}/versions/${owner.versionId}/survey`
     case 'news':
       return `/api/news/${owner.slug}/survey`
   }

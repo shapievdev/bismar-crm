@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\LessonMaterialController;
 use App\Http\Controllers\Api\Lms\LessonTranscriptController;
+use App\Http\Controllers\Api\Lms\LessonVersionController;
 use App\Http\Controllers\Api\Lms\ProgressController;
 use App\Http\Controllers\Api\Lms\QuizController;
 use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
@@ -426,6 +427,82 @@ Route::middleware([
     Route::post('lessons/{lesson}/survey/submit', [SurveyController::class, 'submit'])
         ->middleware($view)
         ->name('survey.submit');
+
+    /*
+     * Версии урока — тот же урок, рассказанный своим людям (2026-09-25).
+     *
+     * Устроены теми же адресами, что версии документа, и по тем же правилам:
+     * общей версии здесь нет ни одним маршрутом (она — сам урок), ведёт их тот,
+     * кто правит курс, читает — тот, кому версия открыта.
+     */
+    Route::prefix('lessons/{lesson}/versions')->as('lessons.versions.')->group(function () use ($view, $update): void {
+        // Раньше подстановки `{version}`, иначе «order» уедет в неё и ответит
+        // «не найдено».
+        Route::put('order', [LessonVersionController::class, 'reorder'])
+            ->middleware($update)
+            ->name('order');
+
+        Route::get('/', [LessonVersionController::class, 'index'])
+            ->middleware($update)
+            ->name('index');
+        Route::post('/', [LessonVersionController::class, 'store'])
+            ->middleware($update)
+            ->name('store');
+
+        // Одну версию читает всякий, кому она открыта: переключатель на
+        // странице урока ходит сюда же.
+        Route::get('{version}', [LessonVersionController::class, 'show'])
+            ->middleware($view)
+            ->name('show');
+
+        Route::put('{version}', [LessonVersionController::class, 'update'])
+            ->middleware($update)
+            ->name('update');
+        Route::delete('{version}', [LessonVersionController::class, 'destroy'])
+            ->middleware($update)
+            ->name('destroy');
+
+        // Проверка при версии: своя у каждой, а сдача по-прежнему закрывает
+        // урок — см. CreditMaterial.
+        Route::post('{version}/quiz/submit', [LearningController::class, 'submitVersionQuiz'])
+            ->middleware($view)
+            ->name('quiz.submit');
+
+        Route::post('{version}/survey/submit', [SurveyController::class, 'submit'])
+            ->middleware($view)
+            ->name('survey.submit');
+
+        Route::middleware($update)->group(function (): void {
+            Route::put('{version}/quiz', [QuizController::class, 'saveForVersion'])->name('quiz.save');
+            Route::delete('{version}/quiz', [QuizController::class, 'destroyForVersion'])->name('quiz.destroy');
+
+            Route::put('{version}/survey', [SurveyController::class, 'save'])->name('survey.save');
+            Route::delete('{version}/survey', [SurveyController::class, 'destroy'])->name('survey.destroy');
+            Route::get('{version}/survey/summary', [SurveyController::class, 'summary'])->name('survey.summary');
+
+            // Файлы версии — своё приложение у каждой.
+            Route::post('{version}/attachments', [LessonAttachmentController::class, 'storeForVersion'])
+                ->name('attachments.store');
+            Route::post('{version}/attachments/drive', [LessonAttachmentController::class, 'storeFromDriveForVersion'])
+                ->name('attachments.drive');
+
+            // Запись версии — то, чего у документа не бывает: у розницы своя, у
+            // офиса своя. Ссылка на YouTube приходит полем версии, загруженный
+            // файл — сюда, как и у самого урока.
+            Route::post('{version}/video', [LessonAttachmentController::class, 'storeVersionVideo'])
+                ->name('video.store');
+            Route::delete('{version}/video', [LessonAttachmentController::class, 'destroyVersionVideo'])
+                ->name('video.destroy');
+        });
+
+        // Разбор проверки при версии — администратору, как и у самого урока.
+        Route::middleware(EnsureAdministrator::class)->group(function (): void {
+            Route::get('{version}/quiz/statistics', [QuizController::class, 'statisticsForVersion'])
+                ->name('quiz.statistics');
+            Route::get('{version}/quiz/attempts/{attempt}', [QuizController::class, 'attemptForVersion'])
+                ->name('quiz.attempt');
+        });
+    });
 
     // Разбор своей попытки. Чужая недоступна — проверяется в контроллере, по
     // спрашивавшему, а не по тому, что попросил клиент.

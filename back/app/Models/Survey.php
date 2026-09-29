@@ -113,10 +113,16 @@ class Survey extends Model
 
         return match (true) {
             $owner instanceof Regulation => $user->can($owner->kind->updatePermission()->value),
-            // Опрос при версии правится тем же правом, что и сам документ:
-            // версия — его часть, а не отдельный материал.
-            $owner instanceof RegulationVersion => $owner->loadMissing('regulation')->regulation !== null
-                && $user->can($owner->regulation->kind->updatePermission()->value),
+            // Опрос при версии правится тем же правом, что и сам материал:
+            // версия — его часть. Право берётся у материала — у документа своё
+            // на раздел, у урока общее право на курсы.
+            $owner instanceof MaterialVersion => match (true) {
+                $owner->owner() instanceof Regulation => $user->can(
+                    $owner->regulation()?->kind->updatePermission()->value ?? '',
+                ),
+                $owner->owner() instanceof Lesson => $user->can(Permission::UpdateCourses->value),
+                default => false,
+            },
             $owner instanceof Lesson => $user->can(Permission::UpdateCourses->value),
             $owner instanceof News => $user->can(Permission::ManageNews->value),
             // Владельца не нашли — материал удалён вместе с ним, и править

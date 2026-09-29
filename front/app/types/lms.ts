@@ -83,6 +83,16 @@ export interface LessonSummary {
   course_title?: string
   course_slug?: string
   own_attempts?: QuizAttempt[]
+
+  /**
+   * Версии урока — тот же урок, рассказанный своим людям (2026-09-25).
+   * Названиями, без тел: общей версии среди них нет, она сам урок.
+   */
+  versions?: MaterialVersionSummary[]
+  /** Версия, которая открывается этому человеку первой. Нет — общая. */
+  version?: MaterialVersion | null
+  /** Подписанный адрес загруженной записи. */
+  video_upload_url?: string | null
 }
 
 export interface Category {
@@ -478,6 +488,14 @@ export interface MaterialVersion extends MaterialVersionSummary {
   /** Опрос при версии — свой, как и проверка. */
   survey?: Survey | null
   own_attempts?: QuizAttempt[]
+  /**
+   * Запись версии урока — то, чего у документа не бывает: у розницы своя, у
+   * офиса своя. У версии документа полей нет вовсе.
+   */
+  video_url?: string | null
+  /** Подписанный адрес загруженной записи версии. */
+  video_upload_url?: string | null
+  video_name?: string | null
 }
 
 /** Что присылают, заводя и правя версию. */
@@ -487,6 +505,8 @@ export interface MaterialVersionPayload {
   groups: number[]
   departments: number[]
   content_json?: JSONContent | null
+  /** Ссылка на запись — у версии урока. Пустая строка снимает прежнюю. */
+  video_url?: string | null
 }
 
 /** Итог отправленной проверки — у документа он же и есть ознакомление. */

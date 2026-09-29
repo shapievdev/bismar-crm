@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['enrollment_id', 'lesson_id', 'completed_at'])]
+#[Fillable(['enrollment_id', 'lesson_id', 'version_id', 'completed_at'])]
 class LessonCompletion extends Model
 {
     /**

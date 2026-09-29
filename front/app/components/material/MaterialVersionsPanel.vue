@@ -1,26 +1,30 @@
 <script setup lang="ts">
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
-import type { MaterialSection, MaterialVersionSummary } from '~/types/lms'
+import type { VersionsTarget } from '~/composables/useVersionsApi'
+import type { MaterialVersionSummary } from '~/types/lms'
 import type { Group } from '~/types/structure'
 import { type FlatDepartment, flattenDepartments } from '~/utils/departments'
 
 /**
- * Версии материала — то же правило, написанное для своих людей.
+ * Версии материала — то же самое, написанное для своих людей.
  *
- * Здесь их заводят, расставляют по порядку и убирают; текст, файлы и проверку
- * версии правят на её собственном экране — это полноценное тело материала, и
- * втискивать второй редактор в эту панель было бы теснотой ради тесноты.
+ * Здесь их заводят, расставляют по порядку и убирают; текст, запись, файлы и
+ * проверку версии правят на её собственном экране — это полноценное тело
+ * материала, и втискивать второй редактор в эту панель было бы теснотой ради
+ * тесноты.
+ *
+ * Панель одна на документ, справочник и урок курса (2026-09-25): правила у них
+ * общие, а разное — адреса и слово, которым материал называют, — знает
+ * useVersionsApi.
  *
  * Порядок здесь не украшение: человек, попавший в две версии сразу, получает
  * первую по этому списку (решение пользователя 2026-09-12).
  */
 const props = defineProps<{
-  section: MaterialSection
-  slug: string
+  target: VersionsTarget
 }>()
 
-const copy = useMaterialSection(props.section)
-const { createVersion, fetchVersions, reorderVersions, deleteVersion } = useMaterialsApi(props.section)
+const api = useVersionsApi(props.target)
 const { fetchGroups } = useGroupsApi()
 const { fetchStructure } = useStructureApi()
 
@@ -36,7 +40,7 @@ onMounted(async () => {
     // Половины независимы, и падать вместе им незачем: сломанный справочник
     // групп не должен уносить с собой отделы.
     const [own, all, structure] = await Promise.all([
-      fetchVersions(props.slug),
+      api.list(),
       fetchGroups(),
       fetchStructure(),
     ])
@@ -71,7 +75,7 @@ async function add() {
   errorMessage.value = null
 
   try {
-    const { data: created } = await createVersion(props.slug, { ...form.value })
+    const { data: created } = await api.create({ ...form.value })
 
     versions.value = [...versions.value, created]
     isAdding.value = false
@@ -110,7 +114,7 @@ async function move(index: number, step: -1 | 1) {
   isSaving.value = true
 
   try {
-    versions.value = (await reorderVersions(props.slug, next.map(one => one.id))).data
+    versions.value = (await api.reorder(next.map(one => one.id))).data
   }
   catch {
     versions.value = previous
@@ -138,7 +142,7 @@ async function remove(version: MaterialVersionSummary) {
   isSaving.value = true
 
   try {
-    await deleteVersion(props.slug, version.id)
+    await api.remove(version.id)
     versions.value = versions.value.filter(one => one.id !== version.id)
   }
   catch {
@@ -173,9 +177,9 @@ function namesOf(version: MaterialVersionSummary): string {
 </script>
 
 <template>
-  <section class="card editor-panel versions">
+  <section class="card versions">
     <header class="versions__header">
-      <h2 class="editor-panel__title">
+      <h2 class="versions__title">
         Версии
       </h2>
       <span v-if="isSaving" class="faint">Сохраняем…</span>
@@ -184,7 +188,7 @@ function namesOf(version: MaterialVersionSummary): string {
     <p class="faint versions__note">
       Одно правило, написанное для разных людей по-разному. У кого группы ни с
       одной версией не совпали — читает общую, то есть сам
-      {{ copy.materialLabel.toLowerCase() }}. Совпало несколько — открывается
+      {{ api.materialLabel }}. Совпало несколько — открывается
       первая по этому списку.
     </p>
 
@@ -223,7 +227,7 @@ function namesOf(version: MaterialVersionSummary): string {
           >↓</button>
 
           <NuxtLink
-            :to="`/lms/${section}/${slug}/versions/${version.id}`"
+            :to="api.editPath(version.id)"
             class="button-secondary button-sm"
           >
             Править
@@ -237,7 +241,7 @@ function namesOf(version: MaterialVersionSummary): string {
     </ul>
 
     <p v-else class="faint">
-      Версий нет — {{ copy.materialLabel.toLowerCase() }} читают все одинаково.
+      Версий нет — {{ api.materialLabel }} читают все одинаково.
     </p>
 
     <form v-if="isAdding" class="adding" @submit.prevent="add">
@@ -325,10 +329,25 @@ function namesOf(version: MaterialVersionSummary): string {
 </template>
 
 <style scoped>
+/*
+ * Отступы у панели свои, а не занятые у редактора документа.
+ *
+ * Раньше их давал его `.editor-panel`: стили там scoped, но скоуп родителя
+ * достаётся и корню вложенного компонента, так что снаружи редактора —
+ * на странице урока — от панели оставалась разметка без полей и с заголовком
+ * в браузерный размер. Тот же подвох уже описан в MaterialVersionEditor.
+ */
 .versions {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  padding: 1.1rem 1.25rem;
+}
+
+.versions__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 500;
 }
 
 .versions__header {

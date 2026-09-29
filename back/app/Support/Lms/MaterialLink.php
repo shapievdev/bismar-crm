@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Support\Lms;
 
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\Regulation;
-use App\Models\RegulationVersion;
 
 /**
  * Как назвать материал, при котором стоит тест, и куда вести за ним.
@@ -39,7 +39,7 @@ final readonly class MaterialLink
     {
         return match (true) {
             $owner instanceof Lesson => self::forLesson($owner),
-            $owner instanceof RegulationVersion => self::forVersion($owner),
+            $owner instanceof MaterialVersion => self::forVersion($owner),
             $owner instanceof Regulation => self::forMaterial($owner),
             default => null,
         };
@@ -90,15 +90,29 @@ final readonly class MaterialLink
     }
 
     /**
-     * Версия живёт на своей странице внутри документа: там её текст, её файлы и
-     * её проверка. Название берётся у документа — «Регламент, версия 3» читается
-     * лучше, чем номер сам по себе.
+     * Версия живёт на своей странице внутри материала: там её текст, её файлы и
+     * её проверка. Название у неё своё («Для розницы»), а откуда она — говорит
+     * материал: «Для розницы · Регламент о зарплате» читается лучше, чем
+     * название версии само по себе.
      */
-    private static function forVersion(RegulationVersion $version): self
+    private static function forVersion(MaterialVersion $version): self
     {
-        $material = $version->loadMissing('regulation')->regulation;
+        $owner = $version->owner();
 
-        if ($material === null) {
+        if ($owner instanceof Lesson) {
+            $course = $owner->owningCourse();
+
+            return new self(
+                kind: 'lesson',
+                title: (string) $version->name,
+                context: $owner->title,
+                url: $course === null
+                    ? null
+                    : '/lms/'.$course->slug.'/lessons/'.$owner->getKey().'/versions/'.$version->getKey(),
+            );
+        }
+
+        if (! $owner instanceof Regulation) {
             return new self(
                 kind: 'document',
                 title: (string) $version->name,
@@ -108,10 +122,10 @@ final readonly class MaterialLink
         }
 
         return new self(
-            kind: $material->kind->value,
+            kind: $owner->kind->value,
             title: (string) $version->name,
-            context: $material->title,
-            url: $material->path().'/versions/'.$version->getKey(),
+            context: $owner->title,
+            url: $owner->path().'/versions/'.$version->getKey(),
         );
     }
 }
