@@ -178,6 +178,68 @@ final class RegulationTest extends TestCase
     }
 
     /**
+     * Материал привязывают только к последней категории дерева (решение
+     * пользователя 2026-09-30): родительская — развилка, материалов в ней не
+     * ждут, и оставленный там материал никто бы не нашёл.
+     */
+    public function test_a_material_cannot_be_put_into_a_category_that_holds_others(): void
+    {
+        $root = RegulationCategory::factory()->create();
+        $child = RegulationCategory::factory()->create(['parent_id' => $root->id]);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.documents.store'), $this->payload(['category_id' => $root->id]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('category_id');
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.documents.store'), $this->payload(['category_id' => $child->id]))
+            ->assertCreated();
+
+        $this->assertSame($child->id, Regulation::query()->sole()->category_id);
+    }
+
+    /**
+     * Привязанное к развилке до правила остаётся правимым.
+     *
+     * Иначе у такого материала нельзя было бы поправить и опечатку в названии:
+     * категория уходит в каждом сохранении, и проверка отклоняла бы то, чего
+     * автор не трогал. Тот же приём, что и у закрытости материала.
+     */
+    public function test_a_material_already_in_a_parent_category_still_saves(): void
+    {
+        $root = RegulationCategory::factory()->create();
+        $child = RegulationCategory::factory()->create(['parent_id' => $root->id]);
+
+        $legacy = Regulation::factory()->create(['category_id' => $root->id]);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.documents.update', $legacy), $this->payload([
+                'title' => 'Новое название',
+                'category_id' => $root->id,
+            ]))
+            ->assertOk();
+
+        $this->assertSame('Новое название', $legacy->refresh()->title);
+
+        // А вот переложить его в другую развилку уже нельзя — это новая привязка.
+        $another = RegulationCategory::factory()->create();
+        RegulationCategory::factory()->create(['parent_id' => $another->id]);
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.documents.update', $legacy), $this->payload(['category_id' => $another->id]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('category_id');
+
+        // И переложить вниз, в последнюю, — можно.
+        $this->actingAs($this->author())
+            ->putJson(route('lms.documents.update', $legacy), $this->payload(['category_id' => $child->id]))
+            ->assertOk();
+
+        $this->assertSame($child->id, $legacy->refresh()->category_id);
+    }
+
+    /**
      * Имена блокам присваивает сервер, и присваивает при обычном сохранении.
      *
      * Не косметика: расшифровка документа собирается по блокам с именами, и
@@ -311,22 +373,63 @@ final class RegulationTest extends TestCase
     }
 
     /**
-     * Выбранная категория включает всё, что под ней: иначе родительская
-     * выглядела бы пустой.
+     * Категория отдаёт свои материалы и только их (решение пользователя
+     * 2026-09-30).
+     *
+     * Материал привязывают к последней категории дерева, а родительская —
+     * развилка: в ней выбирают подкатегорию. Прежде отбор шёл по всей ветке, и
+     * открыв «HR отдел», человек получал весь отдел одним списком.
      */
-    public function test_filtering_by_a_category_includes_its_children(): void
+    public function test_filtering_by_a_category_leaves_out_its_children(): void
     {
         $root = RegulationCategory::factory()->create();
         $child = RegulationCategory::factory()->create(['parent_id' => $root->id]);
 
-        Regulation::factory()->published()->create(['category_id' => $root->id]);
-        Regulation::factory()->published()->create(['category_id' => $child->id]);
+        $ofChild = Regulation::factory()->published()->create(['category_id' => $child->id]);
         Regulation::factory()->published()->create();
 
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.index', ['category' => $child->slug]))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $this->assertSame($ofChild->id, $response->json('data.0.id'));
+
+        // В развилке своих материалов нет — и вложенные в неё не сваливаются.
         $this->actingAs($this->learner())
             ->getJson(route('lms.documents.index', ['category' => $root->slug]))
             ->assertOk()
-            ->assertJsonCount(2, 'data');
+            ->assertJsonCount(0, 'data');
+    }
+
+    /**
+     * Привязанное к развилке до этого правила остаётся видимым: иначе материал
+     * пропал бы из навигации вовсе, и найти его мог бы только поиск.
+     */
+    public function test_a_material_left_in_a_parent_category_is_still_listed(): void
+    {
+        $root = RegulationCategory::factory()->create();
+        RegulationCategory::factory()->create(['parent_id' => $root->id]);
+
+        $legacy = Regulation::factory()->published()->create(['category_id' => $root->id]);
+
+        $response = $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.index', ['category' => $root->slug]))
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $this->assertSame($legacy->id, $response->json('data.0.id'));
+    }
+
+    /** Ссылка на удалённую категорию отвечает пустым списком, а не всем разделом. */
+    public function test_an_unknown_category_narrows_to_nothing(): void
+    {
+        Regulation::factory()->published()->create();
+
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.documents.index', ['category' => 'ushedshaya']))
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 
     public function test_a_category_cannot_be_nested_under_itself(): void

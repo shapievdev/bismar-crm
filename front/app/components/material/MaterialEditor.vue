@@ -534,13 +534,18 @@ function moveQuestion(document: RegulationLink, delta: number) {
       <div class="field">
         <label class="field-label" for="category">Категория</label>
         <!-- Обязательна: раздел открывается списком категорий, и материал без
-             неё в навигации не существует. -->
+             неё в навигации не существует. Только последняя: родительская —
+             развилка, в ней выбирают подкатегорию. -->
         <CategoryTreeSelect
           id="category"
           v-model="form.category_id"
           :categories="categories"
           :allow-none="false"
+          leaves-only
         />
+        <p class="faint field-note">
+          Выбирают последнюю категорию — ту, внутри которой нет других.
+        </p>
         <p v-if="errors.category_id?.length" class="field-error">
           {{ errors.category_id[0] }}
         </p>

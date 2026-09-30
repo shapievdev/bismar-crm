@@ -135,6 +135,19 @@ const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
 const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
 
 /**
+ * Показывать ли «ничего не найдено».
+ *
+ * В категории, у которой есть вложенные, материалов не ждут: там выбирают
+ * подкатегорию (решение пользователя 2026-09-30, отбор — в
+ * RegulationController::index). Пустое место под плитками честнее, чем
+ * «в категории пусто» о ветке, в которой материалы есть.
+ *
+ * Поиск — исключение: он отвечает по всему разделу, и его безрезультатность
+ * надо сказать словами, где бы человек ни стоял.
+ */
+const showsEmptyState = computed(() => sections.value.length === 0 || search.value.trim() !== '')
+
+/**
  * Важные — своей сеткой, остальные — своей: причины те же, что в каталоге
  * курсов (pages/lms/index.vue).
  */
@@ -146,8 +159,10 @@ const tileGroups = computed(() => [
 /**
  * Всё, что лежит под категорией, вместе с ней самой.
  *
- * Выбор категории показывает и вложенное в неё, поэтому плитка обязана обещать
- * то же число, которое даст нажатие.
+ * У плитки с подкатегориями это обещание ветки, а не страницы: нажатие ведёт к
+ * её разделам, и их число стоит рядом, — а у последней категории ветка и есть
+ * её страница. Обещать здесь одни свои материалы значило бы написать на
+ * развилке «0», пока под ней лежит десяток.
  */
 function branchCount(node: RegulationCategory): number {
   return (node.regulations_count ?? 0)
@@ -291,7 +306,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </div>
 
       <UiEmptyState
-        v-else-if="!documents.length"
+        v-else-if="!documents.length && showsEmptyState"
         :title="copy.emptyCatalogue"
         :description="search || category
           ? 'Попробуйте изменить запрос или категорию.'
@@ -302,7 +317,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         </NuxtLink>
       </UiEmptyState>
 
-      <div v-else ref="grid" class="grid">
+      <div v-else-if="documents.length" ref="grid" class="grid">
         <NuxtLink
           v-for="item in documents"
           :key="item.id"

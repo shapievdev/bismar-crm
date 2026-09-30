@@ -64,9 +64,23 @@ final class RegulationController extends Controller
             ->tap(fn (Builder $query) => $this->search->apply($query, $request->query('search')))
             ->when(
                 $request->filled('category'),
-                // Выбранная категория включает всё, что под ней, иначе
-                // родительская выглядела бы пустой.
-                fn (Builder $query) => $query->whereIn('category_id', $this->branchIdsFor((string) $request->query('category'))),
+                /*
+                 * Ровно эта категория, без вложенных (решение пользователя
+                 * 2026-09-30).
+                 *
+                 * Материал привязывают к последней категории дерева, а
+                 * родительская — развилка: в ней выбирают подкатегорию, а не
+                 * читают всё, что лежит под ней вперемешку. Прежде отбор шёл по
+                 * всей ветке, и «HR отдел» отдавал весь отдел одним списком.
+                 *
+                 * Свои материалы у родительской при этом показываются: те, что
+                 * привязали к ней до этого правила, никуда не делись, и убрать
+                 * их из отбора значило бы потерять их из навигации вовсе.
+                 */
+                fn (Builder $query) => $query->where(
+                    'category_id',
+                    $this->categoryIdOf((string) $request->query('category'), MaterialKind::of($request)),
+                ),
             )
             ->when(
                 // Черновики от читателей скрыты. Право спрашивается у раздела,
@@ -252,14 +266,15 @@ final class RegulationController extends Controller
     }
 
     /**
-     * Категория и всё, что под ней.
+     * Номер категории по её адресу — в своём разделе.
      *
-     * @return list<int>
+     * Ноль у несуществующей: отбор по нему не находит ничего, и ссылка на
+     * удалённую категорию отвечает пустым списком, а не всем каталогом. Ноль, а
+     * не null, потому что `where('category_id', null)` в SQL превращается в
+     * `is null` и нашёл бы материалы вообще без категории.
      */
-    private function branchIdsFor(string $slug): array
+    private function categoryIdOf(string $slug, MaterialKind $kind): int
     {
-        $category = RegulationCategory::query()->where('slug', $slug)->with('children')->first();
-
-        return $category === null ? [] : $category->branchIds();
+        return (int) RegulationCategory::query()->ofKind($kind)->where('slug', $slug)->value('id');
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
 use App\Models\Regulation;
+use App\Models\RegulationCategory;
 use App\Support\Lms\Keywords;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -46,6 +47,9 @@ final class SaveRegulationRequest extends FormRequest
              * Обязательна (решение пользователя 2026-09-07): каталог
              * открывается списком категорий, и материал без неё в навигации не
              * существует — его находил бы только поиск.
+             *
+             * И только последняя в дереве, без вложенных, — см.
+             * checkTheCategoryHoldsNoOthers().
              */
             'category_id' => ['required', 'integer', Rule::exists('regulation_categories', 'id')
                 ->where('kind', MaterialKind::of($this)->value)],
@@ -60,6 +64,45 @@ final class SaveRegulationRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after($this->checkWhoMayCloseTheMaterial(...));
+        $validator->after($this->checkTheCategoryHoldsNoOthers(...));
+    }
+
+    /**
+     * Материал привязывают только к последней категории дерева — той, у которой
+     * нет вложенных (решение пользователя 2026-09-30).
+     *
+     * Родительская категория — развилка: открыв её, человек выбирает
+     * подкатегорию, а материалов в ней не ждёт (см. отбор в
+     * RegulationController::index). Материал, привязанный к развилке, читался бы
+     * как случайно оставленный посреди дороги.
+     *
+     * **Прежняя привязка при этом остаётся законной.** Материалы, привязанные к
+     * родительской до этого правила, должны оставаться правимыми: запрети их — и
+     * поправить у них нельзя было бы даже опечатку в названии, не тронув
+     * категорию. Поэтому сверяемся с сохранённым значением, а не с самим фактом
+     * привязки, — тот же приём, что у закрытости материала выше.
+     */
+    private function checkTheCategoryHoldsNoOthers(Validator $validator): void
+    {
+        $chosen = (int) $this->input('category_id');
+
+        // О пустом и о чужом уже сказали `required` и `exists`.
+        if ($chosen === 0) {
+            return;
+        }
+
+        $regulation = $this->route('regulation');
+
+        if ($regulation instanceof Regulation && (int) $regulation->category_id === $chosen) {
+            return;
+        }
+
+        if (RegulationCategory::query()->where('parent_id', $chosen)->exists()) {
+            $validator->errors()->add(
+                'category_id',
+                'В этой категории есть вложенные — выберите последнюю, самую глубокую.',
+            );
+        }
     }
 
     /**
