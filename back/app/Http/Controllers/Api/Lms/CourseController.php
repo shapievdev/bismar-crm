@@ -94,8 +94,17 @@ final class CourseController extends Controller
         // Ответственные — всем, кто курс видит: к ним идут с вопросом, на
         // который материал не ответил, и знать о них должен читатель, а не
         // редактор.
+        /*
+         * Тот, кто курс ведёт, видит и черновики уроков — иначе он не нашёл бы
+         * собственный неоконченный урок и не смог бы его выложить. Читателю
+         * едут только выложенные: связь `lessons` их и отдаёт (2026-09-30).
+         */
+        $lessons = $request->user()?->can('update', $course) === true
+            ? 'modules.allLessons.quiz'
+            : 'modules.lessons.quiz';
+
         $course->load([
-            'author', 'category', 'experts', 'modules.lessons.quiz',
+            'author', 'category', 'experts', $lessons,
             // Круг согласования с ответами — см. RegulationController::show.
             'latestReview.decisions.user:id,last_name,first_name,middle_name',
             'latestReview.requester:id,last_name,first_name,middle_name',

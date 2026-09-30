@@ -144,6 +144,12 @@ final readonly class Everywhere
 
         $lessons = Lesson::query()
             ->with('module.course')
+            // Черновик урока ищет только тот, кто курсы правит: остальным его
+            // ещё не показывают (2026-09-30).
+            ->when(
+                $reader->cannot(Permission::UpdateCourses->value),
+                fn (Builder $query) => $query->published(),
+            )
             ->whereHas('module.course', fn (Builder $course) => $course
                 ->visibleTo($reader)
                 ->when(

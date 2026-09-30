@@ -134,7 +134,13 @@ final readonly class KnowledgeBase
      */
     private const CORPUS = <<<'SQL'
         transcript_segments
+        -- Черновик урока в корпус не входит (2026-09-30): консультант не должен
+        -- отвечать по тексту, который ещё не выложен людям, — тем более по
+        -- тому, что сейчас на согласовании. Условие в самом соединении, а не в
+        -- отборе: иначе кусок такого урока прошёл бы вместе с документами,
+        -- у которых `lessons.id` пуст по устройству.
         LEFT JOIN lessons ON lessons.id = transcript_segments.lesson_id
+            AND lessons.published_at IS NOT NULL
         LEFT JOIN course_modules ON course_modules.id = lessons.module_id
         LEFT JOIN courses ON courses.id = course_modules.course_id
         LEFT JOIN regulations ON regulations.id = transcript_segments.regulation_id
@@ -427,6 +433,9 @@ final readonly class KnowledgeBase
             JOIN courses ON courses.id = course_modules.course_id
             WHERE courses.status = ?
               AND courses.deleted_at IS NULL
+              -- Черновик урока не предлагают даже «рядом по теме»: ссылка вела
+              -- бы туда, куда человека не пустят (2026-09-30).
+              AND lessons.published_at IS NOT NULL
               %2$s
               AND %1$s @@ to_tsquery('simple', ?)
             ORDER BY rank DESC, lessons.id

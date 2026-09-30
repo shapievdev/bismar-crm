@@ -54,10 +54,11 @@ final readonly class DiscardedFiles
             $files[] = ['disk' => 's3', 'path' => (string) $course->cover_path];
         }
 
-        $course->loadMissing('modules.lessons.attachments');
+        // Все уроки, включая черновики: файлы с диска надо убрать и за ними.
+        $course->loadMissing('modules.allLessons.attachments');
 
         foreach ($course->modules as $module) {
-            foreach ($module->lessons as $lesson) {
+            foreach ($module->allLessons as $lesson) {
                 if ($lesson->video_path !== null && $lesson->video_disk !== null) {
                     $files[] = ['disk' => (string) $lesson->video_disk, 'path' => (string) $lesson->video_path];
                 }

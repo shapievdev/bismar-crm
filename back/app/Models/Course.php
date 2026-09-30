@@ -155,6 +155,23 @@ class Course extends Model implements Approvable, PartOfCourse
      */
     public function lessons(): HasManyThrough
     {
+        // Только выложенные (2026-09-30): по этой связи считают прогресс, план,
+        // статистику и корпус консультанта, и черновик в любом из них означал бы
+        // курс, который нельзя пройти до конца. Всё вместе — allLessons().
+        return $this->allLessons()->published();
+    }
+
+    /**
+     * Все уроки курса, включая черновики, — редактору и уборке.
+     *
+     * Отдельной связью, а не условием по месту: «что в курсе есть» и «что в нём
+     * видно» — разные вопросы, и спутать их легко ровно потому, что до появления
+     * состояния у урока они совпадали.
+     *
+     * @return HasManyThrough<Lesson, CourseModule, $this>
+     */
+    public function allLessons(): HasManyThrough
+    {
         return $this->hasManyThrough(Lesson::class, CourseModule::class, 'course_id', 'module_id')
             ->orderBy('course_modules.position')
             ->orderBy('course_modules.id')

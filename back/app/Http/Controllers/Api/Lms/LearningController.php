@@ -21,6 +21,7 @@ use App\Models\MaterialVersion;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Support\Lms\LearningPlan;
+use App\Support\Lms\MaterialApprovals;
 use App\Support\Lms\MaterialVersions;
 use App\Support\Lms\ProgressCalculator;
 use App\Support\Lms\QuizReview;
@@ -133,10 +134,31 @@ final class LearningController extends Controller
             abort(HttpResponse::HTTP_NOT_FOUND);
         }
 
+        /** @var User $reader */
+        $reader = $request->user();
+
+        /*
+         * Черновик урока людям не показывают (2026-09-30).
+         *
+         * Видят его двое: тот, кто курс ведёт, и тот, кого просят урок
+         * согласовать, — иначе согласовывать было бы нечего. Отказ 404, а не
+         * 403: для остальных этого урока ещё не существует.
+         */
+        abort_unless(
+            $lesson->isPublished()
+                || $reader->can('update', $course)
+                || app(MaterialApprovals::class)->participates($lesson, $reader),
+            HttpResponse::HTTP_NOT_FOUND,
+        );
+
         // Проверяющий едет вместе с тестом: сотруднику важно знать, кому уйдёт
         // работа, — «ждёт проверки» без имени звучит как «ждёт неизвестно чего».
         $lesson->load(
             'attachments',
+            // Круг согласования: согласующему — ждут ли его ответа, автору —
+            // кто ещё не ответил и что просили исправить.
+            'latestReview.decisions.user:id,last_name,first_name,middle_name',
+            'latestReview.requester:id,last_name,first_name,middle_name',
             'quiz.questions.options',
             'quiz.examiner:id,last_name,first_name,middle_name',
             // Опрос — вместе с уроком: он стоит на той же странице, и второй

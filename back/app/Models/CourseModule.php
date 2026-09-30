@@ -36,6 +36,18 @@ class CourseModule extends Model implements PartOfCourse
      */
     public function lessons(): HasMany
     {
+        // Только выложенные — см. Course::lessons(). Черновики модуля едут
+        // редактору отдельной связью.
+        return $this->allLessons()->published();
+    }
+
+    /**
+     * Все уроки модуля, включая черновики: редактор, перестановка, уборка.
+     *
+     * @return HasMany<Lesson, $this>
+     */
+    public function allLessons(): HasMany
+    {
         return $this->hasMany(Lesson::class, 'module_id')->orderBy('position')->orderBy('id');
     }
 }

@@ -87,10 +87,14 @@ final class LearningReport
                        or (l.id is not null and c.deleted_at is null)
                 ) as versions,
                 (
+                    -- Черновики не считаются (2026-09-30): отчёт говорит о том,
+                    -- что людям видно, — уроком, которого им не показывают,
+                    -- никто не обучится.
                     select count(l.id)
                     from lessons l
                     join course_modules m on m.id = l.module_id
                     join courses c on c.id = m.course_id and c.deleted_at is null
+                    where l.published_at is not null
                 ) as lessons
             SQL, [
             CourseStatus::Published->value,
@@ -1042,9 +1046,11 @@ final class LearningReport
     {
         return <<<'SQL'
             with lesson_counts as (
+                -- Только выложенные: знаменатель прогресса считают по ним же,
+                -- см. Course::lessons() и ProgressCalculator.
                 select m.course_id, count(l.id) as lessons
                 from course_modules m
-                left join lessons l on l.module_id = m.id
+                left join lessons l on l.module_id = m.id and l.published_at is not null
                 group by m.course_id
             ),
             progress as (

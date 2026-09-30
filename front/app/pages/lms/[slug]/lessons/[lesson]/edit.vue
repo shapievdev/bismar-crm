@@ -42,6 +42,7 @@ useHead(() => ({ title: `Урок — ${lesson.value?.title ?? ''}` }))
 
 const form = ref<LessonPayload>({
   title: lesson.value?.title ?? '',
+  is_published: Boolean(lesson.value?.is_published),
   content: lesson.value?.content ?? '',
   video_url: lesson.value?.video_url ?? '',
   duration_minutes: lesson.value?.duration_minutes ?? null,
@@ -67,6 +68,7 @@ const isDirty = computed(() => {
     || form.value.title !== (saved.title ?? '')
     || (form.value.video_url ?? '') !== (saved.video_url ?? '')
     || (form.value.duration_minutes ?? null) !== (saved.duration_minutes ?? null)
+    || Boolean(form.value.is_published) !== Boolean(saved.is_published)
 })
 
 /**
@@ -370,6 +372,23 @@ async function removeQuiz() {
         <form class="form" novalidate @submit.prevent="save">
       <FormField id="title" v-model="form.title" label="Название" :errors="errors.title" />
 
+      <!--
+        Выложен ли урок людям. Новый урок заводится черновиком: пока он не
+        согласован или не выложен здесь, тем, кто проходит курс, его не видно.
+      -->
+      <label class="choice">
+        <input v-model="form.is_published" type="checkbox">
+        Выложить урок людям
+      </label>
+      <p class="faint field-note">
+        <template v-if="form.is_published">
+          Урок виден всем, кому открыт курс, и считается в прогрессе.
+        </template>
+        <template v-else>
+          Черновик: его видите вы и те, кого просят согласовать.
+        </template>
+      </p>
+
       <div class="row">
         <div class="field">
           <label for="video">Ссылка на видео</label>
@@ -534,6 +553,19 @@ async function removeQuiz() {
         Добавить опрос к уроку
       </button>
     </section>
+
+    <!--
+      Согласование урока (2026-09-30): автор либо выкладывает его сам
+      переключателем выше, либо показывает сперва другим — согласуют все, и урок
+      выйдет к людям. Панель одна на документ, курс и урок.
+    -->
+    <ApprovalPanel
+      class="lesson-versions"
+      :target="{ kind: 'lesson', lessonId }"
+      :review="lesson.review ?? null"
+      :is-published="Boolean(lesson.is_published)"
+      @changed="refresh()"
+    />
 
     <!-- Версии урока: тот же урок, рассказанный своим людям (2026-09-25).
          Здесь их заводят и расставляют по порядку — им решается спор, когда

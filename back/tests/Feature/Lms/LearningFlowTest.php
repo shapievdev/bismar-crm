@@ -171,7 +171,15 @@ final class LearningFlowTest extends TestCase
             ->assertJsonPath('data.progress', 50);
     }
 
-    public function test_adding_a_lesson_reopens_a_completed_course(): void
+    /**
+     * Черновик курса не переоткрывает, а выложенный урок — переоткрывает.
+     *
+     * До появления у урока своего состояния (2026-09-30) курс переоткрывался от
+     * самого заведения урока: урок был виден с первой минуты. Теперь заведение —
+     * это черновик, которого людям не видно, и знаменатель прогресса он не
+     * трогает. Меняет его публикация — ею урок и выходит к людям.
+     */
+    public function test_a_published_lesson_reopens_a_completed_course(): void
     {
         $course = Course::factory()->withLessons(1)->create();
         $learner = $this->learner();
@@ -185,14 +193,29 @@ final class LearningFlowTest extends TestCase
 
         $module = $course->modules()->first();
 
-        $this->actingAs($this->author())
+        $response = $this->actingAs($this->author())
             ->postJson(route('lms.lessons.store', $module), [
                 'title' => 'Новый урок',
                 'content' => 'Текст.',
             ])
-            ->assertCreated();
+            ->assertCreated()
+            ->assertJsonPath('data.is_published', false);
 
-        // The learner has not seen the new lesson, so the course is unfinished.
+        // Черновик курса не трогает: людям его ещё не показывают.
+        $this->assertNotNull(Enrollment::query()->sole()->completed_at);
+
+        $lesson = Lesson::query()->findOrFail($response->json('data.id'));
+
+        $this->actingAs($this->author())
+            ->putJson(route('lms.lessons.update', $lesson), [
+                'title' => 'Новый урок',
+                'content' => 'Текст.',
+                'is_published' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.is_published', true);
+
+        // А выложенный — переоткрывает: сотруднику есть что дочитать.
         $this->assertNull(Enrollment::query()->sole()->completed_at);
     }
 

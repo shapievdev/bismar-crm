@@ -28,6 +28,18 @@ final class LessonResource extends JsonResource
             'video_size' => $this->video_size,
             'duration_minutes' => $this->duration_minutes,
             'position' => $this->position,
+
+            // Виден ли урок людям (2026-09-30). Черновик уезжает только тому,
+            // кто курс ведёт, и на экране помечен.
+            'is_published' => $this->resource->isPublished(),
+            'published_at' => $this->published_at?->toIso8601String(),
+
+            // Круг согласования — автору о том, кто ещё не ответил и что просили
+            // исправить, согласующему — ждут ли его решения.
+            'review' => $this->whenLoaded(
+                'latestReview',
+                fn () => MaterialReviewResource::make($this->latestReview),
+            ),
             'has_quiz' => $this->whenLoaded('quiz', fn (): bool => $this->quiz !== null),
             // Only the lesson endpoint loads the body; outlines stay light.
             'content' => $this->when($request->routeIs('lms.lessons.show'), fn (): ?string => $this->content),

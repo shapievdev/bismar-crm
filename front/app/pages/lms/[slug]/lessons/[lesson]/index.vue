@@ -443,6 +443,21 @@ function formatSize(bytes: number): string {
     </aside>
 
     <article class="content">
+      <!-- Вас просят согласовать урок: решают там, где урок читают. -->
+      <ApprovalDecision
+        v-if="lesson.review?.awaits_me"
+        :review="lesson.review"
+        material-label="урок"
+        @decided="refresh()"
+      />
+
+      <!-- Черновик виден только тому, кто курс ведёт, и тем, кого просят его
+           согласовать: людям его ещё не показывают. -->
+      <p v-if="lesson.is_published === false" class="alert draft-note">
+        Черновик: людям этот урок пока не виден. Выложить его можно в редакторе —
+        или отправить на согласование.
+      </p>
+
       <header class="head">
         <div>
           <p class="faint head__eyebrow">
@@ -797,6 +812,11 @@ function formatSize(bytes: number): string {
 </template>
 
 <style scoped>
+/* Пометка о черновике — спокойная: это состояние работы, а не отказ. */
+.draft-note {
+  margin-bottom: 1rem;
+}
+
 /* Переключатель версий — тот же, что на странице документа: правила у них
    общие, и выглядеть по-разному им незачем. */
 .versions {

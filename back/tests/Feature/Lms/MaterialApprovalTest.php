@@ -8,6 +8,8 @@ use App\Enums\ApprovalStatus;
 use App\Enums\CourseStatus;
 use App\Jobs\SendPush;
 use App\Models\Course;
+use App\Models\CourseModule;
+use App\Models\Lesson;
 use App\Models\MaterialReview;
 use App\Models\Regulation;
 use App\Models\User;
@@ -575,6 +577,124 @@ final class MaterialApprovalTest extends TestCase
             ->assertForbidden();
     }
 
+    /* ---------- Урок ---------- */
+
+    /**
+     * Урок выходит к людям тем же путём (решение пользователя 2026-09-30).
+     *
+     * Своё состояние у урока появилось ради этого: пока круг идёт, урока людям
+     * не видно — иначе согласование было бы украшением, «согласуйте то, что все
+     * уже прочитали».
+     */
+    public function test_a_lesson_goes_out_when_everyone_has_approved(): void
+    {
+        $author = $this->author();
+        $approver = $this->learner();
+
+        $lesson = $this->draftLesson();
+
+        $response = $this->actingAs($author)
+            ->postJson(route('lms.lessons.approval.store', $lesson), ['approvers' => [$approver->id]])
+            ->assertCreated();
+
+        /** @var MaterialReview $review */
+        $review = MaterialReview::query()->findOrFail($response->json('data.id'));
+
+        // Пока идёт круг, урока людям не видно — а согласующий его читает.
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertNotFound();
+
+        $this->actingAs($approver)
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertOk()
+            ->assertJsonPath('data.review.awaits_me', true);
+
+        $this->actingAs($approver)
+            ->postJson(route('lms.approvals.approve', $review))
+            ->assertOk()
+            ->assertJsonPath('data.status', ApprovalStatus::Approved->value);
+
+        $lesson->refresh();
+
+        $this->assertTrue($lesson->isPublished());
+
+        // И теперь его видно всем, кому открыт курс.
+        $this->actingAs($this->learner())
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertOk();
+    }
+
+    /** Вернули урок — он остаётся черновиком, а автор читает причину. */
+    public function test_a_returned_lesson_stays_out_of_sight(): void
+    {
+        $author = $this->author();
+        $approver = $this->learner();
+
+        $lesson = $this->draftLesson();
+
+        $response = $this->actingAs($author)
+            ->postJson(route('lms.lessons.approval.store', $lesson), ['approvers' => [$approver->id]])
+            ->assertCreated();
+
+        /** @var MaterialReview $review */
+        $review = MaterialReview::query()->findOrFail($response->json('data.id'));
+
+        $this->actingAs($approver)
+            ->postJson(route('lms.approvals.return', $review), ['comment' => 'Нет примера расчёта.'])
+            ->assertOk();
+
+        $this->assertFalse($lesson->refresh()->isPublished());
+
+        $this->actingAs($author)
+            ->getJson(route('lms.approvals.mine'))
+            ->assertOk()
+            ->assertJsonPath('data.0.returned_reason', 'Нет примера расчёта.')
+            ->assertJsonPath('data.0.material.label', 'Урок');
+    }
+
+    /**
+     * Черновик урока не всплывает там, где считают и ищут.
+     *
+     * Прогресс, поиск по платформе и корпус консультанта — три места, где урок,
+     * которого людям не видно, означал бы курс, который нельзя пройти до конца,
+     * ссылку в никуда и ответ по несогласованному тексту.
+     */
+    public function test_a_draft_lesson_counts_nowhere(): void
+    {
+        $lesson = $this->draftLesson();
+        $course = $lesson->owningCourse();
+        $learner = $this->learner();
+
+        // В курсе для читателя его нет вовсе.
+        $response = $this->actingAs($learner)
+            ->getJson(route('lms.courses.show', $course))
+            ->assertOk();
+
+        $this->assertSame(0, collect($response->json('data.modules'))->sum(fn (array $module): int => count($module['lessons'])));
+
+        // А тот, кто курс ведёт, видит его с пометкой.
+        $forAuthor = $this->actingAs($this->author())
+            ->getJson(route('lms.courses.show', $course))
+            ->assertOk();
+
+        $this->assertSame(false, $forAuthor->json('data.modules.0.lessons.0.is_published'));
+
+        // Пройти его нельзя — «пройден» у невидимого ничего не значит.
+        $this->actingAs($learner)->postJson(route('lms.enroll', $course))->assertCreated();
+
+        $this->actingAs($learner)
+            ->postJson(route('lms.lessons.complete', $lesson))
+            ->assertStatus(409);
+
+        // И в поиске по платформе его нет: читателю вести туда некуда.
+        $found = $this->actingAs($learner)
+            ->getJson(route('search', ['q' => $lesson->title]))
+            ->assertOk();
+
+        $this->assertSame([], collect($found->json('data.sections'))->firstWhere('key', 'lessons')['items'] ?? []);
+    }
+
     /* ---------- Уведомления на телефон ---------- */
 
     /**
@@ -664,6 +784,15 @@ final class MaterialApprovalTest extends TestCase
     }
 
     /* ---------- Помощники ---------- */
+
+    /** Урок, которого людям ещё не видно, — в опубликованном курсе. */
+    private function draftLesson(): Lesson
+    {
+        $course = Course::factory()->published()->create();
+        $module = CourseModule::factory()->create(['course_id' => $course->id, 'position' => 0]);
+
+        return Lesson::factory()->draft()->create(['module_id' => $module->id, 'title' => 'Расчёт премии']);
+    }
 
     /**
      * @param  list<User>  $approvers

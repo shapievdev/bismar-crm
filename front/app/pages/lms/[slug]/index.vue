@@ -215,6 +215,9 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
                   <template v-if="isDone(lesson.id)">✓</template>
                 </span>
                 <span class="lesson__title">{{ lesson.title }}</span>
+                <!-- Черновик в этом списке бывает только у того, кто курс
+                     ведёт: читателю сервер его не отдаёт вовсе. -->
+                <span v-if="lesson.is_published === false" class="badge badge--warning">черновик</span>
                 <span v-if="lesson.has_quiz" class="badge badge--accent">тест</span>
                 <span v-if="lesson.duration_minutes" class="faint lesson__time">
                   {{ lesson.duration_minutes }} мин

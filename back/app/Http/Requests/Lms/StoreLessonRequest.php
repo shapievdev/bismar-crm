@@ -15,6 +15,16 @@ final class StoreLessonRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:255'],
+
+            /*
+             * Выложен ли урок людям (2026-09-30).
+             *
+             * Не прислали — не трогаем: поле приходит из формы урока, а
+             * сохранений у урока много (статья, запись, порядок), и каждое не
+             * должно решать за автора, показывать ли урок. Заводится урок
+             * черновиком — см. CourseStructureController::storeLesson.
+             */
+            'is_published' => ['sometimes', 'boolean'],
             'content' => ['nullable', 'string'],
             // The editor's node tree. Its shape is the editor's business; we
             // only insist it is a document, and derive plain text from it.

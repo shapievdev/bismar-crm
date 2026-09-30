@@ -228,6 +228,10 @@ async function moveLesson(module: CourseModule, index: number, delta: number) {
             {{ lesson.title }}
           </NuxtLink>
 
+          <!-- Пока урок черновик, людям его не видно: автор должен видеть это
+               там же, где правит программу. -->
+          <span v-if="lesson.is_published === false" class="badge badge--warning">черновик</span>
+
           <span v-if="lesson.has_quiz" class="badge">тест</span>
 
           <div class="lesson__actions">

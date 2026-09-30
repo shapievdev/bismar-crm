@@ -46,6 +46,17 @@ export interface QuestionTable {
 
 export interface LessonSummary {
   id: number
+  /**
+   * Виден ли урок тем, кто курс проходит (2026-09-30).
+   *
+   * Новый урок заводится черновиком: пока его не согласовали или не выложил
+   * автор, людям его не показывают. Черновики приезжают только тому, кто курс
+   * ведёт.
+   */
+  is_published?: boolean
+  published_at?: string | null
+  /** Последний круг согласования — если урок хоть раз отправляли. */
+  review?: MaterialReview | null
   title: string
   slug: string
   video_url: string | null
@@ -725,6 +736,8 @@ export interface ModulePayload {
 
 export interface LessonPayload {
   title: string
+  /** Выложен ли урок людям. Не прислали — состояние не трогают. */
+  is_published?: boolean
   content: string | null
   content_json?: Record<string, unknown> | null
   video_url: string | null

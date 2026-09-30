@@ -38,6 +38,12 @@ final readonly class CompleteLesson
     {
         $version ??= $this->versionFor($enrollment, $lesson);
 
+        // Черновик не зачитывают: людям его не видно, и «пройден» у него
+        // означало бы прогресс по тому, чего для них нет (2026-09-30).
+        if (! $lesson->isPublished()) {
+            throw new ConflictException('Урок ещё не выложен.');
+        }
+
         $this->ensureLessonBelongsToCourse($enrollment, $lesson);
         $this->ensureEarlierLessonsAreDone($enrollment, $lesson);
 

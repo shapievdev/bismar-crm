@@ -23,7 +23,19 @@ final class CourseModuleResource extends JsonResource
             'title' => $this->title,
             'description' => $this->description,
             'position' => $this->position,
-            'lessons' => LessonResource::collection($this->whenLoaded('lessons')),
+            /*
+             * Уроки модуля — выложенные или все.
+             *
+             * Связь `lessons` отдаёт только выложенные, `allLessons` — вместе с
+             * черновиками; какую из них загрузить, решает контроллер: читателю
+             * черновик видеть нечего, а тот, кто курс ведёт, иначе не нашёл бы
+             * собственный неоконченный урок (2026-09-30).
+             */
+            'lessons' => LessonResource::collection(
+                $this->relationLoaded('allLessons')
+                    ? $this->allLessons
+                    : $this->whenLoaded('lessons'),
+            ),
         ];
     }
 }

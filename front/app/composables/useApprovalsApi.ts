@@ -20,6 +20,8 @@ export interface ApprovalCounts {
 export type ApprovalTarget =
   | { kind: MaterialSection, slug: string }
   | { kind: 'course', slug: string }
+  // Урок адресуется номером внутри курса, а не адресом раздела — как и у версий.
+  | { kind: 'lesson', lessonId: number | string }
 
 /**
  * Согласование материала: отправить, отозвать, решить.
@@ -32,6 +34,10 @@ export function useApprovalsApi() {
 
   /** Куда обращаться за согласованием этого материала. */
   function base(target: ApprovalTarget): string {
+    if (target.kind === 'lesson') {
+      return `/api/lms/lessons/${target.lessonId}/approval`
+    }
+
     return target.kind === 'course'
       ? `/api/lms/courses/${target.slug}/approval`
       : `/api/lms/${target.kind}/${target.slug}/approval`

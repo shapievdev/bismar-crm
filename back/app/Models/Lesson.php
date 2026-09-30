@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\HasApprovals;
 use App\Models\Concerns\HasVersions;
+use App\Models\Contracts\Approvable;
 use App\Models\Contracts\PartOfCourse;
 use App\Observers\LessonObserver;
 use App\Support\Lms\BlockIdentifier;
@@ -12,6 +14,7 @@ use App\Support\Lms\StoredFiles;
 use Database\Factories\LessonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,11 +24,11 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Facades\Storage;
 
 #[ObservedBy(LessonObserver::class)]
-#[Fillable(['module_id', 'title', 'slug', 'content', 'content_json', 'video_url', 'video_path', 'video_disk', 'video_name', 'video_size', 'duration_minutes', 'position'])]
-class Lesson extends Model implements PartOfCourse
+#[Fillable(['module_id', 'title', 'slug', 'content', 'content_json', 'video_url', 'video_path', 'video_disk', 'video_name', 'video_size', 'duration_minutes', 'position', 'published_at'])]
+class Lesson extends Model implements Approvable, PartOfCourse
 {
     /** @use HasFactory<LessonFactory> */
-    use HasFactory, HasVersions;
+    use HasApprovals, HasFactory, HasVersions;
 
     public function owningCourse(): ?Course
     {
@@ -39,7 +42,68 @@ class Lesson extends Model implements PartOfCourse
     {
         // Without this the jsonb column comes back as a raw string and every
         // consumer would have to decode it by hand.
-        return ['content_json' => 'array'];
+        return ['content_json' => 'array', 'published_at' => 'datetime'];
+    }
+
+    /**
+     * Виден ли урок тем, кто курс проходит (2026-09-30).
+     *
+     * У урока своё состояние, как у курса и документа, и появилось оно ради
+     * согласования: пока урок не согласован — или пока автор не выложил его
+     * сам, — людям его не показывают. Незаконченный урок и раньше не стоило
+     * показывать, просто скрыть его было нечем.
+     */
+    public function isPublished(): bool
+    {
+        return $this->published_at !== null;
+    }
+
+    /**
+     * Только выложенные уроки.
+     *
+     * Этим же условием отбирают уроки связи `lessons()` у курса и модуля:
+     * прогресс, план, статистика и корпус консультанта считают ровно то, что
+     * людям видно. Черновики едут отдельной связью — `allLessons()`.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopePublished(Builder $query): void
+    {
+        $query->whereNotNull('lessons.published_at');
+    }
+
+    /* ---------- Согласование (2026-09-30) ---------- */
+
+    /**
+     * Выложить урок по согласию всех.
+     *
+     * Дата ставится один раз: урок, снятый с публикации и выложенный снова, не
+     * становится новым — люди уже видели его под этим адресом.
+     */
+    public function publishAfterApproval(): void
+    {
+        $this->published_at ??= now();
+
+        $this->save();
+    }
+
+    public function approvalTitle(): string
+    {
+        return (string) $this->title;
+    }
+
+    /**
+     * Адрес урока внутри курса: без курса его не собрать, и потому курс тут
+     * подгружается, если его ещё не читали.
+     */
+    public function approvalPath(): string
+    {
+        return '/lms/'.($this->owningCourse()?->slug ?? '').'/lessons/'.$this->getKey();
+    }
+
+    public function approvalLabel(): string
+    {
+        return 'Урок';
     }
 
     /**

@@ -91,7 +91,9 @@ final class TrashController extends Controller
                 'deleted_by' => $course->remover?->name,
                 // Чем курс тяжелее, тем дороже ошибка: число уроков говорит,
                 // что именно уйдёт при окончательном удалении.
-                'lessons' => $course->loadCount('lessons')->lessons_count,
+                // Со всеми черновиками: в корзине спрашивают, что внутри, а не что
+                // из этого было видно людям.
+                'lessons' => $course->loadCount('allLessons')->all_lessons_count,
             ]);
     }
 
