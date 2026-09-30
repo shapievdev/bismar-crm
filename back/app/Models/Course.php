@@ -6,7 +6,9 @@ namespace App\Models;
 
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
+use App\Models\Concerns\HasApprovals;
 use App\Models\Concerns\LenientlySearchable;
+use App\Models\Contracts\Approvable;
 use App\Models\Contracts\PartOfCourse;
 use App\Support\Lms\CourseAccess;
 use App\Support\Search\Substring;
@@ -23,10 +25,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['author_id', 'category_id', 'title', 'slug', 'summary', 'description', 'cover_path', 'status', 'visibility', 'published_at', 'keywords'])]
-class Course extends Model implements PartOfCourse
+class Course extends Model implements Approvable, PartOfCourse
 {
     /** @use HasFactory<CourseFactory> */
-    use HasFactory, LenientlySearchable, SoftDeletes;
+    use HasApprovals, HasFactory, LenientlySearchable, SoftDeletes;
 
     public function getRouteKeyName(): string
     {
@@ -53,6 +55,39 @@ class Course extends Model implements PartOfCourse
     public function owningCourse(): ?Course
     {
         return $this;
+    }
+
+    /**
+     * Выложить курс по согласию всех — то же, что делает автор рукой: состояние
+     * и дата выхода. Дата ставится один раз: «опубликован впервые» не
+     * переписывается возвращением в черновики и обратно.
+     */
+    public function publishAfterApproval(): void
+    {
+        $this->status = CourseStatus::Published;
+        $this->published_at ??= now();
+
+        $this->save();
+    }
+
+    public function isPublished(): bool
+    {
+        return $this->status->isOpenToLearners();
+    }
+
+    public function approvalTitle(): string
+    {
+        return (string) $this->title;
+    }
+
+    public function approvalPath(): string
+    {
+        return '/lms/'.$this->slug;
+    }
+
+    public function approvalLabel(): string
+    {
+        return 'Курс';
     }
 
     public function isPrivate(): bool

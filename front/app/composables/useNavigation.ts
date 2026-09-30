@@ -24,6 +24,7 @@ export function useNavigation() {
   const messenger = useMessenger()
   const { fetchPendingCount } = useNewsApi()
   const { fetchPendingAttestations } = useLmsApi()
+  const approvals = useApprovalsApi()
 
   /**
    * Сколько новостей ждут ознакомления. Считает сервер: значок висит на каждой
@@ -48,6 +49,16 @@ export function useNavigation() {
   const pendingAttestations = useState('nav.pending-attestations', () => 0)
   const hasAttestations = useState('nav.has-attestations', () => false)
 
+  /**
+   * Сколько материалов ждёт согласования от этого человека и звали ли его вообще.
+   *
+   * Устроено так же, как у аттестаций, и по той же причине: раздел держится на
+   * назначении, а не на числе ждущих, — иначе вкладка пропадала бы, едва человек
+   * разобрал очередь, а с нею и путь к тому, что он уже решил.
+   */
+  const pendingApprovals = useState('nav.pending-approvals', () => 0)
+  const isApprover = useState('nav.is-approver', () => false)
+
   async function refreshBadges(): Promise<void> {
     try {
       pendingNews.value = (await fetchPendingCount()).data.count
@@ -64,6 +75,19 @@ export function useNavigation() {
     }
     catch {
       pendingAttestations.value = 0
+    }
+
+    try {
+      const { pending, returned, is_approver } = (await approvals.pendingCount()).data
+
+      // Обе половины одним числом: и чужой материал, ждущий вашего ответа, и
+      // свой, вернувшийся на исправление, — это работа, которая за вами
+      // числится, и разделять её на два значка в одной полосе незачем.
+      pendingApprovals.value = pending + returned
+      isApprover.value = is_approver
+    }
+    catch {
+      pendingApprovals.value = 0
     }
   }
 
@@ -152,5 +176,15 @@ export function useNavigation() {
     return item.matches(route.path)
   }
 
-  return { items, current, isCurrent, pendingNews, pendingAttestations, hasAttestations, refreshBadges }
+  return {
+    items,
+    current,
+    isCurrent,
+    pendingNews,
+    pendingAttestations,
+    hasAttestations,
+    pendingApprovals,
+    isApprover,
+    refreshBadges,
+  }
 }

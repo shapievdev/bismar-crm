@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Actions\Lms\CancelApproval;
 use App\Actions\Lms\SaveCourse;
 use App\Actions\Lms\StoreCourseCover;
+use App\Actions\Lms\SubmitForApproval;
 use App\Enums\CourseStatus;
 use App\Enums\Permission;
+use App\Http\Controllers\Concerns\SendsForApproval;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\StoreCourseRequest;
 use App\Http\Requests\Lms\StoreCoverRequest;
+use App\Http\Requests\Lms\SubmitForApprovalRequest;
 use App\Http\Requests\Lms\UpdateCourseRequest;
 use App\Http\Resources\Lms\CourseResource;
+use App\Http\Resources\Lms\MaterialReviewResource;
 use App\Models\Category;
 use App\Models\Course;
 use App\Models\Enrollment;
@@ -30,6 +35,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class CourseController extends Controller
 {
+    use SendsForApproval;
+
     public function __construct(
         private readonly ProgressCalculator $progress,
         private readonly CatalogSearch $search,
@@ -41,7 +48,8 @@ final class CourseController extends Controller
         $user = $request->user();
 
         $courses = Course::query()
-            ->with('author', 'category')
+            // Круг согласования — ради подписи в каталоге, без ответов.
+            ->with('author', 'category', 'latestReview')
             ->withCount(['lessons', 'enrollments'])
             // Приватные курсы — только свои: чужой закрытый курс не должен
             // попадать в каталог даже названием.
@@ -86,8 +94,12 @@ final class CourseController extends Controller
         // Ответственные — всем, кто курс видит: к ним идут с вопросом, на
         // который материал не ответил, и знать о них должен читатель, а не
         // редактор.
-        $course->load(['author', 'category', 'experts', 'modules.lessons.quiz'])
-            ->loadCount(['lessons', 'enrollments', 'members']);
+        $course->load([
+            'author', 'category', 'experts', 'modules.lessons.quiz',
+            // Круг согласования с ответами — см. RegulationController::show.
+            'latestReview.decisions.user:id,last_name,first_name,middle_name',
+            'latestReview.requester:id,last_name,first_name,middle_name',
+        ])->loadCount(['lessons', 'enrollments', 'members']);
 
         $course->setAttribute('learner_enrollment', $this->enrollmentPayload($request, $course));
 
@@ -112,7 +124,34 @@ final class CourseController extends Controller
         /** @var array{title: string, summary?: ?string, description?: ?string, status: string} $attributes */
         $attributes = $request->validated();
 
-        return CourseResource::make($saveCourse->update($course, $attributes));
+        /** @var User $editor */
+        $editor = $request->user();
+
+        // Правящий назван: выложив курс сам, он закрывает идущее согласование, и
+        // позванные узнают об этом от его имени — см. SaveCourse.
+        return CourseResource::make($saveCourse->update($course, $attributes, $editor));
+    }
+
+    /**
+     * Отправить курс на согласование — правом на правку, как и документ.
+     * См. RegulationController::submitForApproval и ApprovalController.
+     */
+    public function submitForApproval(
+        SubmitForApprovalRequest $request,
+        Course $course,
+        SubmitForApproval $submit,
+    ): MaterialReviewResource {
+        Gate::authorize('update', $course);
+
+        return $this->sendForApproval($request, $course, $submit);
+    }
+
+    /** Отозвать отправку, пока никто не ответил. */
+    public function withdrawApproval(Request $request, Course $course, CancelApproval $cancel): Response
+    {
+        Gate::authorize('update', $course);
+
+        return $this->withdrawFromApproval($request, $course, $cancel);
     }
 
     public function destroy(Request $request, Course $course): Response

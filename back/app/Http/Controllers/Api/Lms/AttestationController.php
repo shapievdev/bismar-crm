@@ -15,6 +15,7 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Support\Lms\QuizReview;
+use App\Support\Staff\EmployedPeople;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -30,9 +31,6 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class AttestationController extends Controller
 {
-    /** Сколько человек показывать в подсказке поиска. */
-    private const CANDIDATES = 20;
-
     public function __construct(private readonly QuizReview $review) {}
 
     /**
@@ -65,21 +63,11 @@ final class AttestationController extends Controller
      * с галочкой, а поручение. Кто в нём разбирается, знает автор теста, а не
      * список прав. Уволенных не предлагаем — им сдавать некуда.
      */
-    public function candidates(Request $request): AnonymousResourceCollection
+    public function candidates(Request $request, EmployedPeople $people): AnonymousResourceCollection
     {
-        $search = trim((string) $request->query('search'));
-
-        $people = User::query()
-            ->employed()
-            ->when($search !== '', fn ($query) => $query->matching($search))
-            // По фамилии и с учётом ICU, иначе «Ёлкин» окажется после
-            // «Яковлева»: база собрана с C-сортировкой.
-            ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
-            ->orderByRaw('first_name COLLATE "und-x-icu"')
-            ->limit(self::CANDIDATES)
-            ->get();
-
-        return CoursePersonResource::collection($people);
+        // Сам запрос — в EmployedPeople: тем же списком выбирают, кому отдать
+        // материал на согласование, и разойтись этим двум подсказкам нельзя.
+        return CoursePersonResource::collection($people->suggest($request->query('search')));
     }
 
     /**

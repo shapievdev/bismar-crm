@@ -678,6 +678,18 @@ function moveQuestion(document: RegulationLink, delta: number) {
         заводят и расставляют по порядку — им решается спор, когда человек
         попал в две версии сразу.
       -->
+      <!--
+        Согласование: материал можно выложить самому или показать его сперва
+        другим (решение пользователя 2026-09-30). Панель одна на документ,
+        справочник и курс — см. ApprovalPanel.
+      -->
+      <ApprovalPanel
+        :target="{ kind: copy.section, slug }"
+        :review="regulation?.review ?? null"
+        :is-published="Boolean(regulation?.is_published)"
+        @changed="refresh()"
+      />
+
       <MaterialVersionsPanel :target="{ kind: copy.section, slug }" />
 
       <!-- Что читать рядом. Список сохраняется сразу — как и списки людей. -->

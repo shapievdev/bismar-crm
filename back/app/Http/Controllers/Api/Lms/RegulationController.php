@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Lms;
 
+use App\Actions\Lms\CancelApproval;
 use App\Actions\Lms\SaveRegulation;
+use App\Actions\Lms\SubmitForApproval;
 use App\Enums\MaterialKind;
+use App\Http\Controllers\Concerns\SendsForApproval;
 use App\Http\Controllers\Concerns\ShowsMaterialVersions;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Lms\SaveRegulationRequest;
+use App\Http\Requests\Lms\SubmitForApprovalRequest;
+use App\Http\Resources\Lms\MaterialReviewResource;
 use App\Http\Resources\Lms\RegulationResource;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
@@ -35,7 +40,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class RegulationController extends Controller
 {
-    use ShowsMaterialVersions;
+    use SendsForApproval, ShowsMaterialVersions;
 
     public function __construct(
         private readonly CatalogSearch $search,
@@ -48,7 +53,9 @@ final class RegulationController extends Controller
         $reader = $request->user();
 
         $regulations = Regulation::query()
-            ->with('author', 'category')
+            // Круг согласования — ради подписи «на согласовании» в каталоге;
+            // ответы в него не грузятся, в списке они ни к чему.
+            ->with('author', 'category', 'latestReview')
             // Одним подзапросом, а не вопросом на каждую строку: в каталоге их
             // пятнадцать, и пятнадцать запросов ради галочки — это дорого.
             ->withExists(['acknowledgements as is_acknowledged' => fn (Builder $query) => $query
@@ -121,6 +128,10 @@ final class RegulationController extends Controller
             'quiz.examiner:id,last_name,first_name,middle_name',
             // Опрос при материале — на той же странице, что и сам материал.
             'survey.questions.options',
+            // Круг согласования с ответами: автору — кто ещё не ответил и что
+            // просили исправить, согласующему — ждут ли его решения.
+            'latestReview.decisions.user:id,last_name,first_name,middle_name',
+            'latestReview.requester:id,last_name,first_name,middle_name',
         );
 
         // Соседи — «рядом по теме». Отбираются под того, кто спрашивает: чужой
@@ -187,6 +198,34 @@ final class RegulationController extends Controller
         return RegulationResource::make(
             $this->forEditor($saveRegulation->handle($request->toAttributes(), $author, $regulation), $author),
         );
+    }
+
+    /**
+     * Отправить материал на согласование.
+     *
+     * Правом на правку, а не своим отдельным: отправка — часть работы над
+     * материалом. Кто согласует, выбирает отправляющий, и этот выбор и есть
+     * право того, кого выбрали, — см. ApprovalController.
+     */
+    public function submitForApproval(
+        SubmitForApprovalRequest $request,
+        Regulation $regulation,
+        SubmitForApproval $submit,
+    ): MaterialReviewResource {
+        Gate::authorize('update', $regulation);
+
+        return $this->sendForApproval($request, $regulation, $submit);
+    }
+
+    /** Отозвать отправку, пока никто не ответил. */
+    public function withdrawApproval(
+        Request $request,
+        Regulation $regulation,
+        CancelApproval $cancel,
+    ): Response {
+        Gate::authorize('update', $regulation);
+
+        return $this->withdrawFromApproval($request, $regulation, $cancel);
     }
 
     public function destroy(Request $request, Regulation $regulation): Response

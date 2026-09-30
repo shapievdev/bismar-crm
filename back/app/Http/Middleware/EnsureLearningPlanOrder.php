@@ -7,6 +7,7 @@ namespace App\Http\Middleware;
 use App\Models\Contracts\PartOfCourse;
 use App\Models\Course;
 use App\Support\Lms\LearningPlan;
+use App\Support\Lms\MaterialApprovals;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,6 +38,15 @@ final class EnsureLearningPlanOrder
      */
     private const EXEMPT = 'lms.attestations.';
 
+    /**
+     * Очередь согласования — тоже не про своё обучение.
+     *
+     * Курс согласует тот, кого об этом попросил автор, — и у него может быть свой
+     * неоконченный план. Закрыть ему присланный курс значит остановить выпуск
+     * чужого материала из-за собственной очереди уроков.
+     */
+    private const EXEMPT_APPROVALS = 'lms.approvals.';
+
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
@@ -47,7 +57,7 @@ final class EnsureLearningPlanOrder
 
         $name = $request->route()?->getName() ?? '';
 
-        if (str_starts_with($name, self::EXEMPT)) {
+        if (str_starts_with($name, self::EXEMPT) || str_starts_with($name, self::EXEMPT_APPROVALS)) {
             return $next($request);
         }
 
@@ -58,8 +68,15 @@ final class EnsureLearningPlanOrder
         }
 
         $plan = LearningPlan::of($user);
+        $approvals = app(MaterialApprovals::class);
 
         foreach ($courses as $course) {
+            // Курс, который человека просят согласовать, план не запирает: его
+            // открывают не чтобы учиться, а чтобы решить, выпускать ли его.
+            if ($approvals->participates($course, $user)) {
+                continue;
+            }
+
             abort_if(! $plan->allows($course), Response::HTTP_FORBIDDEN, $plan->refusal());
         }
 

@@ -324,6 +324,18 @@ async function toggleReaders() {
 
 <template>
   <article v-if="regulation" class="regulation">
+    <!--
+      Вас просят согласовать: панель появляется только у того, чьего ответа ждут,
+      и стоит там, где материал читают, — согласовать, не прочитав, значит
+      поставить подпись под непрочитанным.
+    -->
+    <ApprovalDecision
+      v-if="regulation.review?.awaits_me"
+      :review="regulation.review"
+      :material-label="copy.materialLabel.toLowerCase()"
+      @decided="refresh()"
+    />
+
     <nav class="crumbs" aria-label="Где я">
       <NuxtLink :to="`/lms/${copy.section}`">
         {{ copy.title }}

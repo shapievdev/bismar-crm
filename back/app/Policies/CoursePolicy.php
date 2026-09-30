@@ -8,6 +8,7 @@ use App\Enums\Permission;
 use App\Models\Course;
 use App\Models\User;
 use App\Support\Lms\CourseAccess;
+use App\Support\Lms\MaterialApprovals;
 
 class CoursePolicy
 {
@@ -20,6 +21,12 @@ class CoursePolicy
      */
     public function view(User $user, Course $course): bool
     {
+        // Позванный в круг согласования читает курс, даже неопубликованный: см.
+        // то же рассуждение в RegulationPolicy и MaterialApprovals.
+        if (app(MaterialApprovals::class)->participates($course, $user)) {
+            return true;
+        }
+
         if (! CourseAccess::of($user)->allows($course)) {
             return false;
         }

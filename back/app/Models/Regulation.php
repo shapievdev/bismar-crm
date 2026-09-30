@@ -7,8 +7,10 @@ namespace App\Models;
 use App\Enums\CourseStatus;
 use App\Enums\CourseVisibility;
 use App\Enums\MaterialKind;
+use App\Models\Concerns\HasApprovals;
 use App\Models\Concerns\HasVersions;
 use App\Models\Concerns\LenientlySearchable;
+use App\Models\Contracts\Approvable;
 use App\Observers\RegulationObserver;
 use App\Support\Lms\RegulationAccess;
 use App\Support\Search\Substring;
@@ -37,10 +39,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'author_id', 'category_id', 'title', 'slug', 'summary',
     'content_json', 'status', 'visibility', 'published_at', 'keywords', 'kind',
 ])]
-class Regulation extends Model
+class Regulation extends Model implements Approvable
 {
     /** @use HasFactory<RegulationFactory> */
-    use HasFactory, HasVersions, LenientlySearchable, SoftDeletes;
+    use HasApprovals, HasFactory, HasVersions, LenientlySearchable, SoftDeletes;
 
     /**
      * Вид проставлен ещё до записи в базу.
@@ -86,6 +88,36 @@ class Regulation extends Model
      * Собирается здесь, а не по месту: ссылку на материал строит и консультант
      * в источниках ответа, и новость, и аттестация, и разойтись им нельзя.
      */
+    /**
+     * Выложить документ по согласию всех: то же самое, что делает автор рукой в
+     * редакторе, — состояние и дата выхода.
+     *
+     * Дата ставится один раз: у материала, который уже выходил, а потом был
+     * возвращён в черновики, «опубликован впервые» остаётся прежним.
+     */
+    public function publishAfterApproval(): void
+    {
+        $this->status = CourseStatus::Published;
+        $this->published_at ??= now();
+
+        $this->save();
+    }
+
+    public function approvalTitle(): string
+    {
+        return (string) $this->title;
+    }
+
+    public function approvalPath(): string
+    {
+        return $this->path();
+    }
+
+    public function approvalLabel(): string
+    {
+        return $this->kind->label();
+    }
+
     public function path(): string
     {
         return '/lms/'.$this->kind->section().'/'.$this->slug;

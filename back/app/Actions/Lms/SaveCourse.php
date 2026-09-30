@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 
 final readonly class SaveCourse
 {
-    public function __construct(private SlugGenerator $slugGenerator) {}
+    public function __construct(private SlugGenerator $slugGenerator, private CancelApproval $approvals) {}
 
     /**
      * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int, keywords?: list<string>}  $attributes
@@ -48,9 +48,9 @@ final readonly class SaveCourse
     /**
      * @param  array{title: string, summary?: ?string, description?: ?string, status: string, visibility?: string, category_id?: ?int, keywords?: list<string>}  $attributes
      */
-    public function update(Course $course, array $attributes): Course
+    public function update(Course $course, array $attributes, User $editor): Course
     {
-        return DB::transaction(function () use ($course, $attributes): Course {
+        $saved = DB::transaction(function () use ($course, $attributes): Course {
             $status = CourseStatus::from($attributes['status']);
 
             // Не прислали — не меняем: видимость правит автор, и запрос без
@@ -97,5 +97,17 @@ final readonly class SaveCourse
 
             return $course;
         });
+
+        /*
+         * Автор вправе не ждать согласования и выложить курс сам (решение
+         * пользователя 2026-09-30). Идущий круг тогда закрывается, а позванные
+         * узнают, что их ответа больше не ждут, — то же правило, что у документа,
+         * см. SaveRegulation и CancelApproval.
+         */
+        if ($saved->isPublished()) {
+            $this->approvals->handle($saved, $editor, published: true);
+        }
+
+        return $saved;
     }
 }

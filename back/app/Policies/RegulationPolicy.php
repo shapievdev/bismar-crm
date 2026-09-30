@@ -7,6 +7,7 @@ namespace App\Policies;
 use App\Enums\MaterialKind;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\MaterialApprovals;
 use App\Support\Lms\RegulationAccess;
 
 /**
@@ -26,6 +27,16 @@ class RegulationPolicy
 {
     public function view(User $user, Regulation $regulation): bool
     {
+        /*
+         * Позванный в круг согласования читает материал — и читает даже
+         * черновик: согласовывают ровно то, что ещё не вышло, и правом на правку
+         * согласующий при этом не обязан обладать (решение пользователя
+         * 2026-09-30). Чтение кончается вместе с кругом, см. MaterialApprovals.
+         */
+        if (app(MaterialApprovals::class)->participates($regulation, $user)) {
+            return true;
+        }
+
         if (! RegulationAccess::of($user)->allows($regulation)) {
             return false;
         }

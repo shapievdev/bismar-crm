@@ -6,7 +6,7 @@ const route = useRoute()
  * Сколько работ ждёт проверки и есть ли они вообще. Считает навигация — она
  * спрашивает сервер один раз на вход, а не каждая страница по отдельности.
  */
-const { pendingAttestations, hasAttestations } = useNavigation()
+const { pendingAttestations, hasAttestations, pendingApprovals, isApprover } = useNavigation()
 
 /* ---------- Прокрутка полосы ---------- */
 
@@ -116,6 +116,15 @@ const links = computed<NavLink[]>(() => {
       { to: '/lms/my', label: 'Мои курсы', visible: can('courses.view') },
       // Вкладка есть у того, кому сдают работы: назначение — не право с
       // галочкой, и пустой раздел в меню обещал бы то, чего за ним нет.
+      // Вкладка есть у того, кого просят согласовывать материалы: как и с
+      // аттестацией, это назначение, а не право с галочкой.
+      {
+        to: '/lms/approvals',
+        label: pendingApprovals.value > 0
+          ? `Согласование · ${pendingApprovals.value}`
+          : 'Согласование',
+        visible: isApprover.value,
+      },
       {
         to: '/lms/attestations',
         label: pendingAttestations.value > 0

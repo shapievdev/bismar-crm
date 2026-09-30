@@ -81,6 +81,14 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
 
 <template>
   <section v-if="course">
+    <!-- Вас просят согласовать курс: решают там, где курс читают. -->
+    <ApprovalDecision
+      v-if="course.review?.awaits_me"
+      :review="course.review"
+      material-label="курс"
+      @decided="refresh()"
+    />
+
     <nav class="crumbs" aria-label="Где я">
       <NuxtLink to="/lms">
         База знаний

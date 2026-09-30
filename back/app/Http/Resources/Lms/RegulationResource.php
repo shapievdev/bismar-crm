@@ -112,6 +112,18 @@ final class RegulationResource extends JsonResource
                 $this->shown_version !== null,
                 fn () => MaterialVersionResource::make($this->shown_version),
             ),
+            /*
+             * Круг согласования — последний, какой был (2026-09-30).
+             *
+             * Автору он говорит, кто ещё не ответил и что просили исправить,
+             * согласующему — ждут ли ответа от него (`awaits_me`). В каталоге
+             * приезжает без ответов: там от него нужна одна подпись «на
+             * согласовании».
+             */
+            'review' => $this->whenLoaded(
+                'latestReview',
+                fn () => MaterialReviewResource::make($this->latestReview),
+            ),
         ];
     }
 }

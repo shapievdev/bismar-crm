@@ -23,7 +23,11 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class SaveRegulation
 {
-    public function __construct(private SlugGenerator $slugs, private BlockIdentifier $blocks) {}
+    public function __construct(
+        private SlugGenerator $slugs,
+        private BlockIdentifier $blocks,
+        private CancelApproval $approvals,
+    ) {}
 
     /**
      * @param  array{
@@ -39,7 +43,7 @@ final readonly class SaveRegulation
      */
     public function handle(array $attributes, User $author, ?Regulation $regulation = null): Regulation
     {
-        return DB::transaction(function () use ($attributes, $author, $regulation): Regulation {
+        $saved = DB::transaction(function () use ($attributes, $author, $regulation): Regulation {
             $status = CourseStatus::from($attributes['status']);
 
             // Вид ставится один раз, при заведении: справочник не становится
@@ -82,6 +86,19 @@ final readonly class SaveRegulation
 
             return $regulation->load('author', 'category');
         });
+
+        /*
+         * Автор вправе не ждать согласования и выложить материал сам — это
+         * оговорено прямо (решение пользователя 2026-09-30). Тогда идущий круг
+         * закрывается: согласовывать вышедшее нечего, а позванные должны узнать,
+         * что их ответа больше не ждут. Вне транзакции — уведомления не должны
+         * уходить раньше, чем правка правда сохранилась.
+         */
+        if ($saved->isPublished()) {
+            $this->approvals->handle($saved, $author, published: true);
+        }
+
+        return $saved;
     }
 
     /**

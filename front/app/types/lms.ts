@@ -217,6 +217,13 @@ export interface LearnerEnrollment {
 }
 
 export interface Course {
+  /**
+   * Последний круг согласования — если материал хоть раз отправляли.
+   *
+   * В каталоге приезжает без ответов, на странице материала — с ними: автору
+   * важно, кто ещё не ответил, согласующему — ждут ли его решения.
+   */
+  review?: MaterialReview | null
   id: number
   title: string
   slug: string
@@ -391,6 +398,13 @@ export interface LessonMaterial extends RegulationLink {
  * статья, файлы и отметка «ознакомлен».
  */
 export interface Regulation {
+  /**
+   * Последний круг согласования — если материал хоть раз отправляли.
+   *
+   * В каталоге приезжает без ответов, на странице материала — с ними: автору
+   * важно, кто ещё не ответил, согласующему — ждут ли его решения.
+   */
+  review?: MaterialReview | null
   id: number
   title: string
   slug: string
@@ -1069,5 +1083,49 @@ export interface PaginatedResponse<T> {
     last_page: number
     per_page: number
     total: number
+  }
+}
+
+/* ---------- Согласование материала ---------- */
+
+/** Чем кончился круг согласования — или ответ одного человека в нём. */
+export type ApprovalStatus = 'pending' | 'approved' | 'returned' | 'cancelled'
+
+/** Ответ одного согласующего. */
+export interface ApprovalDecision {
+  id: number
+  user: { id: number, name: string | null }
+  status: ApprovalStatus
+  status_label: string
+  /** Причина возврата; у согласия её обычно нет. */
+  comment: string | null
+  decided_at: string | null
+}
+
+/**
+ * Круг согласования — последняя отправка материала.
+ *
+ * Автору он говорит, кто ещё не ответил и что просили исправить; согласующему —
+ * ждут ли ответа от него (`awaits_me`). В каталоге приезжает без ответов: там от
+ * него нужна одна подпись.
+ */
+export interface MaterialReview {
+  id: number
+  round: number
+  status: ApprovalStatus
+  status_label: string
+  is_open: boolean
+  requested_by?: string | null
+  submitted_at: string | null
+  closed_at: string | null
+  decisions?: ApprovalDecision[]
+  awaits_me: boolean
+  returned_reason: string | null
+  /** Сам материал — приезжает в очереди согласующего, на его странице не нужен. */
+  material?: {
+    title: string
+    label: string
+    path: string
+    is_published: boolean
   }
 }

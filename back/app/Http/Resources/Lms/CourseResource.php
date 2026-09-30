@@ -63,6 +63,18 @@ final class CourseResource extends JsonResource
             // на странице самого курса поля нет вовсе — туда закрытый курс не
             // пускает EnsureLearningPlanOrder, и отвечать «заперт» некому.
             'is_locked' => (bool) ($this->locked_by_plan ?? false),
+            /*
+             * Круг согласования — последний, какой был (2026-09-30).
+             *
+             * Автору он говорит, кто ещё не ответил и что просили исправить,
+             * согласующему — ждут ли ответа от него (`awaits_me`). В каталоге
+             * приезжает без ответов: там от него нужна одна подпись «на
+             * согласовании».
+             */
+            'review' => $this->whenLoaded(
+                'latestReview',
+                fn () => MaterialReviewResource::make($this->latestReview),
+            ),
         ];
     }
 }

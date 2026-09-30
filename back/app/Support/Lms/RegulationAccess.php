@@ -58,6 +58,16 @@ final class RegulationAccess
             return true;
         }
 
+        /*
+         * Позванный в круг согласования читает материал, даже если он закрытый и
+         * человека там нет, — иначе согласовать нечего (решение пользователя
+         * 2026-09-30). Ровно пока круг идёт: закрылся — и материал закрывается
+         * снова. Правило одно на всё приложение, см. MaterialApprovals.
+         */
+        if (app(MaterialApprovals::class)->participates($regulation, $this->reader)) {
+            return true;
+        }
+
         // Отношением, а не перечнем всех закрытых регламентов: здесь спрашивают
         // про один, и читать ради этого весь список незачем.
         if ($regulation->members()->whereKey($this->reader->getKey())->exists()) {

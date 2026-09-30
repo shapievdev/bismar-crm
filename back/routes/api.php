@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
 use App\Http\Controllers\Api\Lms\AppealController;
+use App\Http\Controllers\Api\Lms\ApprovalController;
 use App\Http\Controllers\Api\Lms\AttestationController;
 use App\Http\Controllers\Api\Lms\CategoryController;
 use App\Http\Controllers\Api\Lms\CourseAccessController;
@@ -219,6 +220,19 @@ Route::middleware([
             });
 
             Route::middleware($update)->group(function (): void {
+                /*
+                 * Согласование материала перед публикацией (решение пользователя
+                 * 2026-09-30).
+                 *
+                 * Право здесь на правку: отправить на согласование — часть работы
+                 * над материалом, а не должность. Решают согласующие своими
+                 * маршрутами, см. api/lms/approvals.
+                 */
+                Route::post('{regulation}/approval', [RegulationController::class, 'submitForApproval'])
+                    ->name('approval.store');
+                Route::delete('{regulation}/approval', [RegulationController::class, 'withdrawApproval'])
+                    ->name('approval.destroy');
+
                 Route::put('{regulation}/quiz', [RegulationQuizController::class, 'save'])->name('quiz.save');
                 Route::delete('{regulation}/quiz', [RegulationQuizController::class, 'destroy'])->name('quiz.destroy');
 
@@ -531,6 +545,33 @@ Route::middleware([
     });
 
     /*
+     * Материалы, ждущие согласования.
+     *
+     * Права на маршруте нет намеренно и по той же причине, что у аттестаций:
+     * доступ даёт не роль, а назначение — автор выбрал, кого попросить. Чужую
+     * очередь так не открыть, отбор идёт по вошедшему (см. ApprovalController).
+     *
+     * Имя группы значимо: по нему очередь выведена из-под запрета плана обучения
+     * — см. EnsureLearningPlanOrder.
+     */
+    Route::prefix('approvals')->as('approvals.')->group(function () use ($update): void {
+        Route::get('/', [ApprovalController::class, 'index'])->name('index');
+        Route::get('pending-count', [ApprovalController::class, 'pendingCount'])->name('pending-count');
+
+        // Что с моими отправками: кого ещё ждём и что просили исправить.
+        Route::get('mine', [ApprovalController::class, 'mine'])->name('mine');
+
+        // Кого позвать согласовать — спрашивает тот, кто ведёт материал, поэтому
+        // право здесь то же, что на правку.
+        Route::get('candidates', [ApprovalController::class, 'candidates'])
+            ->middleware($update)
+            ->name('candidates');
+
+        Route::post('{review}/approve', [ApprovalController::class, 'approve'])->name('approve');
+        Route::post('{review}/return', [ApprovalController::class, 'returnForRevision'])->name('return');
+    });
+
+    /*
      * «Ответа не хватило» и «здесь написано неверно».
      *
      * Право то же, что на чтение: замечание пишет тот, кто читал. Материал
@@ -578,6 +619,17 @@ Route::middleware([
     Route::post('courses', [CourseController::class, 'store'])->middleware($create)->name('courses.store');
     Route::put('courses/{course}', [CourseController::class, 'update'])->middleware($update)->name('courses.update');
     Route::delete('courses/{course}', [CourseController::class, 'destroy'])->middleware($delete)->name('courses.destroy');
+
+    /*
+     * Согласование курса — те же два адреса, что у документа, и то же право:
+     * отправляет тот, кто курс правит. Решают согласующие в api/lms/approvals.
+     */
+    Route::post('courses/{course}/approval', [CourseController::class, 'submitForApproval'])
+        ->middleware($update)
+        ->name('courses.approval.store');
+    Route::delete('courses/{course}/approval', [CourseController::class, 'withdrawApproval'])
+        ->middleware($update)
+        ->name('courses.approval.destroy');
 
     Route::middleware($update)->group(function (): void {
         Route::post('courses/{course}/cover', [CourseController::class, 'storeCover'])->name('courses.cover.store');
