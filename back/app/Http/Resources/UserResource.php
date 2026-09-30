@@ -9,6 +9,7 @@ use App\Enums\Permission;
 use App\Models\Department;
 use App\Models\StaffTag;
 use App\Models\User;
+use App\Support\Auth\Impersonation as ImpersonationState;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -38,6 +39,20 @@ final class UserResource extends JsonResource
             // строку без него, а не пустое место с прочерком.
             'phone' => $this->phone,
             'job_title' => $this->job_title,
+
+            /*
+             * Кто сидит за экраном на самом деле (2026-09-30).
+             *
+             * Пусто у всех, кроме суперадминистратора, вошедшего под
+             * сотрудником: по этому полю экран рисует полосу «вы работаете под
+             * именем такого-то» и кнопку возврата. Приходит именем, а не
+             * признаком: человеку важно, под кем он сидит и кем он на самом
+             * деле является.
+             */
+            'impersonated_by' => $this->when(
+                app(ImpersonationState::class)->isActive(),
+                fn (): ?string => app(ImpersonationState::class)->actor()?->name,
+            ),
 
             'avatar_url' => $this->avatarUrl(),
             'email_verified_at' => $this->email_verified_at?->toIso8601String(),

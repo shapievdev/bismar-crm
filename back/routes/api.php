@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Analytics\StaffExportController;
 use App\Http\Controllers\Api\Analytics\StaffLinkController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
+use App\Http\Controllers\Api\Auth\ImpersonationController;
 use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
 use App\Http\Controllers\Api\Chat\ConversationMarkController;
@@ -96,6 +97,18 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
     Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
         Route::get('user', [AuthenticatedUserController::class, 'show'])->name('user');
         Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+        /*
+         * Работа от чужого имени (решение пользователя 2026-09-30).
+         *
+         * Права на маршруте нет: «кому это можно» — уровень доступа, а не право
+         * с галочкой, и спрашивается он вместе с остальными правилами в
+         * действии (см. WorkAsSomebodyElse). Возврат отдельным адресом и без
+         * номера: вернуться можно только туда, откуда пришёл, и выбирать тут
+         * нечего.
+         */
+        Route::post('impersonate/{user}', [ImpersonationController::class, 'store'])->name('impersonate');
+        Route::delete('impersonate', [ImpersonationController::class, 'destroy'])->name('impersonate.stop');
     });
 });
 
@@ -639,6 +652,16 @@ Route::middleware([
         Route::put('modules/{module}', [CourseStructureController::class, 'updateModule'])->name('modules.update');
         Route::post('modules/{module}/lessons', [CourseStructureController::class, 'storeLesson'])->name('lessons.store');
         Route::put('lessons/{lesson}', [CourseStructureController::class, 'updateLesson'])->name('lessons.update');
+
+        /*
+         * Согласование урока (2026-09-30) — те же два адреса, что у документа и
+         * курса, и то же право: отправляет тот, кто урок правит. Решают
+         * согласующие в api/lms/approvals.
+         */
+        Route::post('lessons/{lesson}/approval', [CourseStructureController::class, 'submitForApproval'])
+            ->name('lessons.approval.store');
+        Route::delete('lessons/{lesson}/approval', [CourseStructureController::class, 'withdrawApproval'])
+            ->name('lessons.approval.destroy');
 
         Route::post('categories', [CategoryController::class, 'store'])->name('categories.store');
         Route::put('categories/{category}', [CategoryController::class, 'update'])->name('categories.update');

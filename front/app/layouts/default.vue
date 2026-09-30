@@ -48,6 +48,10 @@ const { hideDock } = useShellChrome()
 
 <template>
   <div class="shell" :class="{ 'shell--fills': fills, 'shell--no-dock': hideDock }">
+    <!-- Работа от чужого имени: полоса над всем приложением, потому что это
+         состояние всего приложения, а не одной страницы. -->
+    <ImpersonationBar />
+
     <header class="topbar">
       <div class="topbar__inner">
         <!-- Логотип уходит на телефоне: полоса сверху нужна там под названия

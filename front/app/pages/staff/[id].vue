@@ -20,7 +20,7 @@ const {
   reinstateUser,
   deleteUser,
 } = useAdminApi()
-const { can, isAdmin, isSuperAdmin, user: currentUser } = useAuth()
+const { can, isAdmin, isSuperAdmin, user: currentUser, workAs } = useAuth()
 const { confirm } = useAppDialog()
 
 const canManage = computed(() => can('users.manage'))
@@ -335,6 +335,59 @@ async function saveAccess() {
  * только другой суперадминистратор. Та же лестница, что и у назначений.
  */
 /**
+ * Кому предлагать вход под сотрудником.
+ *
+ * Суперадминистратору — и не под собой, не под другим суперадминистратором и не
+ * под уволенным. Те же пять правил спрашивает сервер (WorkAsSomebodyElse);
+ * здесь кнопка просто не предлагает того, чего нельзя.
+ */
+const mayWorkAs = computed(() => {
+  const person = member.value
+
+  return Boolean(
+    person
+    && isSuperAdmin.value
+    && person.id !== currentUser.value?.id
+    && person.level !== 'super-admin'
+    && !person.dismissed_at,
+  )
+})
+
+/**
+ * Перейти в учётную запись сотрудника.
+ *
+ * Спрашиваем подтверждение: под чужим именем каждое действие записывается на
+ * человека, и нажать такую кнопку случайно не должно быть легко.
+ */
+async function workAsMember() {
+  const person = member.value
+
+  if (!person) {
+    return
+  }
+
+  const agreed = await confirm({
+    title: `Войти под ${person.name}?`,
+    message: 'Вы увидите приложение его глазами. Всё, что вы сделаете, запишется на него — и попадёт в журнал переходов. Вернуться к себе можно будет полосой наверху экрана.',
+    confirmLabel: 'Войти',
+  })
+
+  if (!agreed) {
+    return
+  }
+
+  isBusy.value = true
+
+  try {
+    await workAs(person.id)
+  }
+  catch (caught) {
+    errorMessage.value = messageFromError(caught, 'Не удалось войти под сотрудником.')
+    isBusy.value = false
+  }
+}
+
+/**
  * Почему человек уходит — выбирается до нажатия «Уволить».
  *
  * Список закрытый: текстом причины не складываются в доли, а ради них отчёт о
@@ -526,6 +579,16 @@ async function afterChange() {
           </template>
 
           <template v-else-if="canManage">
+            <!--
+              Войти под сотрудником (2026-09-30): суперадминистратор смотрит
+              приложение его глазами, не выходя из себя и не спрашивая пароль.
+              Всё сделанное при этом запишется на сотрудника — об этом и
+              предупреждает окно.
+            -->
+            <button v-if="mayWorkAs" type="button" class="button-secondary" :disabled="isBusy" @click="workAsMember">
+              Войти под ним
+            </button>
+
             <button type="button" class="button-secondary" :disabled="isBusy" @click="openAccountForm">
               Изменить
             </button>

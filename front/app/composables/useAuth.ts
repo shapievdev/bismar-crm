@@ -123,6 +123,39 @@ export function useAuth() {
     return data
   }
 
+  /* ---------- Работа от чужого имени (2026-09-30) ---------- */
+
+  /** Под кем работаем сейчас — или ничего, если под собой. */
+  const impersonatedBy = computed(() => user.value?.impersonated_by ?? null)
+
+  /**
+   * Войти под сотрудником, не выходя из себя, — и вернуться.
+   *
+   * После перехода страница перезагружается целиком, и это не лень, а
+   * единственный честный способ: в приложении живёт состояние прежнего
+   * человека — значки разделов, сокет мессенджера, прочитанные страницы, —
+   * и подменить в нём одну лишь учётную запись значит показать чужие числа
+   * под новым именем.
+   */
+  async function workAs(userId: number): Promise<void> {
+    await $api(`/api/auth/impersonate/${userId}`, { method: 'POST' })
+
+    reopen()
+  }
+
+  async function returnToSelf(): Promise<void> {
+    await $api('/api/auth/impersonate', { method: 'DELETE' })
+
+    reopen()
+  }
+
+  /** Открыть приложение заново — с главной и с чистым состоянием. */
+  function reopen(): void {
+    if (import.meta.client) {
+      window.location.href = '/'
+    }
+  }
+
   /**
    * Своё: имя, почта, телефон и должность. Телефон и должность человек ведёт
    * сам — за такой правкой к администратору не ходят.
@@ -211,6 +244,9 @@ export function useAuth() {
     login,
     logout,
     updateProfile,
+    impersonatedBy,
+    workAs,
+    returnToSelf,
     changePassword,
     uploadAvatar,
     removeAvatar,
