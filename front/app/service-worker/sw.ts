@@ -23,6 +23,20 @@ import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope
 
+/*
+ * `renotify` в описании типов отсутствует, а в браузере есть.
+ *
+ * Проверка типов читает `NotificationOptions` из описания DOM, где этого поля
+ * нет: оно живёт только в спецификации уведомлений service worker. Дополняем
+ * описание, а не приводим объект к `any` — иначе вместе с одним недостающим
+ * полем перестали бы проверяться и все остальные.
+ */
+declare global {
+  interface NotificationOptions {
+    renotify?: boolean
+  }
+}
+
 /** Что показать: это же собирает сервер — см. App\Support\Push\PushMessage. */
 interface PushPayload {
   title: string

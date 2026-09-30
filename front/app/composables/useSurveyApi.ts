@@ -18,7 +18,9 @@ import type {
  * надёжнее, чем в пяти экранах.
  */
 export type SurveyOwner =
-  | { kind: 'lesson', id: number }
+  // Строкой — потому что урок адресуют и параметром маршрута, как версию ниже:
+  // дальше это число только подставляется в адрес.
+  | { kind: 'lesson', id: number | string }
   | { kind: 'material', section: MaterialSection, slug: string }
   | { kind: 'version', section: MaterialSection, slug: string, versionId: number }
   | { kind: 'lesson-version', lessonId: number | string, versionId: number }

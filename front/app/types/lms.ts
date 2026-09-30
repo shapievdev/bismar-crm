@@ -49,6 +49,7 @@ export interface LessonSummary {
   title: string
   slug: string
   video_url: string | null
+  /** Подписанный адрес загруженной записи. */
   video_upload_url?: string | null
   video_name?: string | null
   video_size?: number | null
@@ -91,8 +92,6 @@ export interface LessonSummary {
   versions?: MaterialVersionSummary[]
   /** Версия, которая открывается этому человеку первой. Нет — общая. */
   version?: MaterialVersion | null
-  /** Подписанный адрес загруженной записи. */
-  video_upload_url?: string | null
 }
 
 export interface Category {

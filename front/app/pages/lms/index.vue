@@ -355,7 +355,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
           v-for="course in visibleCourses"
           :key="course.slug"
           :course="course"
-          @locked="explainLock"
+          @locked="explainLock('Курс')"
         />
       </div>
     </template>

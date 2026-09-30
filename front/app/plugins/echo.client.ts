@@ -1,6 +1,21 @@
-import type { Channel, PresenceChannel } from 'laravel-echo'
+import type { ChannelAuthorizationCallback, Channel as PusherChannel } from 'pusher-js'
 import Echo from 'laravel-echo'
 import Pusher from 'pusher-js'
+
+/**
+ * Канал здесь приходит от pusher-js, а не от laravel-echo.
+ *
+ * Имена совпадают, устройство — нет: у абстрактного `Channel` из laravel-echo
+ * нет даже `name`, оно появляется только у наследника под конкретный
+ * broadcaster. Подписывать канал по имени — работа pusher, его контракт тут и
+ * нужен.
+ */
+type Authorizer = (channel: PusherChannel) => {
+  authorize: (socketId: string, callback: ChannelAuthorizationCallback) => void
+}
+
+/** Что отдаёт Laravel на `/broadcasting/auth` — в той форме, какую ждёт pusher. */
+type AuthPayload = NonNullable<Parameters<ChannelAuthorizationCallback>[1]>
 
 /**
  * Живое соединение с сокет-сервером.
@@ -17,7 +32,9 @@ import Pusher from 'pusher-js'
 export default defineNuxtPlugin({
   name: 'echo',
 
-  setup() {
+  // Тип возвращаемого объявлен, а не выведен: без него вывод берёт первую
+  // ветку — `echo: null` — и потребители получают пустой тип вместо соединения.
+  setup(): { provide: { echo: Echo<'reverb'> | null } } {
     const {
       public: { apiBase, reverbKey, reverbHost, reverbPort, reverbScheme },
     } = useRuntimeConfig()
@@ -40,9 +57,9 @@ export default defineNuxtPlugin({
       forceTLS: reverbScheme === 'https',
       enabledTransports: ['ws', 'wss'],
 
-      authorizer: (channel: Channel | PresenceChannel) => ({
-        authorize: (socketId: string, callback: (error: boolean, data: unknown) => void) => {
-          $fetch<unknown>('/broadcasting/auth', {
+      authorizer: ((channel: PusherChannel) => ({
+        authorize: (socketId: string, callback: ChannelAuthorizationCallback) => {
+          $fetch<AuthPayload>('/broadcasting/auth', {
             baseURL: apiBase as string,
             method: 'POST',
             credentials: 'include',
@@ -52,10 +69,14 @@ export default defineNuxtPlugin({
             },
             body: { socket_id: socketId, channel_name: channel.name },
           })
-            .then(data => callback(false, data))
-            .catch(error => callback(true, error))
+            // Отказ уезжает ошибкой, а не `true`: pusher читает у него
+            // `message` и кладёт в событие `pusher:subscription_error` — с
+            // логическим значением там оказывалось бы `undefined`, и причина
+            // отказа терялась бы по дороге.
+            .then(data => callback(null, data))
+            .catch(error => callback(error instanceof Error ? error : new Error(String(error)), null))
         },
-      }),
+      })) satisfies Authorizer,
     })
 
     return { provide: { echo } }
