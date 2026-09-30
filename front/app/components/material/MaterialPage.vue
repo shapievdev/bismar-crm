@@ -331,7 +331,7 @@ async function toggleReaders() {
 
       <template v-for="node in trail" :key="node.slug">
         <span class="crumbs__separator" aria-hidden="true">/</span>
-        <NuxtLink :to="{ path: `/lms/${copy.section}`, query: { category: node.slug } }">
+        <NuxtLink :to="`/lms/${copy.section}/category/${node.slug}`">
           {{ node.name }}
         </NuxtLink>
       </template>

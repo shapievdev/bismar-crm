@@ -1,40 +1,32 @@
 <script setup lang="ts">
-import type { MaterialSection, RegulationCategory } from '~/types/lms'
+import type { Category, Course } from '~/types/lms'
 
 /**
- * Каталог документов или справочников — один экран на оба раздела.
+ * Каталог курсов — экран, общий для корня базы знаний и для каждой категории.
  *
- * Устроены они одинаково до последней кнопки, и разное в них — слова: их
- * держит useMaterialSection, а не два почти одинаковых экрана, разошедшихся бы
- * на первой же правке.
+ * Компонент, а не одна страница: категория лежит в адресе (`/lms/category/…`,
+ * решение пользователя 2026-09-30), то есть у каталога два маршрута, и держать
+ * его в странице значило бы держать его в двух страницах сразу. Тот же приём,
+ * что у документов со справочниками, — см. MaterialCatalogue.
  */
 const props = withDefaults(defineProps<{
-  section: MaterialSection
-  /**
-   * Открытая категория; пустая строка — корень со всеми категориями.
-   *
-   * Приходит адресом (`/lms/documents/category/…`, решение пользователя
-   * 2026-09-30), а не запросом: отбор, который дают ссылкой, и есть адрес.
-   */
+  /** Открытая категория; пустая строка — корень со всеми категориями. */
   category?: string
 }>(), { category: '' })
 
-const copy = useMaterialSection(props.section)
-
-useHead({ title: copy.title })
-
+const { fetchCourses, myCourses, fetchCategories } = useLmsApi()
 const { can } = useAuth()
-const { fetchRegulations, fetchCategories } = useMaterialsApi(props.section)
 
+// Нажатие на закрытый планом курс отвечает окном, а не молчанием: карточка
+// выглядит как все, и тишина читается как поломка.
+const { explain: explainLock } = usePlanLock()
 const route = useRoute()
 const router = useRouter()
 
 /**
- * Отбор по состоянию.
- *
- * Одна вкладка — одно состояние, и её подпись всегда правдива. Устроено так же,
- * как в каталоге курсов: разделы базы знаний должны читаться одинаково, иначе
- * человек, перешедший из курсов, ищет знакомые кнопки и не находит.
+ * A status filter. Each tab shows exactly one status, so its label is always
+ * true — an editor's default view used to be labelled "Опубликованные" while
+ * quietly including drafts and archived material.
  */
 type Tab = 'published' | 'drafts' | 'archived'
 
@@ -46,7 +38,14 @@ const STATUS_BY_TAB: Record<Tab, string> = {
 
 const search = ref(typeof route.query.search === 'string' ? route.query.search : '')
 
-/** Открытая категория — из адреса; поиск, вкладка и страница — из запроса. */
+/**
+ * Открытая категория — из адреса, а не из состояния экрана.
+ *
+ * Отбор, который можно дать ссылкой, и есть адрес: `/lms/category/kassa`
+ * пересылают, кладут в закладки и ждут открытым там же, где оставили. Поиск,
+ * закладка состояния и страница остаются в запросе — это уточнения к списку, а
+ * не место, куда пришли.
+ */
 const category = computed(() => props.category)
 
 const tab = ref<Tab>(
@@ -57,33 +56,48 @@ const tab = ref<Tab>(
 
 const page = ref(pageFromQuery(route.query.page))
 
-const { data: categoryData } = await useAsyncData(
-  `lms.${props.section}.categories`,
-  () => fetchCategories(),
-)
+/**
+ * Reference data, fetched once.
+ *
+ * Neither the category tree nor the learner's own enrolments depend on which
+ * filter or page the catalogue is showing, so refetching them alongside every
+ * page turn would be three requests where one will do.
+ *
+ * Половины независимы, и падать вместе им незачем. Через Promise.all отказ
+ * одного запроса обнулял оба: сломанные записи на курсы уносили с собой дерево
+ * категорий, которое к ним отношения не имеет.
+ */
+const { data: reference } = await useAsyncData('lms.catalogue.reference', async () => {
+  const [enrolments, categories] = await Promise.allSettled([myCourses(), fetchCategories()])
 
-const categoryTree = computed<RegulationCategory[]>(() => categoryData.value?.data ?? [])
+  return {
+    enrolments: enrolments.status === 'fulfilled' ? enrolments.value.data : [],
+    categories: categories.status === 'fulfilled' ? categories.value.data : [],
+  }
+})
+
+const categoryTree = computed<Category[]>(() => reference.value?.categories ?? [])
 
 /**
- * Показывать ли сами материалы.
+ * Показывать ли сами курсы.
  *
- * Раздел открывается списком категорий и ничего кроме них не показывает
- * (решение пользователя 2026-09-07): материалов десятки, и вываливать их все
- * на первый экран значит просить читателя листать вместо того, чтобы выбрать
- * категорию. Материалы появляются, когда человек в неё вошёл.
+ * Каталог открывается списком категорий и ничего кроме них не показывает
+ * (решение пользователя 2026-09-07): в компании десятки курсов, и вываливать
+ * их все на первый экран значит просить читателя листать вместо того, чтобы
+ * выбрать раздел. Курсы появляются, когда человек вошёл в категорию.
  *
- * Два исключения. Поиск отвечает по всему разделу — он на то и поиск, а не
- * отбор внутри категории. И пока категорий нет вовсе, каталог показывает
- * материалы: иначе экран был бы пуст, а материалы бы в нём были.
+ * Два исключения. Поиск отвечает по всей базе — он на то и поиск, а не отбор
+ * внутри раздела. И пока категорий нет вовсе, каталог показывает курсы: иначе
+ * на новой установке экран был бы пуст, а курсы бы в нём были.
  */
-const showsMaterials = computed(() =>
+const showsCourses = computed(() =>
   Boolean(category.value) || search.value.trim() !== '' || categoryTree.value.length === 0,
 )
 
 const { data, pending, error } = await useAsyncData(
-  `lms.${props.section}`,
-  () => showsMaterials.value
-    ? fetchRegulations({
+  'lms.catalogue.courses',
+  () => showsCourses.value
+    ? fetchCourses({
         search: search.value || undefined,
         category: category.value || undefined,
         status: STATUS_BY_TAB[tab.value],
@@ -91,11 +105,11 @@ const { data, pending, error } = await useAsyncData(
       })
     // Спрашивать нечего: на корне показаны одни категории.
     : Promise.resolve({ data: [], meta: { current_page: 1, last_page: 1, per_page: 15, total: 0 } }),
-  { watch: [search, tab, category, page, showsMaterials] },
+  { watch: [search, tab, category, page, showsCourses] },
 )
 
-// Сузили список — прежняя страница ушла из-под ног: четвёртая страница всего
-// раздела редко бывает четвёртой страницей одной категории.
+// Narrowing the results moves the ground under the current page: page 4 of the
+// whole catalogue is rarely page 4 of one category, and is often past its end.
 watch([search, tab, category], () => {
   page.value = 1
 })
@@ -111,24 +125,48 @@ watchEffect(() => {
 })
 
 /**
- * Перейти в категорию — или к корню раздела, если её нет.
+ * Перейти в категорию — или к корню, если её нет.
  *
  * `push`, а не `replace`: это переход, и «назад» обязано возвращать туда, откуда
- * пришли. Уточнения к списку едут с собой, страница — нет: четвёртая страница
- * всего раздела редко бывает четвёртой страницей одной категории.
+ * пришли. Уточнения к списку переносим с собой, кроме страницы: четвёртая
+ * страница всего каталога редко бывает четвёртой страницей одной категории.
  */
 function open(slug: string) {
   const query = { ...route.query }
 
   delete query.page
 
-  router.push({
-    path: slug ? `/lms/${props.section}/category/${slug}` : `/lms/${props.section}`,
-    query,
-  })
+  router.push({ path: slug ? `/lms/category/${slug}` : '/lms', query })
 }
 
-const documents = computed(() => data.value?.data ?? [])
+/** The learner's enrolment for a course, by slug. */
+const enrolmentBySlug = computed(() => new Map(
+  (reference.value?.enrolments ?? [])
+    .filter(item => item.course)
+    .map(item => [item.course!.slug, item]),
+))
+
+/**
+ * The catalogue endpoint does not know who is enrolled, so progress is
+ * stitched in from the learner's own enrolments.
+ */
+const visibleCourses = computed<Course[]>(() => (data.value?.data ?? []).map((course) => {
+  const enrolment = enrolmentBySlug.value.get(course.slug)
+
+  return {
+    ...course,
+    enrollment: enrolment
+      ? {
+          id: enrolment.id,
+          enrolled_at: enrolment.enrolled_at,
+          completed_at: enrolment.completed_at,
+          is_completed: enrolment.is_completed,
+          progress: enrolment.progress ?? 0,
+          completed_lesson_ids: enrolment.completed_lesson_ids ?? [],
+        }
+      : null,
+  }
+}))
 
 const total = computed(() => data.value?.meta.total ?? 0)
 const currentPage = computed(() => data.value?.meta.current_page ?? 1)
@@ -145,7 +183,7 @@ function goToPage(next: number) {
 
   page.value = target
 
-  // Иначе следующая страница открывается посередине — там, где бросили прошлую.
+  // Otherwise the next page opens halfway down, wherever the last one was left.
   grid.value?.scrollIntoView({ block: 'start' })
 }
 
@@ -155,30 +193,27 @@ function pageFromQuery(value: unknown): number {
   return Number.isInteger(parsed) && parsed > 1 ? parsed : 1
 }
 
-/** Дорога от корня до выбранной категории — считает общая утилита. */
+/**
+ * Дорога от корня до выбранной категории: в адресе лежит один slug, а крошкам
+ * нужен весь путь. Считает общая утилита — той же дорогой ходят крошки на
+ * карточке материала и в документах.
+ */
 const currentPath = computed(() => categoryTrail(categoryTree.value, category.value))
 
 const currentCategory = computed(() => currentPath.value.at(-1) ?? null)
 
-/** Что предлагается здесь: верхний уровень или разделы текущего. */
+/** What is on offer here: the top level, or the sections of the current one. */
 const sections = computed(() => currentCategory.value?.children ?? categoryTree.value)
 
 /**
- * Показывать ли «ничего не найдено».
+ * Важные — своей сеткой, остальные — своей.
  *
- * В категории, у которой есть вложенные, материалов не ждут: там выбирают
- * подкатегорию (решение пользователя 2026-09-30, отбор — в
- * RegulationController::index). Пустое место под плитками честнее, чем
- * «в категории пусто» о ветке, в которой материалы есть.
+ * Одной сеткой на всех важная категория оказывалась бы в одной строке с
+ * обычными, и выделение читалось бы как случайная раскраска соседа, а не как
+ * «сначала вот это». Группами — читается сразу, ещё до цвета.
  *
- * Поиск — исключение: он отвечает по всему разделу, и его безрезультатность
- * надо сказать словами, где бы человек ни стоял.
- */
-const showsEmptyState = computed(() => sections.value.length === 0 || search.value.trim() !== '')
-
-/**
- * Важные — своей сеткой, остальные — своей: причины те же, что в каталоге
- * курсов (CourseCatalogue).
+ * Пустая группа не рисуется вовсе: пока важных нет, каталог выглядит ровно
+ * так же, как выглядел.
  */
 const tileGroups = computed(() => [
   { key: 'important', nodes: sections.value.filter(node => node.is_important) },
@@ -186,20 +221,18 @@ const tileGroups = computed(() => [
 ].filter(group => group.nodes.length > 0))
 
 /**
- * Всё, что лежит под категорией, вместе с ней самой.
+ * Everything under a category, itself included.
  *
- * У плитки с подкатегориями это обещание ветки, а не страницы: нажатие ведёт к
- * её разделам, и их число стоит рядом, — а у последней категории ветка и есть
- * её страница. Обещать здесь одни свои материалы значило бы написать на
- * развилке «0», пока под ней лежит десяток.
+ * Choosing a category lists its nested material too, so the tile has to
+ * promise the same number the click delivers.
  */
-function branchCount(node: RegulationCategory): number {
-  return (node.regulations_count ?? 0)
-    + (node.children ?? []).reduce((sum, child) => sum + branchCount(child), 0)
+function branchCount(node: Category): number {
+  return (node.courses_count ?? 0)
+    + (node.children ?? []).reduce((total, child) => total + branchCount(child), 0)
 }
 
-function documentsLabel(count: number): string {
-  return counted(count, copy.counted)
+function materialsLabel(count: number): string {
+  return `${count} ${pluralise(count, 'курс', 'курса', 'курсов')}`
 }
 
 function sectionsLabel(count: number): string {
@@ -207,13 +240,18 @@ function sectionsLabel(count: number): string {
 }
 
 /**
- * Черновики и архив — только тем, кто правит документы: читателю сервер их всё
- * равно не отдаёт, и вкладка обещала бы пустоту.
+ * Status, not navigation: "Мои материалы" is its own page in the module bar,
+ * so repeating it here would put the same view in two places.
+ *
+ * A learner only ever sees published material — the API refuses the rest — so
+ * for them the row is a single tab and the filter is not really a choice.
  */
 const tabs: { id: Tab, label: string, visible: boolean }[] = [
   { id: 'published', label: 'Опубликованные', visible: true },
-  { id: 'drafts', label: 'Черновики', visible: can(copy.rights.update) },
-  { id: 'archived', label: 'В архиве', visible: can(copy.rights.update) },
+  { id: 'drafts', label: 'Черновики', visible: can('courses.update') },
+  // Kept reachable: archived material is out of circulation, not deleted, and
+  // filtering it out of every tab would leave no way back to it.
+  { id: 'archived', label: 'В архиве', visible: can('courses.update') },
 ]
 </script>
 
@@ -222,14 +260,17 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     <header class="head">
       <div>
         <h1 class="page-title">
-          {{ copy.title }}
+          База знаний
         </h1>
         <p class="page-subtitle">
-          {{ copy.subtitle }}
+          Курсы команды по категориям. Прогресс сохраняется сам, записываться не нужно.
         </p>
 
+        <!-- Число найденного — строкой, а не плиткой: оно уточняет список, а не
+             спорит с ним за внимание. Свои «в процессе» и «пройдено» человек
+             смотрит у себя, на «Моих курсах», — там они и живут. -->
         <p v-if="total" class="faint counted">
-          {{ documentsLabel(total) }}
+          {{ total }} {{ pluralise(total, 'курс', 'курса', 'курсов') }}
           <template v-if="currentCategory"> в этом разделе</template>
         </p>
       </div>
@@ -237,15 +278,11 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       <div class="head__actions">
         <!-- Дерево правят там же, где смотрят его содержимое: в полосе разделов
              трём спискам категорий не место — см. ModuleNav. -->
-        <NuxtLink
-          v-if="can(copy.rights.update)"
-          :to="`/lms/${copy.section}/categories`"
-          class="button-secondary"
-        >
+        <NuxtLink v-if="can('courses.update')" to="/lms/categories" class="button-secondary">
           Категории
         </NuxtLink>
-        <NuxtLink v-if="can(copy.rights.create)" :to="`/lms/${copy.section}/new`" class="button-primary">
-          {{ copy.createLabel }}
+        <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
+          Новый курс
         </NuxtLink>
       </div>
     </header>
@@ -270,8 +307,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         v-model.trim="search"
         type="search"
         class="input search"
-        :placeholder="`Поиск по разделу «${copy.title}»…`"
-        :aria-label="`Поиск по разделу «${copy.title}»`"
+        placeholder="Поиск по базе знаний…"
+        aria-label="Поиск по базе знаний"
       >
     </div>
 
@@ -311,7 +348,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
         <span v-if="node.description" class="tile__description">{{ node.description }}</span>
 
         <span class="tile__meta">
-          {{ documentsLabel(branchCount(node)) }}
+          {{ materialsLabel(branchCount(node)) }}
           <template v-if="node.children?.length">
             · {{ sectionsLabel(node.children.length) }}
           </template>
@@ -319,61 +356,45 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </button>
     </div>
 
-    <!-- Материалы — только внутри категории и в ответ на поиск: раздел
-         открывается категориями, а не списком всего, что в нём есть. -->
-    <template v-if="showsMaterials">
+    <!-- Курсы — только внутри категории и в ответ на поиск: каталог
+         открывается разделами, а не списком всего, что есть в компании. -->
+    <template v-if="showsCourses">
       <p v-if="error" class="alert alert--danger" role="alert">
-        {{ `Не удалось загрузить раздел «${copy.title}».` }}
+        Не удалось загрузить курсы.
       </p>
 
       <div v-else-if="pending" class="grid">
         <div v-for="n in 3" :key="n" class="card card--raised skeleton-card">
           <div class="skeleton skeleton-line skeleton-line--short" />
           <div class="skeleton skeleton-line skeleton-line--title" />
+          <div class="skeleton skeleton-line" />
           <div class="skeleton skeleton-line skeleton-line--half" />
         </div>
       </div>
 
       <UiEmptyState
-        v-else-if="!documents.length && showsEmptyState"
-        :title="copy.emptyCatalogue"
+        v-else-if="!visibleCourses.length"
+        title="Курсов пока нет"
         :description="search || category
           ? 'Попробуйте изменить запрос или категорию.'
-          : 'Заведите первый — он будет виден всем, кто читает базу знаний.'"
+          : 'Как только появятся курсы, они будут здесь.'"
       >
-        <NuxtLink v-if="can(copy.rights.create)" :to="`/lms/${copy.section}/new`" class="button-primary">
-          {{ copy.createLabel }}
+        <NuxtLink v-if="can('courses.create')" to="/lms/new" class="button-primary">
+          Создать первый курс
         </NuxtLink>
       </UiEmptyState>
 
-      <div v-else-if="documents.length" ref="grid" class="grid">
-        <NuxtLink
-          v-for="item in documents"
-          :key="item.id"
-          :to="`/lms/${copy.section}/${item.slug}`"
-          class="card card--raised document"
-        >
-          <!-- Состояние сверху, как на карточке курса: сперва видно, что это
-               за документ, потом уже как он называется. -->
-          <div class="document__badges">
-            <span v-if="!item.is_published" class="badge badge--warning">{{ item.status_label }}</span>
-            <span v-if="item.is_private" class="badge" title="Виден допущенным и администраторам">Закрыт</span>
-            <span v-if="item.is_acknowledged" class="badge badge--success">Ознакомлен</span>
-            <span v-if="item.category" class="badge">{{ item.category.name }}</span>
-          </div>
-
-          <h2 class="document__title">
-            {{ item.title }}
-          </h2>
-
-          <p v-if="item.summary" class="document__summary">
-            {{ item.summary }}
-          </p>
-        </NuxtLink>
+      <div v-else ref="grid" class="grid">
+        <CourseCard
+          v-for="course in visibleCourses"
+          :key="course.slug"
+          :course="course"
+          @locked="explainLock('Курс')"
+        />
       </div>
     </template>
 
-    <nav v-if="lastPage > 1" class="pager" :aria-label="`Страницы раздела «${copy.title}»`">
+    <nav v-if="lastPage > 1" class="pager" aria-label="Страницы каталога">
       <button
         type="button"
         class="button-secondary button-sm"
@@ -408,6 +429,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   margin-bottom: 1.5rem;
 }
 
+
 .counted {
   margin: 0.4rem 0 0;
 }
@@ -421,7 +443,24 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   text-decoration: none;
 }
 
-/* Где я в дереве и дорога обратно наверх. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.pager__position {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  /* Fixed enough not to shuffle the buttons as the numbers grow. */
+  min-width: 9rem;
+  text-align: center;
+}
+
+/* Where you are in the tree, and the way back up. */
 .crumbs {
   display: flex;
   flex-wrap: wrap;
@@ -453,7 +492,10 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   color: var(--color-text-faint);
 }
 
-/* Категории — вход в материал, поэтому им дано место, а не строчка списка. */
+/*
+ * Categories are the way into the material, so they get room to be read and
+ * aimed at rather than a row of pills competing with the filters above them.
+ */
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
@@ -472,8 +514,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   font: inherit;
   text-align: left;
   cursor: pointer;
-  /* Двигается только тень: перекрашивать поверхность на наведении — верный
-     способ столкнуть подпись с её же фоном. */
+  /* Only the shadow moves: repainting the surface on hover is what makes a
+     label collide with its own background. */
   transition: box-shadow 0.15s ease;
 }
 
@@ -500,6 +542,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .tile__description {
   color: var(--color-text-muted);
   font-size: 0.85rem;
+  /* Two lines, so a long description cannot make one tile tower over its
+     neighbours. */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -541,8 +585,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Выбранной вкладке нужен свой ховер: базовое правило перекрасило бы её
-   подпись в цвет текста страницы, и на заливке она бы исчезла. */
+/* Same reason as the chips: the accent-filled tab needs its own hover, or the
+   base rule repaints its label in the page's text colour and it vanishes. */
 .tab:hover:not(.tab--active) {
   color: var(--color-text);
 }
@@ -568,61 +612,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   gap: 1rem;
 }
 
-.document {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.25rem 1.35rem 1.4rem;
-  color: inherit;
-  text-decoration: none;
-  transition: box-shadow 0.15s ease;
-}
-
-.document:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.document__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.document__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 550;
-}
-
-.document__summary {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 0.88rem;
-  line-height: 1.45;
-  /* Три строки: длинное описание не должно поднимать карточку над соседями. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 1.75rem;
-}
-
-.pager__position {
-  color: var(--color-text-muted);
-  font-size: 0.88rem;
-  font-variant-numeric: tabular-nums;
-  min-width: 9rem;
-  text-align: center;
-}
-
 .skeleton-card {
   display: flex;
   flex-direction: column;
@@ -638,6 +627,11 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 .skeleton-line--title { width: 75%; height: 1.1rem; }
 .skeleton-line--half { width: 60%; }
 
+/*
+ * Narrow screens: the header, its actions and the toolbar each get their own
+ * row. Side by side they either overflow the viewport or squeeze the title
+ * into two words per line.
+ */
 @media (max-width: 48rem) {
   .head {
     flex-direction: column;
@@ -674,8 +668,8 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
     min-width: 0;
   }
 
-  /* По две в ряд на телефоне: одна плитка во всю ширину вытолкнула бы сам
-     материал за пределы экрана. */
+  /* Two per row on a phone: one full-width tile per line would push the
+     material itself off the screen. */
   .tiles {
     grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
     gap: 0.5rem;

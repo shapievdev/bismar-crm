@@ -2,9 +2,13 @@
 /**
  * Раздел справочников — ответов на ситуацию.
  *
- * Экран общий с документами: см. MaterialCatalogue.
+ * Экран общий с документами: см. MaterialCatalogue. Прежний вид адреса —
+ * `?category=…` — переводится на новый посредником.
  */
-definePageMeta({ middleware: 'auth', permission: 'handbooks.view' })
+definePageMeta({
+  middleware: ['auth', 'category-in-the-path'],
+  permission: 'handbooks.view',
+})
 </script>
 
 <template>

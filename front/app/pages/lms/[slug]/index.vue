@@ -88,7 +88,7 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
 
       <template v-for="node in trail" :key="node.slug">
         <span class="crumbs__separator" aria-hidden="true">/</span>
-        <NuxtLink :to="{ path: '/lms', query: { category: node.slug } }">
+        <NuxtLink :to="`/lms/category/${node.slug}`">
           {{ node.name }}
         </NuxtLink>
       </template>
