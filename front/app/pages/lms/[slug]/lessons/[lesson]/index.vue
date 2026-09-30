@@ -2,7 +2,7 @@
 import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { MaterialVersion, QuizAttempt, QuizReview } from '~/types/lms'
 import type { SurveyAnswer } from '~/types/survey'
-import { withResolvedMedia } from '~/utils/editor/attachments'
+import { filesBesideArticle, withResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.view' })
 
@@ -179,6 +179,15 @@ watch(targetBlock, async (blockId) => {
 const article = computed(() =>
   withResolvedMedia(body.value?.content_json ?? null, body.value?.attachments ?? []),
 )
+
+/**
+ * Приложенные файлы — те, которых нет в самой статье: вставленную в текст
+ * картинку список повторял строкой «Без названия (10).png». Правило общее с
+ * документом и новостью, см. filesBesideArticle.
+ *
+ * Берутся у `body`, то есть у открытой версии урока: у каждой свои файлы.
+ */
+const documents = computed(() => filesBesideArticle(article.value, body.value?.attachments ?? []))
 
 /** The body is plain text; blank lines separate paragraphs. */
 const paragraphs = computed(() =>
@@ -556,12 +565,12 @@ function formatSize(bytes: number): string {
         </div>
       </section>
 
-      <section v-if="body?.attachments?.length" class="block">
+      <section v-if="documents.length" class="block">
         <h2 class="block__title">
           Файлы
         </h2>
         <ul class="files">
-          <li v-for="file in body?.attachments ?? []" :key="file.id" class="file">
+          <li v-for="file in documents" :key="file.id" class="file">
             <div class="file__row">
               <UiFileIcon :name="file.name" :mime-type="file.mime_type" />
 

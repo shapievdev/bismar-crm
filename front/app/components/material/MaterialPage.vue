@@ -2,7 +2,7 @@
 import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { CoursePerson, MaterialSection, MaterialVersion, QuizOutcome } from '~/types/lms'
 import type { SurveyAnswer } from '~/types/survey'
-import { withResolvedMedia } from '~/utils/editor/attachments'
+import { filesBesideArticle, withResolvedMedia } from '~/utils/editor/attachments'
 
 /**
  * Страница документа или справочника — один экран на оба раздела.
@@ -152,11 +152,13 @@ const askedTitle = computed(() =>
   regulation.value?.experts?.length ? 'Спросите ответственного' : 'Спросите автора',
 )
 
-const documents = computed(() =>
-  (body.value?.attachments ?? []).filter(file =>
-    // Файл с Диска в списке всегда: он не бывает случайной картинкой из статьи
-    // — его прикладывают руками и затем, чтобы его нашли.
-    file.source === 'google_drive' || !file.opens_inline || file.description))
+/**
+ * Приложенные файлы — те, которых нет в самой статье.
+ *
+ * Список берётся у `body`, то есть у открытой версии: у каждой свой бланк
+ * расчёта, и файл версии в общем списке не стоит.
+ */
+const documents = computed(() => filesBesideArticle(article.value, body.value?.attachments ?? []))
 
 function day(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''

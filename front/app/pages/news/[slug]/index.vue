@@ -2,7 +2,7 @@
 import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { NewsAcknowledgements, NewsQuizResult } from '~/types/news'
 import type { SurveyAnswer } from '~/types/survey'
-import { withResolvedMedia } from '~/utils/editor/attachments'
+import { filesBesideArticle, withResolvedMedia } from '~/utils/editor/attachments'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -34,7 +34,8 @@ const article = computed(() => withResolvedMedia(
   news.value?.attachments ?? [],
 ))
 
-const documents = computed(() => (news.value?.attachments ?? []).filter(file => !file.opens_inline || file.description))
+/** Приложенные файлы — те, которых нет в самой статье. См. filesBesideArticle. */
+const documents = computed(() => filesBesideArticle(article.value, news.value?.attachments ?? []))
 
 function day(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''

@@ -80,6 +80,52 @@ export function withResolvedMedia(
 }
 
 /**
+ * Файлы, которые перечисляют списком рядом со статьёй.
+ *
+ * Списком показывают приложенное, а не всё загруженное: картинка, вставленная в
+ * текст, уже видна в тексте, и второй раз строкой «Без названия (10).png» она
+ * не нужна.
+ *
+ * **Что из них что, знает сама статья**, а не догадка о файле. Прежде список
+ * отбирался по паре «открывается в браузере» и «есть подпись»: картинка без
+ * подписи считалась вставленной в текст, — и приложенный руками PNG не
+ * показывался вовсе, хотя загружали его затем, чтобы его скачали. Причём
+ * вставленные редактором картинки подпись как раз получают («Изображение в
+ * версии»), то есть догадка ошибалась в обе стороны.
+ *
+ * Спрашивать надо у **статьи с подставленными адресами**: номер вложения в ней
+ * проставлен у каждого узла, в том числе у написанных до того, как номера стали
+ * храниться, — см. `withResolvedMedia`.
+ *
+ * Файл с Диска в списке всегда: в текст его не вставляют, его прикладывают.
+ */
+export function filesBesideArticle<T extends { id: number, source?: string }>(
+  article: JSONContent | null,
+  attachments: T[],
+): T[] {
+  const inline = mediaIdsIn(article)
+
+  return attachments.filter(file => file.source === 'google_drive' || !inline.has(file.id))
+}
+
+/** Номера вложений, которые статья показывает у себя внутри. */
+function mediaIdsIn(document: JSONContent | null): Set<number> {
+  const found = new Set<number>()
+
+  if (document) {
+    mapNodes(document, (node) => {
+      if (isAttachmentMedia(node) && typeof node.attrs?.attachmentId === 'number') {
+        found.add(node.attrs.attachmentId)
+      }
+
+      return node
+    })
+  }
+
+  return found
+}
+
+/**
  * Drops the resolved address again, just before the document is stored.
  *
  * Keeping it would write an address that expires in fifteen minutes into a
