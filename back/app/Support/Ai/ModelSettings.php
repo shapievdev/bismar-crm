@@ -60,7 +60,7 @@ final readonly class ModelSettings
     {
         // Схема при незаданном ключе в базе следует за тем, какая из двух
         // переменных окружения заполнена.
-        if ($this->key() === null || $this->value($this->stored->api_key) !== null) {
+        if ($this->key() === null || $this->stored->readableKey() !== null) {
             return $this->stored->auth_scheme ?? AiAuthScheme::Bearer;
         }
 
@@ -69,9 +69,16 @@ final readonly class ModelSettings
             : AiAuthScheme::Header;
     }
 
+    /**
+     * Ключ, которым обращаются к модели.
+     *
+     * Сохранённый спрашивается через `readableKey()`: ключ из чужого дампа этим
+     * `APP_KEY` не расшифровывается, и «не прочитали» здесь значит то же, что
+     * «не задан», — дальше в дело идут переменные окружения. См. AiSetting.
+     */
     public function key(): ?string
     {
-        return $this->value($this->stored->api_key)
+        return $this->stored->readableKey()
             ?? $this->value(config('ai.auth_token'))
             ?? $this->value(config('ai.api_key'));
     }

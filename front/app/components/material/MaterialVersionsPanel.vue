@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
+import { ApiValidationError, messageFromError, type ValidationErrors } from '~/composables/useAuth'
 import type { VersionsTarget } from '~/composables/useVersionsApi'
 import type { MaterialVersionSummary } from '~/types/lms'
 import type { Group } from '~/types/structure'
@@ -63,16 +63,26 @@ const isAdding = ref(false)
 const form = ref({ name: '', is_private: false, groups: [] as number[], departments: [] as number[] })
 const errors = ref<ValidationErrors>({})
 
+/**
+ * Отказ в заведении — своей строкой у самой формы, а не в шапке панели.
+ *
+ * Общее место для ошибок стоит над списком версий, то есть экраном выше кнопки
+ * «Завести»: нажавший её видел, что ничего не произошло, и не видел ни слова о
+ * том, почему.
+ */
+const addError = ref<string | null>(null)
+
 function startAdding() {
   isAdding.value = true
   form.value = { name: '', is_private: false, groups: [], departments: [] }
   errors.value = {}
+  addError.value = null
 }
 
 async function add() {
   isSaving.value = true
   errors.value = {}
-  errorMessage.value = null
+  addError.value = null
 
   try {
     const { data: created } = await api.create({ ...form.value })
@@ -83,14 +93,24 @@ async function add() {
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       errors.value = caught.errors
+
+      // Ошибка могла прийти на поле, которого на этой форме нет — например на
+      // `groups.0`, если группу успели убрать, — и тогда без общей строки экран
+      // молчал бы вовсе.
+      addError.value = hasShownField(caught.errors) ? null : caught.firstMessage
     }
     else {
-      errorMessage.value = 'Не удалось завести версию.'
+      addError.value = messageFromError(caught, 'Не удалось завести версию.')
     }
   }
   finally {
     isSaving.value = false
   }
+}
+
+/** Есть ли среди ошибок та, что встанет подписью под своим полем. */
+function hasShownField(found: ValidationErrors): boolean {
+  return Object.keys(found).some(field => field === 'name' || field === 'groups')
 }
 
 /* ---------- Порядок и удаление ---------- */
@@ -311,6 +331,10 @@ function namesOf(version: MaterialVersionSummary): string {
         <input v-model="form.is_private" type="checkbox">
         Закрытая — видна только выбранным отделам и группам
       </label>
+
+      <p v-if="addError" class="alert alert--danger" role="alert">
+        {{ addError }}
+      </p>
 
       <div class="adding__actions">
         <button type="submit" class="button-primary button-sm" :disabled="isSaving">

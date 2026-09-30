@@ -57,11 +57,17 @@ export function toValidationError(error: unknown): never {
  *
  * Запасная строка остаётся для того, что объяснить нечем: оборванная сеть,
  * пятисотая, отказ без тела.
+ *
+ * Пятисотая сюда не попадает намеренно: словами сервера там стоит «Server
+ * Error», а при включённой отладке — текст исключения латиницей. Ни то, ни
+ * другое не говорит человеку, что делать, — своя строка честнее.
  */
 export function messageFromError(caught: unknown, fallback: string): string {
-  const message = (caught as { data?: { message?: string } }).data?.message
+  const failure = caught as { data?: { message?: string }, response?: { status?: number } }
+  const status = failure.response?.status ?? 500
+  const message = failure.data?.message
 
-  return typeof message === 'string' && message !== '' ? message : fallback
+  return status < 500 && typeof message === 'string' && message !== '' ? message : fallback
 }
 
 export function useAuth() {

@@ -6,7 +6,10 @@ namespace Tests\Feature\Ai;
 
 use App\Enums\AiAuthScheme;
 use App\Models\AiSetting;
+use App\Models\Group;
+use App\Models\Regulation;
 use App\Support\Ai\ModelSettings;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
@@ -146,5 +149,67 @@ final class SettingsTest extends TestCase
             ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('base_url');
+    }
+
+    /* ---------- Ключ из чужого дампа ---------- */
+
+    /**
+     * Ключ, зашифрованный другим APP_KEY, считается незаданным.
+     *
+     * База уезжает дампом на ноутбуки и на чужие стенды, а ключ в ней
+     * зашифрован APP_KEY той системы, где его вводили. Прочитать его там нечем,
+     * и это именно «не задан»: дальше в дело идут переменные окружения.
+     */
+    public function test_a_key_encrypted_by_another_app_key_counts_as_unset(): void
+    {
+        config(['ai.auth_token' => 'sk-from-env', 'ai.api_key' => null]);
+
+        $this->storeKeyFromAnotherStand();
+
+        $settings = ModelSettings::current();
+
+        $this->assertSame('sk-from-env', $settings->key());
+        $this->assertNull(AiSetting::current()->keyHint());
+        $this->assertTrue(AiSetting::current()->hasUnreadableKey());
+    }
+
+    /**
+     * Нечитаемый ключ не валит запрос, который лишь спрашивает «настроен ли
+     * консультант».
+     *
+     * Спрашивают об этом на каждом сохранении материала и его версии
+     * (MaterialVersionObserver → EmbedRegulation::dispatchIfConfigured), и
+     * исключение оттуда отвечало пятисотой на заведение версии документа —
+     * отказом без единого слова о причине.
+     */
+    public function test_an_unreadable_key_does_not_break_saving_a_version(): void
+    {
+        config(['ai.auth_token' => null, 'ai.api_key' => null]);
+
+        $this->storeKeyFromAnotherStand();
+
+        $document = Regulation::factory()->published()->create();
+        $group = Group::factory()->create(['name' => 'Розница']);
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('lms.documents.versions.store', $document), [
+                'name' => 'Для розницы',
+                'groups' => [$group->id],
+                'departments' => [],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.name', 'Для розницы');
+
+        $this->assertFalse(ModelSettings::current()->isConfigured());
+    }
+
+    /** Строка ключа, какой она приезжает с чужого стенда: шифр не наш. */
+    private function storeKeyFromAnotherStand(): void
+    {
+        $stranger = new Encrypter(random_bytes(32), 'aes-256-cbc');
+
+        AiSetting::query()->create(['auth_scheme' => AiAuthScheme::Bearer]);
+
+        AiSetting::query()->update(['api_key' => $stranger->encrypt('sk-secret-value')]);
     }
 }

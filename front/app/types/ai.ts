@@ -77,6 +77,9 @@ export interface AiSettings {
   key_hint: string | null
   has_key: boolean
 
+  /** Ключ сохранён, но этим APP_KEY не читается — введите заново. */
+  key_unreadable: boolean
+
   /** Что применится с учётом переменных окружения. */
   effective: {
     model: string

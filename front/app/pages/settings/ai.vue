@@ -180,7 +180,12 @@ async function check(): Promise<void> {
           {{ errors.api_key[0] }}
         </p>
         <p class="hint">
-          <template v-if="settings?.key_hint">
+          <template v-if="settings?.key_unreadable">
+            Ключ в базе есть, но этим ключом приложения (<code>APP_KEY</code>) он
+            не расшифровывается — так бывает с базой, приехавшей дампом с другого
+            стенда. Пока его не введут заново, ключ считается незаданным.
+          </template>
+          <template v-else-if="settings?.key_hint">
             Сохранён ключ, оканчивающийся на <b>{{ settings.key_hint }}</b>. Показать его целиком нельзя.
           </template>
           <template v-else-if="settings?.has_key">
