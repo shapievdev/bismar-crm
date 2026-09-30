@@ -94,8 +94,24 @@ const showsCourses = computed(() =>
   Boolean(category.value) || search.value.trim() !== '' || categoryTree.value.length === 0,
 )
 
+/*
+ * Ключ называет то, что запрашивают, — вместе с категорией.
+ *
+ * Категория лежит в адресе, поэтому переход в неё меняет маршрут, а не
+ * состояние экрана: Vue собирает новый экземпляр каталога. А `useAsyncData`,
+ * увидев **прежнее имя с уже успешным ответом**, повторно не спрашивает ничего
+ * (`status !== 'success'` — единственное условие первого запроса в его
+ * исходниках). На корне этот ответ пуст: там показывают одни категории, — и
+ * категория открывалась со словами «пока ничего нет», пока не перезагрузишь
+ * страницу.
+ *
+ * Своё имя у каждой категории это снимает: у новой страницы своя запись, и её
+ * приходится наполнять. Категории в списке наблюдения поэтому больше нет — её
+ * смену отрабатывает сам ключ, а два повода к одному запросу дали бы два
+ * запроса.
+ */
 const { data, pending, error } = await useAsyncData(
-  'lms.catalogue.courses',
+  () => `lms.catalogue.courses.${category.value || 'all'}`,
   () => showsCourses.value
     ? fetchCourses({
         search: search.value || undefined,
@@ -105,7 +121,7 @@ const { data, pending, error } = await useAsyncData(
       })
     // Спрашивать нечего: на корне показаны одни категории.
     : Promise.resolve({ data: [], meta: { current_page: 1, last_page: 1, per_page: 15, total: 0 } }),
-  { watch: [search, tab, category, page, showsCourses] },
+  { watch: [search, tab, page, showsCourses] },
 )
 
 // Narrowing the results moves the ground under the current page: page 4 of the
