@@ -434,7 +434,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
             :disabled="Boolean(uploadedVideo)"
           >
           <p class="faint field-hint">
-            YouTube или Vimeo. Если запись загружена файлом, ссылка не нужна.
+            YouTube, ВК Видео, RuTube, Vimeo или Google Диск. Если запись загружена файлом, ссылка не нужна.
           </p>
           <p v-if="errors.video_url?.length" class="field-error">
             {{ errors.video_url[0] }}

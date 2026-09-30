@@ -4,14 +4,30 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 const props = defineProps(nodeViewProps)
 
 const src = computed<string>(() => props.node.attrs.src ?? '')
-const isFile = computed(() => props.node.attrs.provider === 'file')
+
+/** Загруженный файл: провайдер записан при вставке, а не угадывается сейчас. */
+const isUpload = computed(() => props.node.attrs.provider === 'file')
 
 /**
- * External sources are rebuilt from an id extracted from a known host, so a
- * hostile URL cannot become an iframe source. An unrecognised link falls back
- * to a plain hyperlink.
+ * Чем показывать вставленную ссылку: рамкой провайдера или своим
+ * проигрывателем.
+ *
+ * Адрес рамки собирается заново из разобранного номера, поэтому произвольная
+ * ссылка источником iframe стать не может. Неузнанная остаётся ссылкой — как и
+ * была. Провайдеров пять, плюс прямая ссылка на файл, см. resolveVideo.
  */
-const embedUrl = computed(() => (isFile.value ? null : toEmbedUrl(src.value)))
+const resolved = computed(() => (isUpload.value ? null : resolveVideo(src.value)))
+
+const embedUrl = computed(() => (resolved.value?.kind === 'embed' ? resolved.value.src : null))
+
+/** Своим проигрывателем — и загруженное, и прямую ссылку на файл. */
+const fileUrl = computed(() => {
+  if (isUpload.value) {
+    return src.value
+  }
+
+  return resolved.value?.kind === 'file' ? resolved.value.src : null
+})
 </script>
 
 <template>
@@ -27,7 +43,7 @@ const embedUrl = computed(() => (isFile.value ? null : toEmbedUrl(src.value)))
     </button>
 
     <div class="video-embed__frame">
-      <video v-if="isFile" :src="src" controls preload="metadata" />
+      <video v-if="fileUrl" :src="fileUrl" controls preload="metadata" />
 
       <iframe
         v-else-if="embedUrl"

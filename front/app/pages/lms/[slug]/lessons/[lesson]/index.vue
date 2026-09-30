@@ -132,7 +132,16 @@ const targetBlock = computed(() => {
   return typeof raw === 'string' && raw !== '' ? raw : null
 })
 
-const embedUrl = computed(() => toEmbedUrl(body.value?.video_url, startSeconds.value))
+/**
+ * Чем показывать ссылку на видео: рамкой провайдера или своим проигрывателем.
+ *
+ * Провайдеров пять — YouTube, Vimeo, ВК, RuTube, Google Диск, — плюс прямая
+ * ссылка на файл; неузнанная остаётся ссылкой, как была. См. resolveVideo.
+ */
+const linkedVideo = computed(() => resolveVideo(body.value?.video_url, startSeconds.value))
+
+const embedUrl = computed(() => (linkedVideo.value?.kind === 'embed' ? linkedVideo.value.src : null))
+const linkedFileUrl = computed(() => (linkedVideo.value?.kind === 'file' ? linkedVideo.value.src : null))
 
 const uploadedVideo = useTemplateRef<HTMLVideoElement>('uploadedVideo')
 
@@ -533,6 +542,11 @@ function formatSize(bytes: number): string {
 
       <div v-if="body?.video_upload_url" class="video">
         <video ref="uploadedVideo" :src="body?.video_upload_url" controls preload="metadata" />
+      </div>
+
+      <!-- Ссылка на сам файл: рамка ему не нужна, играем своим проигрывателем. -->
+      <div v-else-if="linkedFileUrl" class="video">
+        <video :src="linkedFileUrl" controls preload="metadata" />
       </div>
 
       <div v-else-if="embedUrl" class="video">

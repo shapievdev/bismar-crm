@@ -136,7 +136,7 @@ function promptLink() {
 }
 
 function promptVideoUrl() {
-  const src = window.prompt('Ссылка на YouTube или Vimeo')
+  const src = window.prompt('Ссылка на видео: YouTube, ВК Видео, RuTube, Vimeo или Google Диск — или прямая ссылка на файл')
 
   if (src) {
     editor.value?.chain().focus().setVideoEmbed({ src, provider: 'embed' }).run()

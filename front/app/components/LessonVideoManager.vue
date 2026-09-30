@@ -96,7 +96,7 @@ async function remove(lessonId: number | string) {
 
     <p class="faint hint">
       MP4, WebM или MOV. Файл кладётся в S3, читатель получает подписанную ссылку.
-      Ссылку на YouTube или Vimeo можно указать отдельно в поле выше — тогда видео встроится оттуда.
+      Ссылку на YouTube, ВК Видео, RuTube, Vimeo или Google Диск можно указать отдельно в поле выше — тогда видео встроится оттуда.
     </p>
 
     <p v-if="error" class="alert alert--danger" role="alert">

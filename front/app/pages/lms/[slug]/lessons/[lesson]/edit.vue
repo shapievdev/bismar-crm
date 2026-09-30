@@ -393,6 +393,11 @@ async function removeQuiz() {
         <div class="field">
           <label for="video">Ссылка на видео</label>
           <input id="video" v-model.trim="form.video_url" type="url" placeholder="https://…">
+          <p class="faint field-note">
+            YouTube, ВК Видео, RuTube, Vimeo или Google Диск — встроятся
+            проигрывателем. У видео «по ссылке» копируйте адрес целиком, с
+            ключом доступа: без него провайдер рамку не откроет.
+          </p>
           <p v-if="errors.video_url?.length" class="field__error">
             {{ errors.video_url[0] }}
           </p>
