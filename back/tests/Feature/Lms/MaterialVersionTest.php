@@ -12,8 +12,11 @@ use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\Regulation;
 use App\Models\RegulationAcknowledgement;
+use App\Models\RegulationAttachment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
@@ -505,6 +508,40 @@ final class MaterialVersionTest extends TestCase
     /**
      * @param  list<Group>  $groups
      */
+
+    /**
+     * У документа тот же путь работает и работал всегда.
+     *
+     * Проверка заведена вместе с починкой уроков (2026-09-30): там `version_id`
+     * не значился заполняемым, и файл, загруженный на адрес версии, ложился
+     * общим. У RegulationAttachment эта строка стояла с самого начала — тест
+     * держит её на месте, потому что расхождению двух одинаковых списков
+     * взяться неоткуда, кроме невнимательности.
+     */
+    public function test_a_file_uploaded_to_a_document_version_belongs_to_that_version(): void
+    {
+        Storage::fake('s3');
+
+        $document = Regulation::factory()->published()->create();
+        [$retail, $salesman] = $this->groupWithPerson('Розница');
+
+        $version = $this->version($document, 'Для розницы', [$retail]);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.documents.versions.attachments.store', [$document, $version]), [
+                'file' => UploadedFile::fake()->create('бланк розницы.pdf', 40, 'application/pdf'),
+            ])
+            ->assertCreated();
+
+        $this->assertSame($version->id, RegulationAttachment::query()->sole()->version_id);
+
+        $this->actingAs($salesman)
+            ->getJson(route('lms.documents.show', $document))
+            ->assertOk()
+            ->assertJsonCount(0, 'data.attachments')
+            ->assertJsonCount(1, 'data.version.attachments');
+    }
+
     private function version(
         Regulation $regulation,
         string $name,

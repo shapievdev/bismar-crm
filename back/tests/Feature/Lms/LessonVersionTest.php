@@ -9,11 +9,14 @@ use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Group;
 use App\Models\Lesson;
+use App\Models\LessonAttachment;
 use App\Models\LessonCompletion;
 use App\Models\MaterialVersion;
 use App\Models\Quiz;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
@@ -250,6 +253,63 @@ final class LessonVersionTest extends TestCase
             ->assertJsonCount(0, 'data.attachments')
             ->assertJsonCount(1, 'data.version.attachments')
             ->assertJsonPath('data.version.attachments.0.name', 'Бланк магазина.xlsx');
+    }
+
+    /**
+     * Файл, загруженный на адрес версии, ложится при версии, а не при уроке.
+     *
+     * Здесь и была поломка (2026-09-30): запрос приходил на адрес версии и
+     * отвечал 201, а `version_id` терялся по дороге — его не было в списке
+     * заполняемых полей LessonAttachment, и Eloquent выбрасывал его молча. Файл
+     * ложился общим, и рознице был виден бланк офиса.
+     *
+     * Прежние тесты этого не ловили: они заводили файл версии связью
+     * (`$version->lessonAttachments()->create(...)`), а связь проставляет ключ
+     * сама, мимо массового заполнения. **Проверять такое надо маршрутом.**
+     */
+    public function test_a_file_uploaded_to_a_version_belongs_to_that_version(): void
+    {
+        Storage::fake('s3');
+
+        $lesson = $this->lesson();
+        [$retail, $salesman] = $this->groupWithPerson('Розница');
+
+        $version = $this->version($lesson, 'Для магазина', [$retail]);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.lessons.versions.attachments.store', [$lesson, $version]), [
+                'file' => UploadedFile::fake()->create('бланк розницы.pdf', 40, 'application/pdf'),
+            ])
+            ->assertCreated();
+
+        $attachment = LessonAttachment::query()->sole();
+
+        $this->assertSame($version->id, $attachment->version_id);
+
+        // И на экране он у версии, а не в общем списке урока.
+        $this->actingAs($salesman)
+            ->getJson(route('lms.lessons.show', $lesson))
+            ->assertOk()
+            ->assertJsonCount(0, 'data.attachments')
+            ->assertJsonCount(1, 'data.version.attachments')
+            ->assertJsonPath('data.version.attachments.0.name', 'бланк розницы.pdf');
+    }
+
+    /** Файл с Google Диска — тем же путём и с тем же ключом версии. */
+    public function test_a_drive_file_attached_to_a_version_belongs_to_that_version(): void
+    {
+        $lesson = $this->lesson();
+        $version = $this->version($lesson, 'Для офиса', []);
+
+        $this->actingAs($this->author())
+            ->postJson(route('lms.lessons.versions.attachments.drive', [$lesson, $version]), [
+                'external_id' => 'drive-file-7',
+                'name' => 'Бланк офиса.xlsx',
+                'mime_type' => 'application/vnd.ms-excel',
+            ])
+            ->assertCreated();
+
+        $this->assertSame($version->id, LessonAttachment::query()->sole()->version_id);
     }
 
     /* ---------- helpers ---------- */
