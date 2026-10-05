@@ -44,15 +44,50 @@ const fills = computed(() => route.meta.fills === true)
  * оболочке остаётся вернуть себе место, которое под неё было отведено.
  */
 const { hideDock } = useShellChrome()
+
+/*
+ * Высота шапки — в CSS-переменную оболочки.
+ *
+ * Её читает всё, что меряет себя по видимой части экрана, а не по своему
+ * содержимому: прежде всего HTML-блок статьи (`--viewport-free` ниже). Шапку
+ * приходится мерить, а не брать из `--header-height`: на телефоне она растёт
+ * по содержимому — см. медиазапрос в стилях, — и объявленная величина там
+ * просто неверна. Объявленная остаётся запасной: до измерения и на сервере.
+ *
+ * Нижнюю плашку мерить не нужно: место под неё страницы и так считают по
+ * `--dock-space`, и то же значение подставлено в окно.
+ */
+const shell = useTemplateRef<HTMLElement>('shell')
+const topbar = useTemplateRef<HTMLElement>('topbar')
+
+let chromeWatcher: ResizeObserver | undefined
+
+onMounted(() => {
+  if (!topbar.value || typeof ResizeObserver !== 'function') {
+    return
+  }
+
+  chromeWatcher = new ResizeObserver(() => {
+    const height = Math.round(topbar.value?.getBoundingClientRect().height ?? 0)
+
+    if (height > 0) {
+      shell.value?.style.setProperty('--chrome-top', `${height}px`)
+    }
+  })
+
+  chromeWatcher.observe(topbar.value)
+})
+
+onBeforeUnmount(() => chromeWatcher?.disconnect())
 </script>
 
 <template>
-  <div class="shell" :class="{ 'shell--fills': fills, 'shell--no-dock': hideDock }">
+  <div ref="shell" class="shell" :class="{ 'shell--fills': fills, 'shell--no-dock': hideDock }">
     <!-- Работа от чужого имени: полоса над всем приложением, потому что это
          состояние всего приложения, а не одной страницы. -->
     <ImpersonationBar />
 
-    <header class="topbar">
+    <header ref="topbar" class="topbar">
       <div class="topbar__inner">
         <!-- Логотип уходит на телефоне: полоса сверху нужна там под названия
              страниц раздела, а не под знак, по которому никто не нажимает. -->
@@ -120,6 +155,26 @@ const { hideDock } = useShellChrome()
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+
+  /*
+   * Сколько по вертикали видно страницы между нашими плашками.
+   *
+   * Это окно для всего, что меряет себя по экрану, а не по содержимому:
+   * раскладка, которую автор строит «на один экран», обязана получать высоту
+   * того устройства, на котором её читают, а не подогнанное однажды число.
+   *
+   * Высоту шапки подставляет скрипт (на телефоне она по содержимому);
+   * объявленная остаётся запасной, пока он не измерил. Нижняя плашка — то же
+   * место, что страницы отдают доку.
+   *
+   * `svh`, а не `dvh`: `dvh` меняется вместе с адресной строкой, и окно
+   * пересчитывалось бы на каждой прокрутке — а по этому окну раскладываются
+   * страницы внутри рамок, то есть каждый пересчёт стоит перерисовки. `svh` —
+   * то, что видно наверняка, и оно не дёргается.
+   */
+  --chrome-top: var(--header-height);
+  --chrome-bottom: 0px;
+  --viewport-free: calc(100svh - var(--chrome-top) - var(--chrome-bottom));
 }
 
 /*
@@ -285,6 +340,12 @@ const { hideDock } = useShellChrome()
 }
 
 @media (max-width: 60rem) {
+  /* Полоса разделов появилась — видимого экрана стало меньше ровно на то
+     место, которое страницы под неё и отводят. */
+  .shell {
+    --chrome-bottom: var(--dock-space);
+  }
+
   .body,
   .body--railed {
     grid-template-columns: minmax(0, 1fr);
@@ -311,6 +372,11 @@ const { hideDock } = useShellChrome()
   @media (max-width: 47.9rem) {
     .shell--fills.shell--no-dock .main {
       padding-bottom: 0;
+    }
+
+    /* Полосы нет — и место под неё больше не вычитается из видимого экрана. */
+    .shell--no-dock {
+      --chrome-bottom: 0px;
     }
   }
 

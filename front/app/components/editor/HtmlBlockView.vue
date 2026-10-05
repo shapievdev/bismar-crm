@@ -63,27 +63,56 @@ const SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow
 const token = useId()
 
 /**
- * Height the frame is measured at.
+ * Окно, в котором рамка стоит, пока её не измерили.
  *
  * Auto-sizing is circular whenever the embedded document uses viewport units:
  * a rule like `min-height: 100vh` grows with the frame, which grows the
- * measurement, which grows the frame again. So the frame is held at this
- * reference height while it measures, the result is applied once, and later
- * reports are ignored. Viewport units inside a block therefore resolve against
- * this height rather than chasing the frame.
+ * measurement, which grows the frame again. So the frame is held at a reference
+ * height while it measures, the result is applied once, and later reports are
+ * ignored.
+ *
+ * Само окно задаёт CSS — `--viewport-free`, видимая часть страницы между нашими
+ * плашками (см. `layouts/default.vue`). Прежде здесь стояло число: 800 точек
+ * всем и всегда. Разметка, которую автор строит «ровно на экран», получала эти
+ * 800 на любом устройстве — на высоком телефоне блок не доходил до низа, на
+ * коротком уезжал под полосу разделов, и автору оставалось подгонять размеры
+ * под свой аппарат руками. Окно из CSS верно на каждом экране, пересчитывается
+ * само — при повороте, при другой шапке — и не стоит ни одного замера.
  */
-const REFERENCE_HEIGHT = 800
 const MAX_HEIGHT = 20000
 const SETTLE_MS = 700
 
-const measuredHeight = ref(REFERENCE_HEIGHT)
+/**
+ * Насколько замер может разойтись с окном и всё ещё считаться замером «по окну».
+ *
+ * Разметка, уложенная по выданной рамке, возвращает ровно её высоту — с точностью
+ * до округлений и отступов тела. Всё, что дальше этого запаса в любую сторону, —
+ * уже содержимое, и его высоту закрепляют пикселями.
+ */
+const WINDOW_SLACK = 24
+
+/** Измеренная высота содержимого; null — пока не измерено или мерить нечего. */
+const measuredHeight = ref<number | null>(null)
+
+/** Разметка внутри меряет себя по рамке, а не по содержимому. */
+const followsWindow = ref(false)
+
 const isSettled = ref(false)
 let tallestReport = 0
+let reportedWindow = 0
 let settleTimer: ReturnType<typeof setTimeout> | undefined
 
 const frame = useTemplateRef<HTMLIFrameElement>('frame')
 
-const effectiveHeight = computed(() => pinnedHeight.value ?? measuredHeight.value)
+/**
+ * Высота, которую рамке задаём мы, — или `null`, когда её задаёт CSS.
+ *
+ * Закреплённая автором высота сильнее всего; дальше — измеренное содержимое; а
+ * разметке, которая меряет себя по окну, пикселей не задают вовсе: окно и так
+ * верное, а пиксели запомнили бы чужой экран.
+ */
+const frameHeight = computed<number | null>(() => pinnedHeight.value
+  ?? (followsWindow.value ? null : measuredHeight.value))
 
 /**
  * The document handed to the frame: the author's markup, the site's typography
@@ -104,6 +133,8 @@ function onMessage(event: MessageEvent) {
     type?: string
     token?: string
     height?: number
+    overflow?: number
+    viewport?: number
     offset?: number
   } | null
 
@@ -135,14 +166,43 @@ function onMessage(event: MessageEvent) {
     return
   }
 
+  const viewport = Number(data.viewport) || 0
+  const overflow = Number(data.overflow) || 0
+
+  // Замер с запасом берётся в расчёт, только когда он больше окна: ниже окна
+  // он всегда равен окну и ничего о содержимом не говорит.
+  const needed = Math.ceil(overflow > viewport + 8 ? Math.max(height, overflow) : height)
+
   // Reports keep arriving as fonts and images land. The tallest wins, and the
   // frame is resized only once they stop — measuring against a frame we have
   // already resized is what causes the runaway.
-  tallestReport = Math.max(tallestReport, Math.ceil(height))
+  if (needed > tallestReport) {
+    tallestReport = needed
+
+    // Окно запоминается от того же замера: судить о замере по чужому окну
+    // нельзя, а между сообщениями оно могло измениться.
+    reportedWindow = viewport
+  }
 
   clearTimeout(settleTimer)
   settleTimer = setTimeout(() => {
-    measuredHeight.value = Math.min(MAX_HEIGHT, Math.max(120, tallestReport))
+    /*
+     * Замер, равный окну, ничего нового не сообщает.
+     *
+     * Так отвечает разметка, уложенная по выданной рамке: страница на `100%`,
+     * сетка «ровно в экран», карусель во весь кадр. Закрепить это число
+     * пикселями значило бы запомнить то устройство, на котором блок открыли
+     * первым, — и перестать считаться с остальными. Окно остаётся за CSS: на
+     * другом экране и после поворота блок снова займёт видимую часть, и нам не
+     * придётся ни мерить, ни перекладывать его заново.
+     */
+    followsWindow.value = reportedWindow > 0
+      && Math.abs(tallestReport - reportedWindow) <= WINDOW_SLACK
+
+    if (!followsWindow.value) {
+      measuredHeight.value = Math.min(MAX_HEIGHT, Math.max(120, tallestReport))
+    }
+
     isSettled.value = true
   }, SETTLE_MS)
 }
@@ -160,12 +220,17 @@ function scrollOuterPageTo(offset: number) {
 }
 
 // A new document has to be measured from scratch.
-watch(srcdoc, () => {
+watch(srcdoc, () => forgetMeasurement())
+
+/** Возвращает блок к началу замера: в окно и без принятого числа. */
+function forgetMeasurement() {
   clearTimeout(settleTimer)
   tallestReport = 0
+  reportedWindow = 0
   isSettled.value = false
-  measuredHeight.value = REFERENCE_HEIGHT
-})
+  followsWindow.value = false
+  measuredHeight.value = null
+}
 
 /* ---------- Блок во весь экран ---------- */
 
@@ -189,6 +254,11 @@ watch(srcdoc, () => {
 const isScreen = ref(false)
 
 const pane = useTemplateRef<HTMLElement>('pane')
+
+/** Высота рамки в разметке — или ничего, когда её задаёт CSS. */
+const frameStyle = computed(() => (isScreen.value || frameHeight.value === null
+  ? undefined
+  : { height: `${frameHeight.value}px` }))
 
 /**
  * Где читатель стоял на странице.
@@ -246,9 +316,7 @@ async function collapse() {
    * оно успело сняться до разворота: блок, развёрнутый в первые же полсекунды
    * после загрузки, вернулся бы в колонку высотой с заглушку.
    */
-  clearTimeout(settleTimer)
-  tallestReport = 0
-  isSettled.value = false
+  forgetMeasurement()
 
   // Место на странице возвращается после перерисовки: до неё блок ещё вне
   // потока, страница коротка, и прокрутке некуда встать.
@@ -286,9 +354,69 @@ watch(isScreen, (screen) => {
   }
 })
 
-onMounted(() => window.addEventListener('message', onMessage))
+/* ---------- Когда рамка заводится ---------- */
+
+/**
+ * Завелась ли рамка.
+ *
+ * Внутри рамки чужая страница: свои шрифты, свои скрипты, свой растр — и всё
+ * это браузер держит с первой секунды, даже если блок лежит в конце статьи и до
+ * него ещё не дошли. Телефону это стоит и памяти, и кадров: тяжёлая разметка
+ * внутри продолжает занимать видеопамять, пока читают текст вокруг.
+ *
+ * Поэтому рамка появляется, когда блок подходит к экрану, а до того на её месте
+ * стоит пустая коробка той же высоты — ни ссылки, ни прокрутка от этого не
+ * съезжают.
+ *
+ * Обратно рамку не убираем никогда: перезагруженный блок потерял бы всё, что в
+ * нём успели натыкать, — открытую вкладку, введённые числа, выбранную карточку.
+ * Дальше за него отвечает `content-visibility` в стилях: ушедший за край блок
+ * браузер не рисует, но и не выгружает.
+ */
+const isLive = ref(false)
+
+let approach: IntersectionObserver | undefined
+
+function watchApproach() {
+  if (isLive.value || approach) {
+    return
+  }
+
+  if (typeof IntersectionObserver !== 'function' || !pane.value) {
+    isLive.value = true
+
+    return
+  }
+
+  approach = new IntersectionObserver((entries) => {
+    if (!entries.some(entry => entry.isIntersecting)) {
+      return
+    }
+
+    isLive.value = true
+    approach?.disconnect()
+    approach = undefined
+  }, { rootMargin: '600px 0px' })
+
+  approach.observe(pane.value)
+}
+
+// Автор, вышедший из правки кода, смотрит на блок прямо сейчас — ждать от него
+// приближения незачем.
+watch(isEditing, (editing) => {
+  if (!editing) {
+    isLive.value = true
+  }
+})
+
+onMounted(() => {
+  window.addEventListener('message', onMessage)
+  watchApproach()
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage)
+  approach?.disconnect()
   document.removeEventListener('keydown', onKey)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   clearTimeout(settleTimer)
@@ -309,7 +437,10 @@ function cancel() {
 }
 
 function pin(delta: number) {
-  const next = Math.min(MAX_HEIGHT, Math.max(120, effectiveHeight.value + delta))
+  // Отсчёт — от высоты, в которой рамка стоит сейчас: закреплённой, а если её
+  // нет — той, что ей дало содержимое или окно.
+  const current = pinnedHeight.value ?? frame.value?.clientHeight ?? 0
+  const next = Math.min(MAX_HEIGHT, Math.max(120, current + delta))
 
   props.updateAttributes({ height: next })
 }
@@ -317,6 +448,15 @@ function pin(delta: number) {
 function unpin() {
   props.updateAttributes({ height: null })
 }
+
+/** Чем высота блока задана — автором, содержимым или экраном. */
+const heightNote = computed(() => {
+  if (pinnedHeight.value) {
+    return `${pinnedHeight.value} px`
+  }
+
+  return followsWindow.value ? 'высота по видимому экрану' : 'высота по содержимому'
+})
 </script>
 
 <template>
@@ -325,7 +465,7 @@ function unpin() {
       <span class="badge badge--accent">HTML</span>
       <span class="faint html-block__note">
         Выполняется изолированно, без доступа к странице ·
-        {{ pinnedHeight ? `${pinnedHeight} px` : 'высота по содержимому' }}
+        {{ heightNote }}
       </span>
 
       <div class="html-block__actions">
@@ -374,7 +514,7 @@ function unpin() {
       v-else-if="html"
       ref="pane"
       class="html-block__pane"
-      :class="{ 'html-block__pane--screen': isScreen }"
+      :class="{ 'html-block__pane--screen': isScreen, 'html-block__pane--idle': isSettled && !isScreen }"
       contenteditable="false"
     >
       <!-- Кнопка стоит поверх рамки, а не рядом: полоса над блоком есть только
@@ -406,15 +546,22 @@ function unpin() {
 
       <!--
         No loading="lazy" here. A srcdoc frame has no network request to trigger
-        the deferred load, so Chrome leaves it blank indefinitely.
+        the deferred load, so Chrome leaves it blank indefinitely — ждать
+        приближения приходится самим, и до него на месте рамки стоит коробка
+        той же высоты.
+      -->
+      <div v-if="!isLive" class="html-block__frame" :style="frameStyle" />
 
+      <!--
         Во весь экран высота не задаётся вовсе: её даёт раскладка накладки, а
-        замеренное число вернётся к рамке, когда блок свернут обратно.
+        замеренное число вернётся к рамке, когда блок свернут обратно. Не задаём
+        её и разметке, которая меряет себя по окну, — окно за CSS.
       -->
       <iframe
+        v-else
         ref="frame"
         class="html-block__frame"
-        :style="isScreen ? undefined : { height: `${effectiveHeight}px` }"
+        :style="frameStyle"
         :sandbox="SANDBOX"
         :srcdoc="srcdoc"
         title="Встроенный HTML"
@@ -481,6 +628,29 @@ function unpin() {
 }
 
 /*
+ * Блок, уехавший за край экрана, браузер не рисует.
+ *
+ * Внутри рамки может лежать что угодно — постеры во весь кадр, тени с большим
+ * размытием, карты, — и всё это телефон держит в видеопамяти и перерисовывает,
+ * пока читают текст вокруг. `content-visibility` снимает с него и отрисовку, и
+ * растр, пока блок не на виду, не выгружая самой рамки: вернувшись к блоку,
+ * читатель находит его в том же состоянии.
+ *
+ * Включается это не раньше, чем блок измерен, и вот почему: пропущенная
+ * отрисовка откладывает и саму страницу внутри рамки — она не разбирается и не
+ * сообщает свою высоту, пока на неё не посмотрят. Блок в конце статьи так и
+ * стоял бы высотой в экран, а потом схлопывался до своих двух строк прямо под
+ * рукой читателя. Измеренному блоку скрываться уже не во вред: высота у него
+ * есть, и браузер запоминает её сам.
+ *
+ * Запасная высота — то же окно, на случай если вспоминать ещё нечего.
+ */
+.html-block__pane--idle {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--viewport-free, 80svh);
+}
+
+/*
  * Развёрнутый блок.
  *
  * `fixed`, а не полный экран браузера: его умеют не все, а блок должен
@@ -510,6 +680,17 @@ function unpin() {
   width: 100%;
   border: 0;
   background: var(--color-surface-raised);
+
+  /*
+   * Окно, в котором рамка стоит, пока её высоту не задали в разметке: видимая
+   * часть страницы между нашими плашками (`layouts/default.vue`). По нему
+   * раскладывается разметка, считающая себя страницей, — и оно же остаётся
+   * высотой такого блока навсегда, потому что верно на любом экране.
+   *
+   * Запасное значение — для разметки вне нашей оболочки (письмо, печать): чуть
+   * меньше экрана, чтобы блок не упирался в его края.
+   */
+  height: var(--viewport-free, 80svh);
 }
 
 /* Во весь экран рамка занимает его целиком, и разметка внутри прокручивается
