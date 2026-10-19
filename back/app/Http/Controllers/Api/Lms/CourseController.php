@@ -23,6 +23,7 @@ use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\User;
 use App\Support\Lms\CatalogSearch;
+use App\Support\Lms\Favourites;
 use App\Support\Lms\LearningPlan;
 use App\Support\Lms\ProgressCalculator;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -82,6 +83,9 @@ final class CourseController extends Controller
 
         $this->markPlanLocks($courses->getCollection(), $user);
 
+        // Звезда на карточке — одним запросом на всю страницу каталога.
+        Favourites::of($user)->mark($courses->getCollection());
+
         return CourseResource::collection($courses);
     }
 
@@ -111,6 +115,11 @@ final class CourseController extends Controller
         ])->loadCount(['lessons', 'enrollments', 'members']);
 
         $course->setAttribute('learner_enrollment', $this->enrollmentPayload($request, $course));
+
+        /** @var User $reader */
+        $reader = $request->user();
+
+        Favourites::of($reader)->mark([$course]);
 
         return CourseResource::make($course);
     }

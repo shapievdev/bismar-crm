@@ -36,6 +36,15 @@ final class RegulationResource extends JsonResource
             'is_published' => $this->isPublished(),
             'published_at' => $this->published_at?->toIso8601String(),
 
+            /*
+             * Отложен ли материал в избранное этим человеком.
+             *
+             * Проставляют снаружи — одним запросом на весь список (см.
+             * App\Support\Lms\Favourites::mark). Пусто там, где не проставляли:
+             * звезда это читает как «не отложено».
+             */
+            'is_favourite' => (bool) ($this->is_favourite ?? false),
+
             // Закрыт регламент или открыт — и вправе ли этот человек это менять.
             'visibility' => $this->visibility->value,
             'visibility_label' => $this->visibility->label(),

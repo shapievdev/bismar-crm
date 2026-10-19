@@ -152,6 +152,15 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
             Начать чтение
           </NuxtLink>
 
+          <!-- Звезда — читателю, а не редактору: откладывают курс, чтобы
+               вернуться, и право на правку к этому отношения не имеет. -->
+          <FavouriteButton
+            kind="course"
+            :material-id="course.id"
+            :model-value="course.is_favourite === true"
+            with-label
+          />
+
           <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-secondary">
             Редактировать
           </NuxtLink>

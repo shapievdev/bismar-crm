@@ -301,6 +301,20 @@ class User extends Authenticatable
     }
 
     /**
+     * Избранное: что человек отложил себе сам.
+     *
+     * Рядом с планом, но это его противоположность: план назначают, избранное
+     * заводят. И видит его только владелец — чужого избранного в приложении нет
+     * нигде.
+     *
+     * @return HasMany<Favourite, $this>
+     */
+    public function favourites(): HasMany
+    {
+        return $this->hasMany(Favourite::class)->freshestFirst();
+    }
+
+    /**
      * Люди, подходящие под строку поиска, — по имени или почте.
      *
      * @param  Builder<$this>  $query

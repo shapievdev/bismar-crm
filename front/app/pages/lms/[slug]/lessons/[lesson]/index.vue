@@ -514,6 +514,16 @@ function formatSize(bytes: number): string {
 
         <div class="head__side">
           <span v-if="isCompleted" class="badge badge--success">Пройден</span>
+
+          <!-- Звезда без слова: в шапке урока она стоит среди кнопок, у
+               которых слова есть, и четвёртая подпись сделала бы ряд длиннее
+               самого заголовка. -->
+          <FavouriteButton
+            kind="lesson"
+            :material-id="lesson.id"
+            :model-value="lesson.is_favourite === true"
+          />
+
           <NuxtLink
             v-if="can('courses.update')"
             :to="`/lms/${courseSlug}/lessons/${lessonId}/edit`"

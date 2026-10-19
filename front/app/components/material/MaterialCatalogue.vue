@@ -363,10 +363,18 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
       </UiEmptyState>
 
       <div v-else-if="documents.length" ref="grid" class="grid">
-        <NuxtLink
+        <!--
+          Карточка — не ссылка целиком, а область со ссылкой в заголовке.
+
+          Прежде ссылкой была сама карточка, и этого хватало, пока на ней не
+          появилось второе действие: кнопку внутри ссылки нельзя ни по разметке,
+          ни по смыслу — нажатие на звезду уводило бы на материал. Накладка от
+          заголовка оставляет карточку нажимаемой целиком, а звезда встаёт
+          поверх неё.
+        -->
+        <article
           v-for="item in documents"
           :key="item.id"
-          :to="`/lms/${copy.section}/${item.slug}`"
           class="card card--raised document"
         >
           <!-- Состояние сверху, как на карточке курса: сперва видно, что это
@@ -378,14 +386,23 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
             <span v-if="item.category" class="badge">{{ item.category.name }}</span>
           </div>
 
+          <FavouriteButton
+            kind="regulation"
+            class="document__keep"
+            :material-id="item.id"
+            :model-value="item.is_favourite === true"
+          />
+
           <h2 class="document__title">
-            {{ item.title }}
+            <NuxtLink :to="`/lms/${copy.section}/${item.slug}`">
+              {{ item.title }}
+            </NuxtLink>
           </h2>
 
           <p v-if="item.summary" class="document__summary">
             {{ item.summary }}
           </p>
-        </NuxtLink>
+        </article>
       </div>
     </template>
 
@@ -585,6 +602,7 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
 }
 
 .document {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -602,12 +620,38 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  /* Место под звезду в углу: без него длинный ряд меток заезжал бы под неё. */
+  padding-right: 2.5rem;
+}
+
+/*
+ * Звезда в углу карточки — поверх накладки от заголовка, иначе нажатие по ней
+ * уходило бы в переход на материал.
+ */
+.document__keep {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 1;
 }
 
 .document__title {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 550;
+}
+
+.document__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Карточка нажимается целиком, но настоящая ссылка в ней одна — заголовок:
+   так её видит и чтение с экрана, и «открыть в новой вкладке». */
+.document__title a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
 }
 
 .document__summary {

@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\Lms\CourseAccessController;
 use App\Http\Controllers\Api\Lms\CourseController;
 use App\Http\Controllers\Api\Lms\CourseExpertController;
 use App\Http\Controllers\Api\Lms\CourseStructureController;
+use App\Http\Controllers\Api\Lms\FavouriteController;
 use App\Http\Controllers\Api\Lms\LearningController;
 use App\Http\Controllers\Api\Lms\LearningPlanController;
 use App\Http\Controllers\Api\Lms\LessonAnswerController;
@@ -751,6 +752,39 @@ Route::middleware([
         // попытка сама по себе не знает, чей материал она проверяет.
         Route::get('lessons/{lesson}/quiz/attempts/{attempt}', [QuizController::class, 'attempt'])
             ->name('quiz.attempt');
+    });
+
+    /*
+     * Избранное — закладки самого сотрудника.
+     *
+     * Права с галочкой у него нет и не будет: откладывать для себя — не
+     * полномочие, а способ пользоваться базой знаний. На входе поэтому
+     * спрашивается любой из трёх разделов, как у корзины: иначе продавец,
+     * которому открыты одни справочники, не увидел бы собственных закладок.
+     *
+     * А что человеку можно отложить, решает видимость самого материала, и
+     * потому номера материала в адресе хватает: закладка не открывает того, что
+     * было закрыто (см. App\Support\Lms\Favourites).
+     */
+    Route::prefix('favourites')->as('favourites.')->middleware(EnsureAnyPermission::of(
+        Permission::ViewCourses,
+        Permission::ViewDocuments,
+        Permission::ViewHandbooks,
+    ))->group(function (): void {
+        Route::get('/', [FavouriteController::class, 'index'])->name('index');
+
+        // Один адрес на все виды: вид стоит в пути словом, которым материал
+        // зовут на экране, — «materials» у документа и справочника одно на
+        // двоих. Третий вид добавляется строкой в карте контроллера, а не новой
+        // парой маршрутов.
+        Route::post('{kind}/{id}', [FavouriteController::class, 'store'])
+            ->whereIn('kind', FavouriteController::kinds())
+            ->whereNumber('id')
+            ->name('store');
+        Route::delete('{kind}/{id}', [FavouriteController::class, 'destroy'])
+            ->whereIn('kind', FavouriteController::kinds())
+            ->whereNumber('id')
+            ->name('destroy');
     });
 
     /*

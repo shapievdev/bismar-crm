@@ -59,6 +59,16 @@ final class CourseResource extends JsonResource
             // The signed-in learner's own progress, attached by the controller.
             'enrollment' => $this->learner_enrollment,
 
+            /*
+             * Отложен ли курс в избранное этим человеком.
+             *
+             * Проставляют снаружи — одним запросом на весь список (см.
+             * App\Support\Lms\Favourites::mark). Пусто там, где не проставляли:
+             * звезда это читает как «не отложено», и для списков, где её не
+             * показывают вовсе, спрашивать базу незачем.
+             */
+            'is_favourite' => (bool) ($this->is_favourite ?? false),
+
             // Дошла ли до курса очередь плана обучения. Проставляет каталог:
             // на странице самого курса поля нет вовсе — туда закрытый курс не
             // пускает EnsureLearningPlanOrder, и отвечать «заперт» некому.

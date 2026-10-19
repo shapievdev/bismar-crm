@@ -55,6 +55,11 @@ export interface LessonSummary {
    */
   is_published?: boolean
   published_at?: string | null
+  /**
+   * Отложен ли урок в избранное. Приходит со страницы самого урока: в
+   * оглавлении курса звезды против каждой строки нет.
+   */
+  is_favourite?: boolean
   /** Последний круг согласования — если урок хоть раз отправляли. */
   review?: MaterialReview | null
   title: string
@@ -266,6 +271,9 @@ export interface Course {
    * странице курса поля нет — закрытый курс туда не пускает.
    */
   is_locked?: boolean
+
+  /** Отложен ли курс в избранное тем, кто спрашивает. */
+  is_favourite?: boolean
 }
 
 export interface Enrollment {
@@ -428,6 +436,8 @@ export interface Regulation {
   status_label: string
   is_published: boolean
   published_at: string | null
+  /** Отложен ли материал в избранное тем, кто спрашивает. */
+  is_favourite?: boolean
   visibility: CourseVisibility
   visibility_label: string
   is_private: boolean
@@ -572,6 +582,46 @@ export interface QuizAttempt {
   review_comment?: string | null
   reviewed_at?: string | null
   reviewed_by?: string | null
+}
+
+/**
+ * Что можно отложить в избранное — именами видов, под которыми материал
+ * приходит с сервера.
+ *
+ * «regulation» на документы и справочники одно: таблица у них общая, а раздел
+ * приезжает отдельным полем — см. FavouriteItem.section.
+ */
+export type FavouriteKind = 'course' | 'lesson' | 'regulation'
+
+/** Чем вид зовётся в адресах API: `/api/lms/favourites/{kind}/{id}`. */
+export type FavouriteRoute = 'courses' | 'lessons' | 'materials'
+
+/**
+ * Строка в избранном: материал, который человек отложил себе сам.
+ *
+ * Виды лежат вперемешку по той же причине, что и в корзине: вопрос у человека
+ * один — «что я откладывал», — и помнить, курсом это было или справочником,
+ * чтобы найти своё, ему незачем. Разложить обратно по видам можно отбором на
+ * самой странице.
+ */
+export interface FavouriteItem {
+  /** Номер самой закладки, а не материала: по нему строка и опознаётся. */
+  id: number
+  material_id: number
+  kind: FavouriteKind
+  /** Раздел базы знаний: courses, documents или handbooks. */
+  section: 'courses' | MaterialSection
+  /** Как раздел зовётся на экране: «Курсы», «Уроки», «Справочники». */
+  section_label: string
+  title: string
+  summary: string | null
+  /** Куда ведёт строка. Null — если курс урока пропал. */
+  url: string | null
+  category: string | null
+  /** Курс, которому принадлежит урок. Null у всего остального. */
+  course: string | null
+  is_published: boolean
+  added_at: string | null
 }
 
 /**

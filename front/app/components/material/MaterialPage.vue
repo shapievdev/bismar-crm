@@ -373,6 +373,18 @@ async function toggleReaders() {
         {{ day(regulation.published_at) }}
       </p>
 
+      <!-- Звезда стоит отдельной строкой, а не в ряду ниже: тот ряд — для того,
+           кто материал ведёт, а откладывает его читатель. Справочник, который
+           спрашивают каждый день, нужен в избранном именно ему. -->
+      <div class="head__keep">
+        <FavouriteButton
+          kind="regulation"
+          :material-id="regulation.id"
+          :model-value="regulation.is_favourite === true"
+          with-label
+        />
+      </div>
+
       <!--
         Переключатель версий: то же правило, написанное для разных людей.
 
@@ -692,6 +704,7 @@ async function toggleReaders() {
 }
 
 .head__marks,
+.head__keep,
 .head__actions {
   display: flex;
   align-items: center;
@@ -699,6 +712,7 @@ async function toggleReaders() {
   flex-wrap: wrap;
 }
 
+.head__keep,
 .head__actions {
   margin-top: 0.35rem;
 }

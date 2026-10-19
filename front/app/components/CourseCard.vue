@@ -42,6 +42,16 @@ const isLocked = computed(() => props.course.is_locked === true)
       <span v-if="course.category" class="badge">{{ course.category.name }}</span>
     </div>
 
+    <!-- Звезда поверх карточки, а не в её потоке: карточка целиком накрыта
+         невидимой ссылкой заголовка (см. .course__title a::after), и кнопка под
+         этой накладкой вела бы на курс вместо того, чтобы откладывать его. -->
+    <FavouriteButton
+      kind="course"
+      class="course__keep"
+      :material-id="course.id"
+      :model-value="course.is_favourite === true"
+    />
+
     <h3 class="course__title">
       <!-- Закрытый курс — кнопка, а не ссылка: вести ей некуда, а нажать по
            карточке всё равно попробуют, и ответить на это нажатие надо. -->
@@ -93,6 +103,21 @@ const isLocked = computed(() => props.course.is_locked === true)
   flex-wrap: wrap;
   gap: 0.35rem;
   min-height: 1.4rem;
+  /* Место под звезду в углу: без него длинный ряд меток заезжал бы под неё. */
+  padding-right: 2.5rem;
+}
+
+/*
+ * Звезда в углу карточки.
+ *
+ * `z-index` — не украшение: ниже стоит накладка-ссылка на всю карточку, и без
+ * него нажатие по звезде уводило бы на курс.
+ */
+.course__keep {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 1;
 }
 
 .course__title {

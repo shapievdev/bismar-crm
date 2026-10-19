@@ -34,6 +34,15 @@ final class LessonResource extends JsonResource
             'is_published' => $this->resource->isPublished(),
             'published_at' => $this->published_at?->toIso8601String(),
 
+            /*
+             * Отложен ли урок в избранное этим человеком.
+             *
+             * Проставляют снаружи — см. App\Support\Lms\Favourites::mark. В
+             * оглавлении курса признака нет: там его не проставляют, и звезда
+             * стоит на самом уроке, а не против каждой строки списка.
+             */
+            'is_favourite' => (bool) ($this->is_favourite ?? false),
+
             // Круг согласования — автору о том, кто ещё не ответил и что просили
             // исправить, согласующему — ждут ли его решения.
             'review' => $this->whenLoaded(

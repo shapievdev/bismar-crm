@@ -20,6 +20,7 @@ use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\QuizAttempt;
 use App\Models\User;
+use App\Support\Lms\Favourites;
 use App\Support\Lms\LearningPlan;
 use App\Support\Lms\MaterialApprovals;
 use App\Support\Lms\MaterialVersions;
@@ -195,6 +196,9 @@ final class LearningController extends Controller
             'is_completed_by_learner',
             $enrollment?->completions()->where('lesson_id', $lesson->getKey())->exists() ?? false,
         );
+
+        // Отложен ли урок в избранное: звезда стоит в шапке урока.
+        Favourites::of($reader)->mark([$lesson]);
 
         // Что мешает закрыть урок: курс проходят по порядку, и кнопку
         // «Отметить пройденным» экран гасит, называя причину, а не даёт нажать

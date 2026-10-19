@@ -21,6 +21,7 @@ use App\Models\Regulation;
 use App\Models\RegulationCategory;
 use App\Models\User;
 use App\Support\Lms\CatalogSearch;
+use App\Support\Lms\Favourites;
 use App\Support\Lms\MaterialVersions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -106,6 +107,9 @@ final class RegulationController extends Controller
             ->orderByDesc('updated_at')
             ->paginate(15)
             ->withQueryString();
+
+        // Звезда на карточке — одним запросом на всю страницу каталога.
+        Favourites::of($reader)->mark($regulations->getCollection());
 
         return RegulationResource::collection($regulations);
     }
@@ -256,6 +260,8 @@ final class RegulationController extends Controller
     private function attachOwnState(Regulation $regulation, User $reader): Regulation
     {
         $acknowledgement = $regulation->acknowledgements()->where('user_id', $reader->getKey())->first();
+
+        Favourites::of($reader)->mark([$regulation]);
 
         return $regulation
             ->setAttribute('own_attempts', $this->ownAttempts($regulation->quiz, $reader))
