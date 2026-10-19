@@ -65,12 +65,6 @@ const token = useId()
 /**
  * Окно, в котором рамка стоит, пока её не измерили.
  *
- * Auto-sizing is circular whenever the embedded document uses viewport units:
- * a rule like `min-height: 100vh` grows with the frame, which grows the
- * measurement, which grows the frame again. So the frame is held at a reference
- * height while it measures, the result is applied once, and later reports are
- * ignored.
- *
  * Само окно задаёт CSS — `--viewport-free`, видимая часть страницы между нашими
  * плашками (см. `layouts/default.vue`). Прежде здесь стояло число: 800 точек
  * всем и всегда. Разметка, которую автор строит «ровно на экран», получала эти
@@ -78,29 +72,124 @@ const token = useId()
  * коротком уезжал под полосу разделов, и автору оставалось подгонять размеры
  * под свой аппарат руками. Окно из CSS верно на каждом экране, пересчитывается
  * само — при повороте, при другой шапке — и не стоит ни одного замера.
+ *
+ * Оно же — опора замера: по тому, как содержимое ответило на выданное окно,
+ * только и видно, меряет оно себя по рамке или по себе.
  */
 const MAX_HEIGHT = 20000
-const SETTLE_MS = 700
 
 /**
- * Насколько замер может разойтись с окном и всё ещё считаться замером «по окну».
+ * Ниже этого рамку не опускают.
+ *
+ * Не ради содержимого — ради кнопки «во весь экран»: она стоит поверх рамки, и
+ * в рамку тоньше её блок остался бы без выхода на целый экран. Всё, что выше
+ * этого порога, блок получает ровно по содержимому.
+ */
+const MIN_HEIGHT = 56
+
+/**
+ * Сколько раз рамке дают новую высоту, прежде чем перестать мерить.
+ *
+ * Вёрстка бывает двуустойчивой: в рамке пониже внутри появляется полоса
+ * прокрутки, колонка сужается, текст переносится и становится выше — а в рамке
+ * повыше всё возвращается обратно. Высота у неё качается между двумя
+ * значениями, и качаться она может сколько угодно. Предел щедрый: рамку
+ * пересчитывают только когда содержимое и правда поменялось, и дюжина таких
+ * поводов за жизнь блока — это уже не загрузка шрифтов, а качели. Остаётся
+ * последнее измеренное: из двух значений оно хотя бы сегодняшнее.
+ */
+const MAX_APPLICATIONS = 12
+
+/**
+ * Сколько ждать тишины, прежде чем принять замер.
+ *
+ * Замеры приходят пачками — на каждом шаге чужой раскладки, — и в пачке верен
+ * последний, а не самый высокий: карусель, собирающая себя после загрузки, до
+ * того стоит всеми слайдами в столбик и честно сообщает их общую высоту.
+ */
+const SETTLE_MS = 220
+
+/**
+ * Насколько замер может разойтись с рамкой и всё ещё считаться замером «по рамке».
  *
  * Разметка, уложенная по выданной рамке, возвращает ровно её высоту — с точностью
- * до округлений и отступов тела. Всё, что дальше этого запаса в любую сторону, —
- * уже содержимое, и его высоту закрепляют пикселями.
+ * до округлений; отбивку тела из расхождения вычитают отдельно, она на порядок
+ * больше этого запаса. Всё, что дальше, — уже содержимое, и его высоту
+ * закрепляют пикселями.
+ *
+ * Тем же запасом меряют и расхождение самих рамок: см. `sameWindow`.
  */
 const WINDOW_SLACK = 24
+
+/** Через сколько после последнего замера блок считается улёгшимся. */
+const CALM_MS = 2000
 
 /** Измеренная высота содержимого; null — пока не измерено или мерить нечего. */
 const measuredHeight = ref<number | null>(null)
 
-/** Разметка внутри меряет себя по рамке, а не по содержимому. */
+/**
+ * Разметка внутри меряет себя по рамке, а не по содержимому.
+ *
+ * Положение конечное: решив однажды, что высоту такому блоку задаёт окно, мы
+ * больше не меряем его вовсе. Иначе вышла бы гонка — отданное окно разметка
+ * заполнит, заполненное мы примем за содержимое, выдадим его пикселями, и
+ * разметка заполнит уже их.
+ */
 const followsWindow = ref(false)
 
-const isSettled = ref(false)
-let tallestReport = 0
-let reportedWindow = 0
+/**
+ * Высоту больше не пересматриваем — сходиться содержимому с рамкой не на чем.
+ *
+ * Поводов два, и оба про вёрстку, у которой нет своей высоты.
+ *
+ * Первый: содержимое растёт вслед за рамкой. Так отвечает разметка, которой
+ * мало `100vh`, — к экрану она добавляет своё: липкую шапку, подпись, отступ.
+ * Сколько рамке ни дай, содержимое окажется на ту же добавку выше, и гнаться
+ * за ним бессмысленно. Такому блоку оставляют высоту первого замера, снятого
+ * в окне, — «экран и сколько-то», каким автор его и задумал, — а добавка
+ * уходит под прокрутку внутри рамки.
+ *
+ * Второй: высота качается между двумя значениями (см. MAX_APPLICATIONS).
+ *
+ * В обоих случаях положение конечное: иначе замеры не кончились бы никогда.
+ */
+const heightFixed = ref(false)
+
+/** Улёгся ли блок: замеры кончились и высота больше не меняется. */
+const isCalm = ref(false)
+
+let pendingHeight = 0
+let pendingWindow = 0
+let pendingInset = 0
+
+/** Окно, в котором снят самый первый замер, — то самое, которое задал CSS. */
+let referenceWindow = 0
+
+/** И высота, снятая в этом окне: к ней возвращаются, поняв, что гонятся. */
+let referenceHeight = 0
+
+/** Сколько раз рамка уже получила новую высоту — см. MAX_APPLICATIONS. */
+let applications = 0
+
+/** Насколько содержимое превысило рамку в прошлый раз и в какой рамке. */
+let lastExcess: number | null = null
+let lastExcessWindow = 0
+
 let settleTimer: ReturnType<typeof setTimeout> | undefined
+let calmTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * Та же это рамка, что и в прошлом замере, или другая.
+ *
+ * С допуском, а не по равенству: окно, в котором снят замер, дрожит на толщину
+ * полосы прокрутки — она появляется внутри рамки и пропадает, когда содержимое
+ * то не помещается, то помещается. Восемь точек дрожи — не «другая рамка», и
+ * принимать их за неё нельзя: по смене рамки судят о том, тянется ли содержимое
+ * за рамкой, и на одной дрожи это выходило из ничего.
+ */
+function sameWindow(a: number, b: number): boolean {
+  return Math.abs(a - b) <= WINDOW_SLACK
+}
 
 const frame = useTemplateRef<HTMLIFrameElement>('frame')
 
@@ -135,6 +224,7 @@ function onMessage(event: MessageEvent) {
     height?: number
     overflow?: number
     viewport?: number
+    inset?: number
     offset?: number
   } | null
 
@@ -158,53 +248,139 @@ function onMessage(event: MessageEvent) {
   }
 
   const height = Number(data.height)
+  const viewport = Number(data.viewport) || 0
 
   // Во весь экран рамка меряется по экрану, а не по разметке: принятое оттуда
   // число осталось бы с блоком и после сворачивания — свёрнутый блок стал бы
   // высотой с монитор.
-  if (!Number.isFinite(height) || height <= 0 || isSettled.value || isScreen.value) {
+  if (!Number.isFinite(height) || height <= 0 || viewport <= 0 || isScreen.value) {
     return
   }
 
-  const viewport = Number(data.viewport) || 0
+  // Оба конечных положения замеров больше не принимают: высота у блока уже
+  // выбрана, и выбрана именно потому, что мерить его дальше не на чем.
+  if (followsWindow.value || heightFixed.value) {
+    return
+  }
+
   const overflow = Number(data.overflow) || 0
 
   // Замер с запасом берётся в расчёт, только когда он больше окна: ниже окна
   // он всегда равен окну и ничего о содержимом не говорит.
-  const needed = Math.ceil(overflow > viewport + 8 ? Math.max(height, overflow) : height)
+  pendingHeight = Math.ceil(overflow > viewport + 8 ? Math.max(height, overflow) : height)
 
-  // Reports keep arriving as fonts and images land. The tallest wins, and the
-  // frame is resized only once they stop — measuring against a frame we have
-  // already resized is what causes the runaway.
-  if (needed > tallestReport) {
-    tallestReport = needed
+  // Окно запоминается от того же замера: судить о замере по чужому окну нельзя,
+  // а между сообщениями оно могло измениться. Отбивка тела — оттуда же.
+  pendingWindow = viewport
+  pendingInset = Math.max(0, Number(data.inset) || 0)
 
-    // Окно запоминается от того же замера: судить о замере по чужому окну
-    // нельзя, а между сообщениями оно могло измениться.
-    reportedWindow = viewport
+  if (!referenceWindow) {
+    referenceWindow = viewport
   }
 
   clearTimeout(settleTimer)
-  settleTimer = setTimeout(() => {
-    /*
-     * Замер, равный окну, ничего нового не сообщает.
-     *
-     * Так отвечает разметка, уложенная по выданной рамке: страница на `100%`,
-     * сетка «ровно в экран», карусель во весь кадр. Закрепить это число
-     * пикселями значило бы запомнить то устройство, на котором блок открыли
-     * первым, — и перестать считаться с остальными. Окно остаётся за CSS: на
-     * другом экране и после поворота блок снова займёт видимую часть, и нам не
-     * придётся ни мерить, ни перекладывать его заново.
-     */
-    followsWindow.value = reportedWindow > 0
-      && Math.abs(tallestReport - reportedWindow) <= WINDOW_SLACK
+  settleTimer = setTimeout(acceptMeasurement, SETTLE_MS)
+}
 
-    if (!followsWindow.value) {
-      measuredHeight.value = Math.min(MAX_HEIGHT, Math.max(120, tallestReport))
-    }
+/**
+ * Принять последний замер.
+ *
+ * Высоту берём от последнего замера в пачке, а не от самого высокого в ней, и
+ * пересматриваем её столько раз, сколько содержимое поменяется. Прежде было
+ * наоборот: побеждал самый высокий замер, и первым же числом блок закреплялся
+ * навсегда. Разметка, которая до своего скрипта выше, чем после — карусель
+ * слайдами в столбик, сетка до раскладки, таблица до свёртки, — успевала
+ * сообщить этот столбик, и разница между ним и собранным видом оставалась под
+ * блоком пустотой. На высоком экране пустота выходила больше: опорное окно, по
+ * которому раскладывался столбик, там само больше.
+ */
+function acceptMeasurement() {
+  const needed = pendingHeight
+  const viewport = pendingWindow
 
-    isSettled.value = true
-  }, SETTLE_MS)
+  /*
+   * Насколько содержимое превысило рамку — не считая отбивки, которую тело
+   * получило от нашего же стиля: её разметка не заказывала, и вменять ей эти
+   * точки как «содержимое сверх экрана» нельзя. Прежде они и вменялись, и
+   * разметка «ровно на экран» из-за них не опознавалась вовсе: отбивка около
+   * тридцати пяти точек, а допуск — двадцать четыре.
+   */
+  const excess = needed - viewport - pendingInset
+
+  /*
+   * Замер, равный выданной рамке, ничего о содержимом не говорит.
+   *
+   * Так отвечает разметка, уложенная по рамке: страница на `100%`, сетка «ровно
+   * в экран», карусель во весь кадр. Закрепить это число пикселями значило бы
+   * запомнить то устройство, на котором блок открыли первым, — и перестать
+   * считаться с остальными. Окно остаётся за CSS: на другом экране и после
+   * поворота блок снова займёт видимую часть.
+   *
+   * Спрашивать об этом можно только опорное окно — то, которое рамке задал CSS.
+   * Рамку, высоту которой мы сами взяли из содержимого, содержимое и заполняет:
+   * равенство в ней означает лишь, что мы отмерили верно.
+   */
+  if (measuredHeight.value === null && sameWindow(viewport, referenceWindow) && Math.abs(excess) <= WINDOW_SLACK) {
+    followsWindow.value = true
+    markCalm()
+
+    return
+  }
+
+  /*
+   * Содержимое, превысившее рамку ровно на столько же, на сколько превышало
+   * прежнюю, за рамкой и тянется: сколько ей ни дай, добавка повторится. Гонку
+   * здесь останавливают, а не выигрывают — высотой остаётся первый замер,
+   * снятый в окне. Отдать вместо него само окно было бы хуже ровно настолько,
+   * насколько окно ниже: под прокруткой внутри рамки в обоих случаях прячется
+   * одна и та же добавка, но блок, схлопнутый в окно, показывает читателю
+   * меньше написанного за раз.
+   */
+  if (lastExcess !== null && !sameWindow(viewport, lastExcessWindow) && Math.abs(excess - lastExcess) <= WINDOW_SLACK) {
+    heightFixed.value = true
+    measuredHeight.value = referenceHeight || measuredHeight.value
+    markCalm()
+
+    return
+  }
+
+  lastExcess = excess
+  lastExcessWindow = viewport
+
+  const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, needed))
+
+  if (sameWindow(viewport, referenceWindow)) {
+    referenceHeight = next
+  }
+
+  if (measuredHeight.value !== next) {
+    measuredHeight.value = next
+    applications += 1
+  }
+
+  // Пересчётов набралось на качели — дальше не меряем, см. MAX_APPLICATIONS.
+  if (applications >= MAX_APPLICATIONS) {
+    heightFixed.value = true
+  }
+
+  markCalm()
+}
+
+/**
+ * Отложить «блок улёгся».
+ *
+ * Отрисовку блоку за краем экрана пропускают не раньше этого (см. `--idle` в
+ * стилях), и ждать приходится не первого замера, а тишины после него:
+ * пропущенная отрисовка останавливает и разбор страницы внутри рамки, а с ним
+ * и замеры. Блок, уехавший за край в середине пачки, остался бы с высотой из
+ * её середины — ровно с той пустотой, против которой всё это и затеяно.
+ */
+function markCalm() {
+  isCalm.value = false
+  clearTimeout(calmTimer)
+  calmTimer = setTimeout(() => {
+    isCalm.value = true
+  }, CALM_MS)
 }
 
 /** Brings a section inside the block into view by moving the outer page. */
@@ -225,10 +401,18 @@ watch(srcdoc, () => forgetMeasurement())
 /** Возвращает блок к началу замера: в окно и без принятого числа. */
 function forgetMeasurement() {
   clearTimeout(settleTimer)
-  tallestReport = 0
-  reportedWindow = 0
-  isSettled.value = false
+  clearTimeout(calmTimer)
+  pendingHeight = 0
+  pendingWindow = 0
+  pendingInset = 0
+  referenceWindow = 0
+  referenceHeight = 0
+  applications = 0
+  lastExcess = null
+  lastExcessWindow = 0
+  isCalm.value = false
   followsWindow.value = false
+  heightFixed.value = false
   measuredHeight.value = null
 }
 
@@ -420,6 +604,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   clearTimeout(settleTimer)
+  clearTimeout(calmTimer)
 
   // Ушли со страницы прямо из развёрнутого блока — прокрутку документу надо
   // вернуть, иначе следующий экран не листается вовсе.
@@ -440,7 +625,7 @@ function pin(delta: number) {
   // Отсчёт — от высоты, в которой рамка стоит сейчас: закреплённой, а если её
   // нет — той, что ей дало содержимое или окно.
   const current = pinnedHeight.value ?? frame.value?.clientHeight ?? 0
-  const next = Math.min(MAX_HEIGHT, Math.max(120, current + delta))
+  const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, current + delta))
 
   props.updateAttributes({ height: next })
 }
@@ -514,7 +699,7 @@ const heightNote = computed(() => {
       v-else-if="html"
       ref="pane"
       class="html-block__pane"
-      :class="{ 'html-block__pane--screen': isScreen, 'html-block__pane--idle': isSettled && !isScreen }"
+      :class="{ 'html-block__pane--screen': isScreen, 'html-block__pane--idle': isCalm && !isScreen }"
       contenteditable="false"
     >
       <!-- Кнопка стоит поверх рамки, а не рядом: полоса над блоком есть только
@@ -636,12 +821,14 @@ const heightNote = computed(() => {
  * растр, пока блок не на виду, не выгружая самой рамки: вернувшись к блоку,
  * читатель находит его в том же состоянии.
  *
- * Включается это не раньше, чем блок измерен, и вот почему: пропущенная
+ * Включается это не раньше, чем блок улёгся, и вот почему: пропущенная
  * отрисовка откладывает и саму страницу внутри рамки — она не разбирается и не
  * сообщает свою высоту, пока на неё не посмотрят. Блок в конце статьи так и
  * стоял бы высотой в экран, а потом схлопывался до своих двух строк прямо под
- * рукой читателя. Измеренному блоку скрываться уже не во вред: высота у него
- * есть, и браузер запоминает её сам.
+ * рукой читателя. Ждём именно тишины, а не первого замера: пачка замеров
+ * кончается не на первом из них, и блок, уехавший за край в её середине,
+ * остался бы с высотой из середины. Улёгшемуся скрываться уже не во вред:
+ * высота у него есть, и браузер запоминает её сам.
  *
  * Запасная высота — то же окно, на случай если вспоминать ещё нечего.
  */

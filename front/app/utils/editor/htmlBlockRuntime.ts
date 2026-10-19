@@ -69,6 +69,27 @@ export function htmlBlockRuntime(token: string): string {
    * разметку, выложенную абсолютом: для неё тело не контейнер, и в его
    * прокрутку она не попадает, а в прямоугольники детей попадает.
    */
+  /*
+   * Сколько тело добавляет к росту содержимого сверху и снизу.
+   *
+   * Отбивку статьи тело получает от нашего же стиля, и разметка «ровно на
+   * экран» выходит из-за неё выше выданной рамки на эти самые полтора десятка
+   * точек сверху и снизу. Снаружи по замеру не видно, чьи это точки, — поэтому
+   * они едут отдельным числом: без него «ровно на экран» не опознать.
+   */
+  function inset() {
+    var body = document.body;
+
+    if (!body) {
+      return 0;
+    }
+
+    var edges = getComputedStyle(body);
+
+    return (parseFloat(edges.paddingTop) || 0) + (parseFloat(edges.paddingBottom) || 0)
+      + (parseFloat(edges.marginTop) || 0) + (parseFloat(edges.marginBottom) || 0);
+  }
+
   function measure() {
     var body = document.body;
 
@@ -76,21 +97,35 @@ export function htmlBlockRuntime(token: string): string {
       return 0;
     }
 
-    var offset = window.scrollY || 0, bottom = 0, kids = body.children, i, box;
+    var offset = window.scrollY || 0, bottom = 0, seen = false, kids = body.children, i, box;
 
     for (i = 0; i < kids.length; i++) {
       box = kids[i].getBoundingClientRect();
 
       if (box.width || box.height) {
+        seen = true;
         bottom = Math.max(bottom, box.bottom + offset);
       }
+    }
+
+    // Ни одного выложенного ребёнка — мерить по ним нечего: голый текст в теле,
+    // пустой документ. Только тогда спрашиваем, сколько прокручивает само тело.
+    if (!seen) {
+      return Math.ceil(body.scrollHeight);
     }
 
     var edges = getComputedStyle(body);
 
     bottom += (parseFloat(edges.paddingBottom) || 0) + (parseFloat(edges.marginBottom) || 0);
 
-    return Math.ceil(Math.max(body.scrollHeight, bottom));
+    /*
+     * Прокрутка тела в ответ не участвует, и это важно: автор, написавший
+     * \`html, body { height: 100% }\`, получает тело ростом с рамку — всегда, и
+     * когда содержимого в нём на две строки тоже. Замер, взятый по большему из
+     * двух, навсегда оставался бы равен рамке, а разошедшееся с ним содержимое —
+     * пустотой под ним. Вылезшее за тело приходит отдельным числом (\`overflow\`).
+     */
+    return Math.ceil(bottom);
   }
 
   function report() {
@@ -112,7 +147,7 @@ export function htmlBlockRuntime(token: string): string {
     last = height;
 
     /*
-     * С замером уходят ещё два числа.
+     * С замером уходят ещё три числа.
      *
      * overflow — прежний замер с запасом: им ловится разметка, вылезшая за
      * пределы тела способом, которого дети не показывают. Он осмыслен только
@@ -121,6 +156,8 @@ export function htmlBlockRuntime(token: string): string {
      * viewport — окно, в котором замер снят: по нему снаружи видно, меряет
      * ли разметка себя по содержимому или по выданной рамке, а второй случай
      * закреплять пикселями нельзя.
+     *
+     * inset — отбивка тела, на которую «ровно на экран» и расходится с окном.
      */
     parent.postMessage(
       {
@@ -131,7 +168,8 @@ export function htmlBlockRuntime(token: string): string {
           document.body.scrollHeight,
           document.documentElement ? document.documentElement.scrollHeight : 0
         ),
-        viewport: window.innerHeight || 0
+        viewport: window.innerHeight || 0,
+        inset: Math.round(inset())
       },
       '*'
     );
@@ -174,14 +212,19 @@ export function htmlBlockRuntime(token: string): string {
   /*
    * Web fonts and images land after first paint and change the height.
    *
-   * Эти три — напрямую, без кадра: во вкладке, открытой в фоне, кадров не
+   * Эти четыре — напрямую, без кадра: во вкладке, открытой в фоне, кадров не
    * выдают вовсе, и блок, измеряемый только по ним, остался бы без высоты до
    * тех пор, пока на вкладку не посмотрят. Друг другу они не мешают: между
    * ними и так сотни миллисекунд.
+   *
+   * Последний — самый поздний: карусель, собирающая себя не сразу, до него
+   * стоит всеми слайдами в столбик, и замер без него остался бы снят с этого
+   * столбика.
    */
   setTimeout(report, 120);
   setTimeout(report, 600);
   setTimeout(report, 1800);
+  setTimeout(report, 3500);
 })();
 <\/script>`
 }
