@@ -9,23 +9,15 @@ use InvalidArgumentException;
 /**
  * Торговля: сколько наторговали и на чём заработали.
  *
- * Считает по `mart.sales_full` — витрине, где строка есть товар в заказе, а
- * заказ опознаётся по `zakaz_uid`. Из этого следуют две вещи, которые здесь
- * определяют всё:
- *
- * 1. **Заказы считаются уникальными, а не строками.** В заказе из сорока
- *    позиций сорок строк, и `count()` ответил бы на другой вопрос. Средний чек
- *    поэтому делится на `uniqExact(zakaz_uid)`.
- *
- * 2. **Атрибуты заказа продублированы в каждой его строке.** `pozicij`,
- *    `ltv_klienta`, `zakazov_klienta` относятся к заказу и клиенту, а не к
- *    строке; суммировать их по строкам нельзя — получится число позиций,
- *    умноженное на само себя. Такие величины берутся через `any()` внутри
- *    группировки по заказу.
+ * Читает `{sales}` — строку витрины в именах отчётов (см. `Mart`). Строка есть
+ * товар в документе, документ опознаётся по `zakaz_uid`, и отсюда главное
+ * правило: **заказы считаются уникальными, а не строками.** В накладной из
+ * сорока позиций сорок строк, и `count()` ответил бы на другой вопрос. Средний
+ * чек поэтому делится на `uniqExact(zakaz_uid)`.
  *
  * Возвраты витрина помечает флагом `vozvrat`, суммы у них уже отрицательные,
  * поэтому в выручку они входят как есть и уменьшают её. Прибыль здесь считать
- * можно прямо: доля строк без себестоимости — около четырёх процентов против
+ * можно прямо: доля выручки без себестоимости — около четырёх процентов против
  * четверти в сыром слое.
  */
 final readonly class SalesReport
@@ -52,7 +44,6 @@ final readonly class SalesReport
     private function totals(ReportFilters $filters): array
     {
         [$where, $bindings] = $this->scope($filters);
-        $bindings['anonymous'] = $this->anonymous();
 
         $row = $this->clickhouse->selectOne(<<<SQL
             SELECT
@@ -64,11 +55,11 @@ final readonly class SalesReport
                 uniqExact(s.zakaz_uid)                                      AS orders,
                 round(sum(s.kolvo), 3)                                      AS quantity,
                 count()                                                     AS lines,
-                uniqExact(s.sku)                                            AS items,
-                -- Клиентов считаем без анонимной розницы: за ней стоит один
-                -- технический контрагент, а не покупатель.
-                uniqExactIf(s.klient_id, s.tip_klienta != :anonymous)       AS customers
-            FROM {db}.sales_full AS s
+                uniqExactIf(s.sku, s.sku != '')                             AS items,
+                -- Клиентов считаем без анонимной розницы: за покупками без
+                -- карты не стоит покупатель, которого можно посчитать.
+                uniqExactIf(s.klient_id, s.is_anonymous = 0)                AS customers
+            FROM {sales} AS s
             WHERE {$where}
         SQL, $bindings);
 
@@ -113,7 +104,7 @@ final readonly class SalesReport
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
                     uniqExact(s.zakaz_uid)      AS orders
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY bucket
                 ORDER BY bucket
@@ -150,7 +141,7 @@ final readonly class SalesReport
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
                     uniqExact(s.zakaz_uid)      AS orders
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY channel
                 ORDER BY revenue DESC
@@ -193,7 +184,7 @@ final readonly class SalesReport
                     toString({$bucket})     AS bucket,
                     s.kanal                 AS channel,
                     round(sum(s.summa), 2)  AS revenue
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY bucket, channel
                 ORDER BY bucket, channel
@@ -222,16 +213,22 @@ final readonly class SalesReport
             $current = $this->dailyRevenue($filters);
             $previous = $this->dailyRevenue($filters->withPeriod($filters->period->previous()));
 
-            $length = max(count($current), count($previous));
+            // Ряд обрывается на том дне, у которого есть пара. Хвост, которому
+            // сравнивать не с чем — а он всегда есть, незакрытый месяц против
+            // закрытого, — раньше дорисовывался нулём, и линия на последней
+            // точке падала в пол: читалось как обвал продаж, а не как «месяц
+            // ещё идёт». Подписи у такой точки тоже не было: дня, которым она
+            // стоит, в текущем периоде не наступило.
+            $length = min(count($current), count($previous));
             $points = [];
 
             for ($offset = 0; $offset < $length; $offset++) {
                 $points[] = [
                     'offset' => $offset,
                     // Подпись берётся у текущего периода: он на экране главный.
-                    'label' => $current[$offset]['date'] ?? '',
-                    'current' => (float) ($current[$offset]['revenue'] ?? 0),
-                    'previous' => (float) ($previous[$offset]['revenue'] ?? 0),
+                    'label' => $current[$offset]['date'],
+                    'current' => (float) $current[$offset]['revenue'],
+                    'previous' => (float) $previous[$offset]['revenue'],
                 ];
             }
 
@@ -252,7 +249,7 @@ final readonly class SalesReport
             SELECT
                 toString(s.data)        AS date,
                 round(sum(s.summa), 2)  AS revenue
-            FROM {db}.sales_full AS s
+            FROM {sales} AS s
             WHERE {$where}
             GROUP BY date
             ORDER BY date
@@ -284,7 +281,7 @@ final readonly class SalesReport
                     round(sum(s.summa), 2)  AS revenue,
                     uniqExact(s.zakaz_uid)  AS orders,
                     uniqExact(s.data)       AS days
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY weekday
                 ORDER BY weekday
@@ -324,7 +321,7 @@ final readonly class SalesReport
                     round(sum(s.summa), 2)          AS revenue,
                     round(sum(s.sebestoimost), 2)   AS cost,
                     round(sum(s.pribyl), 2)         AS profit
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
             SQL, $bindings);
 
@@ -383,8 +380,7 @@ final readonly class SalesReport
             $bindings['limit'] = $limit;
 
             if ($namedOnly) {
-                $where .= ' AND s.tip_klienta != :anonymous';
-                $bindings['anonymous'] = $this->anonymous();
+                $where .= ' AND s.is_anonymous = 0';
             }
 
             $rows = $this->clickhouse->select(<<<SQL
@@ -395,7 +391,7 @@ final readonly class SalesReport
                     round(sumIf(s.summa, s.bez_sebestoimosti = 1), 2)   AS revenue_without_cost,
                     round(sum(s.kolvo), 3)                              AS quantity,
                     uniqExact(s.zakaz_uid)                              AS orders
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY name
                 ORDER BY revenue DESC
@@ -435,14 +431,6 @@ final readonly class SalesReport
             's.data BETWEEN :from AND :to'.$conditions['sql'],
             [...$filters->period->bindings(), ...$conditions['bindings']],
         ];
-    }
-
-    private function anonymous(): string
-    {
-        /** @var string $type */
-        $type = config('analytics.anonymous_customer_type');
-
-        return $type;
     }
 
     private function boundedLimit(int $limit): int

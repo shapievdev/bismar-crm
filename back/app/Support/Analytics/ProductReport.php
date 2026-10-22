@@ -9,22 +9,33 @@ use InvalidArgumentException;
 /**
  * Товары: что продаётся, что лежит и на чём зарабатывают.
  *
- * Разметка ABC/XYZ, неликвида и товарной матрицы сделана витриной на всей
- * истории, а не на окне отчёта, — и это единственный способ её получить.
- * Посчитанная по выбранному месяцу, категория A означала бы «продавалось в
- * этом месяце», а X («ровный спрос») вообще не имеет смысла на отрезке короче
- * года.
+ * Разметка ABC/XYZ сделана витриной на годовом окне, а не на окне отчёта, — и
+ * это единственный способ её получить. Посчитанная по выбранному месяцу,
+ * категория A означала бы «продавалось в этом месяце», а X («ровный спрос»)
+ * вообще не имеет смысла на отрезке короче года. Лежит она отдельной таблицей,
+ * и отчёт присоединяет её по товару (см. `Mart::products()`).
  *
  * ABC — про долю в обороте: A даёт основную выручку, C замыкает хвост.
  * XYZ — про ровность спроса: X берут стабильно, Z берут случайно. Вместе они
  * отвечают на вопрос, что держать на складе всегда, а что возить под заказ.
+ *
+ * Классов в разметке больше трёх на ось: витрина отдельно помечает новинки,
+ * товары с короткой историей наблюдений и те, что за год не продавались, —
+ * и в девять клеток это не укладывается. Поэтому матрица собирается по тем
+ * меткам, которые в периоде действительно встретились, а не по заранее
+ * известной сетке: пустая клетка — факт, а выброшенная метка — ложь.
  */
 final readonly class ProductReport
 {
     public function __construct(private ClickHouse $clickhouse) {}
 
+    /** Буквенные классы идут первыми: с них читают матрицу. */
+    private const ABC_ORDER = ['A', 'B', 'C'];
+
+    private const XYZ_ORDER = ['X', 'Y', 'Z'];
+
     /**
-     * Матрица ABC × XYZ: девять клеток, в которых лежит весь ассортимент.
+     * Матрица ABC × XYZ: клетки, в которых лежит размеченный ассортимент.
      *
      * @return list<array<string, float|int|string>>
      */
@@ -35,31 +46,32 @@ final readonly class ProductReport
 
             $rows = $this->clickhouse->select(<<<SQL
                 SELECT
-                    s.abc                       AS abc,
-                    s.xyz                       AS xyz,
+                    p.abc                       AS abc,
+                    p.xyz                       AS xyz,
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
-                    uniqExact(s.sku)            AS items
-                FROM {db}.sales_full AS s
+                    uniqExactIf(s.sku, s.sku != '') AS items
+                FROM {sales} AS s
+                LEFT JOIN {products} AS p ON p.sku = s.sku
                 WHERE {$where}
-                  AND s.abc IN ('A', 'B', 'C')
-                  AND s.xyz IN ('X', 'Y', 'Z')
+                  AND p.abc != ''
+                  AND p.xyz != ''
                 GROUP BY abc, xyz
             SQL, $bindings);
 
             $byCell = [];
 
             foreach ($rows as $row) {
-                $byCell[$row['abc'].$row['xyz']] = $row;
+                $byCell[$row['abc']."\t".$row['xyz']] = $row;
             }
 
-            // Пустые клетки возвращаются нулями: в матрице девять мест, и
-            // отсутствие товаров в клетке — такой же факт, как их наличие.
+            // Пустые клетки возвращаются нулями: отсутствие продаж в клетке —
+            // такой же факт, как их наличие, и дырка в сетке читается хуже нуля.
             $matrix = [];
 
-            foreach (['A', 'B', 'C'] as $abc) {
-                foreach (['X', 'Y', 'Z'] as $xyz) {
-                    $row = $byCell[$abc.$xyz] ?? null;
+            foreach ($this->labels($rows, 'abc', self::ABC_ORDER) as $abc) {
+                foreach ($this->labels($rows, 'xyz', self::XYZ_ORDER) as $xyz) {
+                    $row = $byCell[$abc."\t".$xyz] ?? null;
 
                     $matrix[] = [
                         'abc' => $abc,
@@ -76,17 +88,47 @@ final readonly class ProductReport
     }
 
     /**
+     * Метки одной оси: сначала известные классы в своём порядке, затем
+     * остальные по алфавиту.
+     *
+     * Список собирается из ответа, а не задаётся заранее: витрина вольна
+     * завести новую метку, и правильная матрица — та, которая её покажет.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @param  list<string>  $known
+     * @return list<string>
+     */
+    private function labels(array $rows, string $axis, array $known): array
+    {
+        $present = array_unique(array_map(static fn (array $row): string => (string) $row[$axis], $rows));
+
+        $ordered = array_values(array_intersect($known, $present));
+        $rest = array_values(array_diff($present, $known));
+        sort($rest);
+
+        return [...$ordered, ...$rest];
+    }
+
+    /**
      * Разрезы товарных рейтингов.
      *
      * Список закрытый: колонка попадает в SQL склейкой, и принимать её имя от
-     * клиента нельзя.
+     * клиента нельзя. Разрез по матрице — единственный, которому нужна
+     * присоединённая разметка; остальным хватает самой строки продажи, и
+     * присоединять её им значило бы читать лишнюю таблицу.
      */
     private const DIMENSIONS = [
         'item' => ['column' => 's.tovar', 'label' => 'Товар'],
         'brand' => ['column' => 's.brend', 'label' => 'Бренд'],
         'group' => ['column' => 's.gruppa1', 'label' => 'Группа'],
         'segment' => ['column' => 's.segment_tovara', 'label' => 'Сегмент'],
-        'matrix' => ['column' => 's.matrica', 'label' => 'Матрица'],
+        // Товар без разметки даёт пустое имя, а не « / »: строкой рейтинга
+        // он станет как «(не указано)», наравне с незаполненным в 1С.
+        'matrix' => [
+            'column' => "if(p.abc = '' AND p.xyz = '', '', concat(p.abc, ' / ', p.xyz))",
+            'label' => 'Матрица',
+            'marked' => true,
+        ],
     ];
 
     /**
@@ -96,13 +138,16 @@ final readonly class ProductReport
      */
     public function breakdown(ReportFilters $filters, string $dimension, int $limit): array
     {
-        $column = self::DIMENSIONS[$dimension]['column']
+        $meta = self::DIMENSIONS[$dimension]
             ?? throw new InvalidArgumentException("Неизвестный разрез: {$dimension}");
+
+        $column = $meta['column'];
+        $join = ($meta['marked'] ?? false) ? 'LEFT JOIN {products} AS p ON p.sku = s.sku' : '';
 
         $limit = $this->boundedLimit($limit);
         $key = "products.breakdown:{$dimension}:{$limit}:".$filters->signature();
 
-        return $this->clickhouse->remember($key, function () use ($filters, $column, $limit): array {
+        return $this->clickhouse->remember($key, function () use ($filters, $column, $join, $limit): array {
             [$where, $bindings] = $this->scope($filters);
             $bindings['limit'] = $limit;
 
@@ -113,8 +158,9 @@ final readonly class ProductReport
                     round(sum(s.pribyl), 2)     AS profit,
                     round(sum(s.kolvo), 3)      AS quantity,
                     uniqExact(s.zakaz_uid)      AS orders,
-                    uniqExact(s.sku)            AS items
-                FROM {db}.sales_full AS s
+                    uniqExactIf(s.sku, s.sku != '') AS items
+                FROM {sales} AS s
+                {$join}
                 WHERE {$where}
                 GROUP BY name
                 ORDER BY revenue DESC
@@ -157,9 +203,9 @@ final readonly class ProductReport
                     s.nelikvid                  AS status,
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
-                    uniqExact(s.sku)            AS items,
+                    uniqExactIf(s.sku, s.sku != '') AS items,
                     round(sum(s.kolvo), 3)      AS quantity
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
                 WHERE {$where}
                 GROUP BY status
                 ORDER BY revenue DESC

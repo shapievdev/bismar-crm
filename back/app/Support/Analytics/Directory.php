@@ -50,11 +50,11 @@ final readonly class Directory
     {
         $rows = $this->clickhouse->select(<<<SQL
             SELECT
-                {$column}               AS value,
-                round(sum(summa), 2)    AS revenue
-            FROM {db}.sales_full
-            WHERE data >= today() - :lookback
-              AND {$column} != ''
+                s.{$column}             AS value,
+                round(sum(s.summa), 2)  AS revenue
+            FROM {sales} AS s
+            WHERE s.data >= today() - :lookback
+              AND s.{$column} != ''
             GROUP BY value
             ORDER BY revenue DESC
         SQL, ['lookback' => self::LOOKBACK_DAYS]);
@@ -78,9 +78,9 @@ final readonly class Directory
     {
         $row = $this->clickhouse->selectOne(<<<SQL
             SELECT
-                toString(max(data))                     AS last_date,
-                dateDiff('day', max(data), today())     AS age_days
-            FROM {db}.sales_full
+                toString(max(s.data))                   AS last_date,
+                dateDiff('day', max(s.data), today())   AS age_days
+            FROM {sales} AS s
         SQL);
 
         return [[

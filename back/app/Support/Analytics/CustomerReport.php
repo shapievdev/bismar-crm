@@ -7,16 +7,18 @@ namespace App\Support\Analytics;
 /**
  * Клиенты: кто покупает, кто вернулся и кто перестал.
  *
- * Всё, что здесь считается, витрина уже разметила — RFM, когорту, номер заказа
- * в жизни клиента, LTV. Пересчитывать это запросом бессмысленно и опасно:
- * разметка сделана на всей истории, а отчёт видит только выбранный период, и
- * «новым» в нём оказался бы всякий, кто не покупал последний месяц.
+ * RFM, когорта, LTV и номер заказа в жизни клиента витриной не размечены —
+ * они считаются по всей её истории в `{customers}` и `{orders}`, а отчёт
+ * присоединяет готовое к выбранному периоду. Порядок именно такой, и это
+ * главное здесь: посчитанная на окне отчёта, разметка означала бы другое —
+ * «новым» в месячном срезе оказался бы всякий, кто не покупал последний месяц,
+ * а когорта превратилась бы в «впервые замечен в выбранном периоде».
  *
- * Из всех метрик вычтена анонимная розница. За ней стоит один технический
- * контрагент, которым витрина сводит покупки без карты, — в выручке эти деньги
- * настоящие, но клиентом эта строка не является. Оставленная в подсчёте, она
- * даёт «одного клиента» с оборотом в сотню миллионов, первое место в списке
- * лучших и средний LTV, поделённый не на то число.
+ * Из всех метрик вычтена анонимная розница — покупки без карты, которые
+ * приходят без контрагента. В выручке эти деньги настоящие, но клиентом такая
+ * строка не является: за ней десятки тысяч разных людей. Оставленная в
+ * подсчёте, она даёт «одного клиента» с оборотом в сотни миллионов, первое
+ * место в списке лучших и средний LTV, поделённый не на то число.
  */
 final readonly class CustomerReport
 {
@@ -42,17 +44,20 @@ final readonly class CustomerReport
     {
         [$where, $bindings] = $this->scope($filters);
 
+        $bindings['pause'] = $this->pause();
+
         $row = $this->clickhouse->selectOne(<<<SQL
             SELECT
                 uniqExact(s.klient_id)                                      AS customers,
-                -- Первый заказ в жизни клиента размечен витриной на всей
-                -- истории, а не на окне отчёта.
-                uniqExactIf(s.klient_id, s.pervyj_zakaz = 1)                AS new_customers,
-                uniqExactIf(s.klient_id, s.tip_zakaza = 'Вернулся после паузы') AS revived_customers,
+                -- Первый заказ в жизни клиента — по всей истории выгрузки, а
+                -- не по окну отчёта.
+                uniqExactIf(s.klient_id, o.is_first = 1)                    AS new_customers,
+                uniqExactIf(s.klient_id, o.days_since_prev > :pause)        AS revived_customers,
                 round(sum(s.summa), 2)                                      AS revenue,
                 round(sum(s.pribyl), 2)                                     AS profit,
                 uniqExact(s.zakaz_uid)                                      AS orders
-            FROM {db}.sales_full AS s
+            FROM {sales} AS s
+            LEFT JOIN {orders} AS o ON o.klient_id = s.klient_id AND o.zakaz_uid = s.zakaz_uid
             WHERE {$where}
         SQL, $bindings);
 
@@ -78,11 +83,10 @@ final readonly class CustomerReport
     }
 
     /**
-     * RFM: во что сложились давность, частота и деньги.
+     * RFM: во что сложились давность покупки и ценность клиента.
      *
-     * Порядок задан самой разметкой — сегменты в витрине пронумерованы
-     * («1. Лучшие», «5. Засыпают»), и сортировка по имени выстраивает их от
-     * лучших к потерянным.
+     * Сегменты пронумерованы («1. Лучшие», «6. Потерянные»), и сортировка по
+     * имени выстраивает их от лучших к потерянным сама.
      *
      * @return list<array<string, float|int|string>>
      */
@@ -93,12 +97,13 @@ final readonly class CustomerReport
 
             $rows = $this->clickhouse->select(<<<SQL
                 SELECT
-                    s.rfm_segment               AS segment,
+                    c.rfm_segment               AS segment,
                     uniqExact(s.klient_id)      AS customers,
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
                     uniqExact(s.zakaz_uid)      AS orders
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
+                LEFT JOIN {customers} AS c ON c.klient_id = s.klient_id
                 WHERE {$where}
                 GROUP BY segment
                 ORDER BY segment
@@ -123,20 +128,31 @@ final readonly class CustomerReport
     /**
      * Откуда пришла выручка: новый клиент, повторный, вернувшийся, возврат.
      *
+     * Тип — свойство заказа, а не клиента: один и тот же человек в этом месяце
+     * вернулся после паузы, а в следующем купил повторно. Поэтому считается он
+     * по предыдущему заказу того же клиента, найденному на всей истории.
+     *
      * @return list<array<string, float|int|string>>
      */
     public function orderTypes(ReportFilters $filters): array
     {
         return $this->clickhouse->remember('customers.types:'.$filters->signature(), function () use ($filters): array {
             [$where, $bindings] = $this->scope($filters);
+            $bindings['pause'] = $this->pause();
 
             $rows = $this->clickhouse->select(<<<SQL
                 SELECT
-                    s.tip_zakaza                AS type,
+                    multiIf(
+                        s.vozvrat = 1,                  'Возврат',
+                        o.is_first = 1,                 'Первый заказ',
+                        o.days_since_prev > :pause,     'Вернулся после паузы',
+                        'Повторный'
+                    )                           AS type,
                     uniqExact(s.zakaz_uid)      AS orders,
                     uniqExact(s.klient_id)      AS customers,
                     round(sum(s.summa), 2)      AS revenue
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
+                LEFT JOIN {orders} AS o ON o.klient_id = s.klient_id AND o.zakaz_uid = s.zakaz_uid
                 WHERE {$where}
                 GROUP BY type
                 ORDER BY revenue DESC
@@ -154,10 +170,10 @@ final readonly class CustomerReport
     /**
      * Когорты: как расходятся месяцы, в которые клиенты пришли впервые.
      *
-     * Берутся только надёжные (`kogorta_nadezhna`) — те, для которых у витрины
-     * достаточно истории. Ненадёжная когорта состоит из клиентов, чей первый
-     * заказ мог случиться до начала выгрузки, и «новичком» там числится тот,
-     * кто покупает десять лет.
+     * Берутся только надёжные (`kogorta_nadezhna`) — те, чья первая покупка
+     * случилась не в первый месяц выгрузки. У остальных первый заказ мог
+     * произойти до её начала, и «новичком» там числится тот, кто покупает
+     * десять лет.
      *
      * @return list<array<string, float|int|string>>
      */
@@ -171,14 +187,15 @@ final readonly class CustomerReport
 
             $rows = $this->clickhouse->select(<<<SQL
                 SELECT
-                    s.kogorta                   AS cohort,
+                    c.kogorta                   AS cohort,
                     uniqExact(s.klient_id)      AS customers,
                     round(sum(s.summa), 2)      AS revenue,
                     uniqExact(s.zakaz_uid)      AS orders
-                FROM {db}.sales_full AS s
+                FROM {sales} AS s
+                LEFT JOIN {customers} AS c ON c.klient_id = s.klient_id
                 WHERE {$where}
-                  AND s.kogorta_nadezhna = 1
-                  AND s.kogorta != ''
+                  AND c.kogorta_nadezhna = 1
+                  AND c.kogorta != ''
                 GROUP BY cohort
                 ORDER BY cohort DESC
                 LIMIT :limit
@@ -200,7 +217,7 @@ final readonly class CustomerReport
     }
 
     /**
-     * Крупнейшие клиенты — с тем, что витрина знает о них сверх периода.
+     * Крупнейшие клиенты — с тем, что известно о них сверх периода.
      *
      * LTV и число заказов относятся к клиенту целиком, а не к выбранному
      * отрезку, поэтому берутся `max()` внутри группы, а не суммой: сложенные по
@@ -220,14 +237,15 @@ final readonly class CustomerReport
                 SELECT
                     s.klient                    AS name,
                     any(s.segment_klienta)      AS segment,
-                    any(s.rfm_segment)          AS rfm,
+                    any(c.rfm_segment)          AS rfm,
                     round(sum(s.summa), 2)      AS revenue,
                     round(sum(s.pribyl), 2)     AS profit,
                     uniqExact(s.zakaz_uid)      AS orders,
-                    round(max(s.ltv_klienta), 2) AS ltv,
-                    max(s.zakazov_klienta)      AS lifetime_orders,
-                    min(s.dney_s_pokupki)       AS days_since_purchase
-                FROM {db}.sales_full AS s
+                    round(max(c.ltv), 2)        AS ltv,
+                    max(c.lifetime_orders)      AS lifetime_orders,
+                    min(c.dney_s_pokupki)       AS days_since_purchase
+                FROM {sales} AS s
+                LEFT JOIN {customers} AS c ON c.klient_id = s.klient_id
                 WHERE {$where}
                 GROUP BY name
                 ORDER BY revenue DESC
@@ -265,17 +283,20 @@ final readonly class CustomerReport
     {
         $conditions = $filters->conditions();
 
-        /** @var string $anonymous */
-        $anonymous = config('analytics.anonymous_customer_type');
-
         return [
-            's.data BETWEEN :from AND :to AND s.tip_klienta != :anonymous'.$conditions['sql'],
-            [...$filters->period->bindings(), ...$conditions['bindings'], 'anonymous' => $anonymous],
+            's.data BETWEEN :from AND :to AND s.is_anonymous = 0'.$conditions['sql'],
+            [...$filters->period->bindings(), ...$conditions['bindings']],
         ];
     }
 
     private function boundedLimit(int $limit): int
     {
         return max(1, min($limit, (int) config('analytics.max_top_limit')));
+    }
+
+    /** Через сколько дней молчания возвращение считается возвращением. */
+    private function pause(): int
+    {
+        return (int) config('analytics.pause_days');
     }
 }

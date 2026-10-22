@@ -14,8 +14,17 @@ const props = defineProps<{
  */
 const maximum = computed(() => Math.max(1, ...props.cells.map(cell => cell.revenue)))
 
-const ABC = ['A', 'B', 'C'] as const
-const XYZ = ['X', 'Y', 'Z'] as const
+/*
+ * Оси берутся из ответа, а не задаются здесь тремя буквами. Витрина размечает
+ * ассортимент не только классами: новинка, короткая история наблюдений, «за год
+ * не продавалось» — такие же метки, и выручка за ними настоящая. Сетка из
+ * девяти клеток просто не показала бы её, причём молча.
+ *
+ * Сервер присылает клетки полным набором, включая пустые, поэтому порядок осей
+ * — это порядок, в котором метки впервые встретились.
+ */
+const ABC = computed(() => [...new Set(props.cells.map(cell => cell.abc))])
+const XYZ = computed(() => [...new Set(props.cells.map(cell => cell.xyz))])
 
 function cellAt(abc: string, xyz: string): MatrixCell | undefined {
   return props.cells.find(cell => cell.abc === abc && cell.xyz === xyz)
@@ -36,7 +45,7 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
 
 <template>
   <div class="matrix">
-    <div class="matrix__grid">
+    <div class="matrix__grid" :style="{ '--columns': XYZ.length }">
       <!-- Заголовок столбцов: XYZ — ровность спроса. -->
       <span class="matrix__corner" />
       <span v-for="xyz in XYZ" :key="xyz" class="matrix__head">{{ xyz }}</span>
@@ -46,11 +55,11 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
 
         <div
           v-for="xyz in XYZ"
-          :key="`${abc}${xyz}`"
+          :key="`${abc} / ${xyz}`"
           class="cell"
           :class="{ 'cell--dark': isDark(cellAt(abc, xyz)?.revenue ?? 0) }"
           :style="{ '--fill': intensity(cellAt(abc, xyz)?.revenue ?? 0) / 100 }"
-          :title="`${abc}${xyz}: ${formatMoney(cellAt(abc, xyz)?.revenue ?? 0)}`"
+          :title="`${abc} / ${xyz}: ${formatMoney(cellAt(abc, xyz)?.revenue ?? 0)}`"
         >
           <span class="cell__value">{{ formatCompactMoney(cellAt(abc, xyz)?.revenue ?? 0) }}</span>
           <span class="cell__meta">{{ formatNumber(cellAt(abc, xyz)?.items ?? 0) }} SKU</span>
@@ -85,7 +94,12 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
 
 .matrix__grid {
   display: grid;
-  grid-template-columns: 1.5rem repeat(3, minmax(0, 1fr));
+  /*
+   * Столбцов столько, сколько меток прислал сервер. Подпись строки больше не
+   * одна буква — «Нет положительной выручки» тоже класс, — поэтому её столбец
+   * тянется по содержимому, но не дальше трети ширины.
+   */
+  grid-template-columns: minmax(1.5rem, auto) repeat(var(--columns, 3), minmax(0, 1fr));
   gap: 4px;
   align-items: stretch;
 }
@@ -105,6 +119,9 @@ const total = computed(() => props.cells.reduce((sum, cell) => sum + cell.revenu
 
 .matrix__head--row {
   justify-content: flex-start;
+  max-width: 7rem;
+  text-align: left;
+  text-wrap: balance;
 }
 
 .cell {

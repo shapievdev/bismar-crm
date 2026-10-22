@@ -44,6 +44,7 @@ final class AnalyticsAccessTest extends TestCase
             ['analytics.sales'],
             ['analytics.customers'],
             ['analytics.products'],
+            ['analytics.employees'],
         ];
     }
 

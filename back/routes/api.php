@@ -8,12 +8,17 @@ use App\Http\Controllers\Api\Ai\ConsultantController;
 use App\Http\Controllers\Api\Ai\QuestionLogController;
 use App\Http\Controllers\Api\Ai\SettingsController;
 use App\Http\Controllers\Api\Analytics\CustomerController as AnalyticsCustomerController;
+use App\Http\Controllers\Api\Analytics\DepartmentSalesController as AnalyticsDepartmentSalesController;
 use App\Http\Controllers\Api\Analytics\DirectoryController as AnalyticsDirectoryController;
+use App\Http\Controllers\Api\Analytics\EmployeeController as AnalyticsEmployeeController;
 use App\Http\Controllers\Api\Analytics\LearningController as AnalyticsLearningController;
 use App\Http\Controllers\Api\Analytics\ProductController as AnalyticsProductController;
+use App\Http\Controllers\Api\Analytics\RaceController as AnalyticsRaceController;
 use App\Http\Controllers\Api\Analytics\SalesController as AnalyticsSalesController;
 use App\Http\Controllers\Api\Analytics\SharedStaffReportController;
 use App\Http\Controllers\Api\Analytics\StaffController;
+use App\Http\Controllers\Api\Sales\PlanController as SalesPlanController;
+use App\Http\Controllers\Api\Sales\SellerController as SalesSellerController;
 use App\Http\Controllers\Api\Analytics\StaffExportController;
 use App\Http\Controllers\Api\Analytics\StaffLinkController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
@@ -926,11 +931,45 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::Vie
 
         Route::get('customers', [AnalyticsCustomerController::class, 'index'])->name('customers');
 
+        // Та же выручка, но знаменателем человек. Отдельным адресом, а не
+        // разрезом продаж: разрез отвечает «сколько принёс каждый», а вкладка —
+        // «что происходит с теми, кто торгует».
+        Route::get('employees', [AnalyticsEmployeeController::class, 'index'])->name('employees');
+
+        // План и факт по отделам. Свой период — календарный месяц: планы
+        // ставят на него, и сравнивать их с произвольным отрезком нечем.
+        Route::get('departments', AnalyticsDepartmentSalesController::class)->name('departments');
+
+        // Табло для зала: та же гонка, повёрнутая к людям, а не к таблице.
+        Route::get('race', AnalyticsRaceController::class)->name('race');
+
         Route::get('products', [AnalyticsProductController::class, 'index'])->name('products');
         Route::get('products/breakdown/{dimension}', [AnalyticsProductController::class, 'breakdown'])
             ->whereIn('dimension', ProductReport::dimensions())
             ->name('products.breakdown');
     });
+
+/*
+ * Отделы продаж: кто из витрины где числится и сколько с него ждут.
+ *
+ * Своё право, а не просмотр аналитики: читать выручку и решать, чья она и
+ * какой она должна быть, — разные полномочия. Коммерческому директору нужно
+ * второе, администратором ради этого он быть не обязан.
+ */
+Route::middleware([
+    'auth:sanctum',
+    EnsureEmployed::class,
+    'can:'.Permission::ManageSalesPlans->value,
+])->prefix('sales')->as('sales.')->group(function (): void {
+    Route::get('sellers', [SalesSellerController::class, 'index'])->name('sellers.index');
+    Route::put('sellers', [SalesSellerController::class, 'update'])->name('sellers.update');
+    Route::post('sellers/accept', [SalesSellerController::class, 'accept'])->name('sellers.accept');
+
+    Route::get('plans', [SalesPlanController::class, 'index'])->name('plans.index');
+    Route::put('plans', [SalesPlanController::class, 'update'])->name('plans.update');
+    Route::post('plans/suggest', [SalesPlanController::class, 'suggest'])->name('plans.suggest');
+    Route::delete('plans/{plan}', [SalesPlanController::class, 'destroy'])->name('plans.destroy');
+});
 
 /*
  * Поиск из шапки — по всей платформе разом.

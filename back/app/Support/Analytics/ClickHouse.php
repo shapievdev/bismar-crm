@@ -92,7 +92,16 @@ class ClickHouse
     }
 
     /**
-     * Подстановка имени базы вместо `{db}`.
+     * Подстановка источников и имени базы.
+     *
+     * Отчёты пишут `{sales}`, `{orders}`, `{customers}`, `{products}` — а не
+     * имена таблиц и столбцов витрины. Что за ними стоит, знает `Mart`;
+     * подставляется это здесь, потому что здесь единственное место, через
+     * которое проходит любой запрос.
+     *
+     * Порядок важен: `{orders}` и `{customers}` раскрываются в SQL, внутри
+     * которого стоит `{sales}`, а тот — в SQL с `{db}`. Поэтому сначала
+     * производные источники, потом строка продаж, и только затем имя базы.
      *
      * Имя таблицы в ClickHouse нельзя передать плейсхолдером, поэтому оно
      * попадает в SQL склейкой — единственной во всём слое и только из конфига.
@@ -100,7 +109,11 @@ class ClickHouse
      */
     private function qualify(string $sql): string
     {
-        return str_replace('{db}', $this->database(), $sql);
+        return str_replace(
+            ['{orders}', '{customers}', '{products}', '{sales}', '{db}'],
+            [Mart::orders(), Mart::customers(), Mart::products(), Mart::sales(), $this->database()],
+            $sql,
+        );
     }
 
     public function database(): string

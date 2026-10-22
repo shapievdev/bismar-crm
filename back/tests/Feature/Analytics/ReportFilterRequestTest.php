@@ -146,6 +146,7 @@ final class ReportFilterRequestTest extends TestCase
             ['analytics.sales'],
             ['analytics.customers'],
             ['analytics.products'],
+            ['analytics.employees'],
         ];
     }
 

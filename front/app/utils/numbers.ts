@@ -74,14 +74,34 @@ export function changeAgainst(current: number, previous: number): number | null 
   return Number((((current - previous) / Math.abs(previous)) * 100).toFixed(1))
 }
 
+/**
+ * Дата, которую удалось разобрать, — или ничего.
+ *
+ * `Intl` на негодной дате не возвращает пустую строку, а кидает `RangeError`, и
+ * в подписи графика это стоит целой страницы: исключение из `computed` уходит в
+ * рендер, SSR отдаёт пятисотую. Подпись, которую не из чего собрать, пусть
+ * лучше будет пустой.
+ */
+function parseDate(value: string): Date | null {
+  if (!value) {
+    return null
+  }
+
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 /** Дата в человеческом виде: «6 августа 2026». */
 export function formatDate(value: string): string {
-  if (!value) {
+  const date = parseDate(value)
+
+  if (!date) {
     return ''
   }
 
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-    .format(new Date(value))
+    .format(date)
 }
 
 /**
@@ -91,7 +111,11 @@ export function formatDate(value: string): string {
  * несколько десятков, год у каждой съедает место и ничего не добавляет.
  */
 export function formatBucket(value: string, granularity: 'day' | 'week' | 'month'): string {
-  const date = new Date(value)
+  const date = parseDate(value)
+
+  if (!date) {
+    return ''
+  }
 
   if (granularity === 'month') {
     return new Intl.DateTimeFormat('ru-RU', { month: 'short', year: 'numeric' }).format(date)

@@ -103,6 +103,17 @@ enum Permission: string
     case ManageStaffTags = 'staff-tags.manage';
 
     /**
+     * Отделы продаж и планы: кто из витрины в каком отделе и сколько с него
+     * ждут за месяц.
+     *
+     * Отдельно от просмотра аналитики, потому что это не чтение цифр, а
+     * решение о них: сопоставление задаёт, чья выручка чья, а план — мерку, по
+     * которой отдел потом оценят. Коммерческому директору это нужно,
+     * администратором ради этого он быть не обязан.
+     */
+    case ManageSalesPlans = 'sales-plans.manage';
+
+    /**
      * Human-readable label for permission management screens.
      */
     public function label(): string
@@ -141,6 +152,7 @@ enum Permission: string
             self::ViewStaffReport => 'Аналитика штата по своим подразделениям',
             self::ViewWholeStaffReport => 'Аналитика штата по всей компании',
             self::ManageStaffTags => 'Ведение тегов сотрудников',
+            self::ManageSalesPlans => 'Отделы продаж и планы',
         };
     }
 
@@ -169,6 +181,7 @@ enum Permission: string
             'analytics' => 'Аналитика',
             'staff-report' => 'Аналитика штата',
             'staff-tags' => 'Теги сотрудников',
+            'sales-plans' => 'Отделы продаж и планы',
             default => $this->group(),
         };
     }

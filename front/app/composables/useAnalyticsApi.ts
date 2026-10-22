@@ -4,7 +4,9 @@ import type {
   AnalyticsResponse,
   BreakdownRow,
   CustomersPayload,
+  DepartmentSalesPayload,
   Directory,
+  EmployeesPayload,
   ProductBreakdownRow,
   ProductDimension,
   LearningPayload,
@@ -12,6 +14,7 @@ import type {
   LearningQuizResult,
   LearningSurveyParticipant,
   ProductsPayload,
+  RacePayload,
   SalesDimension,
   SalesPayload,
   SharedStaffReport,
@@ -95,6 +98,30 @@ export function useAnalyticsApi() {
 
     fetchCustomers: (filters: AnalyticsFilters): Promise<AnalyticsResponse<CustomersPayload>> =>
       $api<AnalyticsResponse<CustomersPayload>>('/api/analytics/customers', { query: query(filters) }),
+
+    /**
+     * Продажи по сотрудникам.
+     *
+     * Предел запрашивается наибольший: рейтинг здесь не верхушка списка, а сам
+     * список — из него же собираются средний заказ, клиенты и точки графика.
+     * Торгующих имён в витрине меньше сотни, и первая пятнадцатка оставила бы
+     * три четверти людей без ответа на вопрос «а я где».
+     */
+    fetchEmployees: (filters: AnalyticsFilters, limit = 100): Promise<AnalyticsResponse<EmployeesPayload>> =>
+      $api<AnalyticsResponse<EmployeesPayload>>('/api/analytics/employees', { query: query(filters, limit) }),
+
+    /**
+     * План и факт по отделам за календарный месяц.
+     *
+     * Период здесь не такой, как у остальных вкладок, и фильтров не принимает:
+     * планы ставят на месяц, и сравнивать их с произвольным отрезком нечем.
+     */
+    fetchDepartmentSales: (period: string): Promise<AnalyticsResponse<DepartmentSalesPayload>> =>
+      $api<AnalyticsResponse<DepartmentSalesPayload>>('/api/analytics/departments', { query: { period } }),
+
+    /** Табло для зала: та же гонка, повёрнутая к людям. */
+    fetchRace: (period: string): Promise<AnalyticsResponse<RacePayload>> =>
+      $api<AnalyticsResponse<RacePayload>>('/api/analytics/race', { query: { period } }),
 
     /**
      * Обучение: сводка и рейтинги. Фильтров по периоду здесь нет — прохождение

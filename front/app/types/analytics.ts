@@ -531,6 +531,209 @@ export interface CustomersPayload {
   top: TopCustomerRow[]
 }
 
+export interface EmployeeTotals {
+  revenue: number
+  profit: number
+  margin: number
+  /** Доля выручки, для которой витрина не знает себестоимости. */
+  without_cost_share: number
+  /**
+   * Выручка, у которой в документе не оказалось ни продавца, ни ответственного.
+   *
+   * Показывается отдельной величиной, а не растворяется в итоге: «ничьё» и
+   * «ноль» — разные вещи, и без неё расхождение с вкладкой продаж читалось бы
+   * как ошибка в одной из них.
+   */
+  revenue_unattributed: number
+  orders: number
+  average_order: number
+  /** Сколько имён торговало за период. */
+  people: number
+  customers: number
+  revenue_per_person: number
+  orders_per_person: number
+}
+
+export interface EmployeeRow {
+  name: string
+  revenue: number
+  profit: number
+  margin: number
+  without_cost_share: number
+  orders: number
+  average_order: number
+  customers: number
+}
+
+export interface EmployeesPayload {
+  summary: { current: EmployeeTotals, previous: EmployeeTotals }
+  ranking: EmployeeRow[]
+}
+
+/**
+ * Продавец в отчёте план-факт.
+ *
+ * `plan_source` отвечает, откуда взялся план: `person` — личный, `member` —
+ * норматив отдела, подставленный тому, кому личного не ставили. Без этого
+ * нельзя отличить «ему поставили ровно столько» от «ему не ставили ничего».
+ */
+export interface DepartmentSeller {
+  external_name: string
+  sales_person_id: number | null
+  department_id: number | null
+  user_id: number | null
+  /** Имя из базы знаний. Пусто у кассы: за ней смена, а не человек. */
+  user_name: string | null
+  revenue: number
+  orders: number
+  plan: number | null
+  completion: number | null
+  /** Сколько из плана должно быть сделано к сегодняшнему дню, если идти ровно. */
+  pace: number | null
+  pace_completion: number | null
+  plan_source: 'person' | 'member' | null
+}
+
+export interface DepartmentSalesRow {
+  id: number
+  name: string
+  /** Уровень в дереве структуры: отделы показываются с отступом. */
+  depth: number
+  parent_id: number | null
+  /** Выручка со всеми, кто под этим отделом. */
+  revenue: number
+  /** Своя — только с продавцов самого отдела, без подчинённых. */
+  own_revenue: number
+  orders: number
+  plan: number | null
+  completion: number | null
+  pace: number | null
+  pace_completion: number | null
+  /** Сумма планов продавцов отдела: план отдела не обязан с ней совпадать. */
+  sellers_plan: number
+  /** Норматив на любого продавца отдела. */
+  member_plan: number | null
+  sellers: DepartmentSeller[]
+}
+
+export interface DepartmentSalesPayload {
+  period: {
+    month: string
+    from: string
+    to: string
+    days_in_month: number
+    days_elapsed: number
+    is_current: boolean
+  }
+  totals: {
+    /** Выручка компании целиком, включая нераспределённую. */
+    revenue: number
+    /** Сумма планов верхних из запланированных отделов: без двойного счёта. */
+    plan: number | null
+    /** Выручка тех же отделов — только с ней план и сравнивают. */
+    planned_revenue: number
+    completion: number | null
+    pace: number | null
+    pace_completion: number | null
+    unassigned_revenue: number
+    unassigned_share: number
+    sellers: number
+  }
+  departments: DepartmentSalesRow[]
+  /** Продавцы, которых ещё не развели по отделам. */
+  unassigned: DepartmentSeller[]
+}
+
+/* ---------- Битва отделов ---------- */
+
+/** Отдел в гонке: место определяет темп месяца, а не сегодняшний процент. */
+export interface RaceDepartment {
+  id: number
+  name: string
+  /** Руководитель из структуры — фамилия и инициал. */
+  head: string | null
+  revenue_month: number
+  orders_month: number
+  plan_month: number
+  completion_month: number | null
+  pace_month: number
+  pace_completion: number | null
+  revenue_day: number
+  plan_day: number
+  completion_day: number | null
+  orders_day: number
+  lines_day: number
+  /** К прошлому такому же дню недели. */
+  change_day: number | null
+  status: 'ahead' | 'on-track' | 'behind' | 'unknown'
+}
+
+export interface RaceConsultant {
+  name: string
+  external_name: string
+  department: string | null
+  revenue: number
+  plan: number
+  completion: number
+  pace_completion: number | null
+  plan_source: 'person' | 'member'
+}
+
+export interface RaceRecordHolder {
+  name: string
+  department: string | null
+}
+
+export interface RacePayload {
+  period: {
+    month: string
+    days_in_month: number
+    days_elapsed: number
+    is_current: boolean
+  }
+  day: {
+    /** Последний полный день выгрузки — не сегодня. */
+    date: string | null
+    previous_date: string | null
+    /** По какое число вообще дошла выгрузка. */
+    loaded_to: string | null
+    share_of_month: number
+  }
+  store: {
+    revenue_month: number
+    plan_month: number | null
+    completion_month: number | null
+    pace_month: number | null
+    pace_completion: number | null
+    /** Если дальше пойдёт как шло. */
+    forecast: number | null
+    forecast_completion: number | null
+    revenue_day: number
+    plan_day: number | null
+    completion_day: number | null
+    orders_day: number
+    average_order_day: number
+    lines_per_order_day: number
+    /** Торговля вне гонки: отделы без плана и неразобранные продавцы. */
+    outside_month: number
+    outside_day: number
+    against_previous: {
+      orders: number | null
+      average_order: number | null
+      lines_per_order: number | null
+      revenue: number | null
+    }
+  }
+  departments: RaceDepartment[]
+  consultants: RaceConsultant[]
+  records: {
+    leader: (RaceRecordHolder & { share: number, revenue: number }) | null
+    surge: { name: string, change: number } | null
+    average_order: (RaceRecordHolder & { value: number, change: number | null }) | null
+    lines_per_order: (RaceRecordHolder & { value: number, change: number | null }) | null
+  }
+}
+
 export interface MatrixCell {
   abc: string
   xyz: string

@@ -186,6 +186,13 @@ const links = computed<NavLink[]>(() => {
       { to: '/analytics/sales', label: 'Продажи', visible: can('analytics.view') },
       { to: '/analytics/customers', label: 'Клиенты', visible: can('analytics.view') },
       { to: '/analytics/products', label: 'Товары', visible: can('analytics.view') },
+      // Рядом с продажами, а не со «Штатом»: там движение персонала из своей
+      // базы, здесь — выручка из витрины, и право на них разное.
+      { to: '/analytics/employees', label: 'Сотрудники', visible: can('analytics.view') },
+      // План и факт: та же выручка, свёрнутая по структуре компании.
+      { to: '/analytics/departments', label: 'Отделы', visible: can('analytics.view') },
+      // Та же гонка, повёрнутая к залу: проценты плана и места, а не рубли.
+      { to: '/analytics/race', label: 'Битва', visible: can('analytics.view') },
     ].filter(link => link.visible)
   }
 
@@ -224,6 +231,9 @@ const links = computed<NavLink[]>(() => {
       { to: '/settings/broadcasts', label: 'Рассылки', visible: isAdmin.value },
       // Пробелы в базе закрывают авторы курсов — журнал открыт им.
       { to: '/settings/questions', label: 'Вопросы', visible: can('courses.update') },
+      // Кто из витрины в каком отделе: без этого выручку по отделам не
+      // разложить. Право своё — коммерческому директору, не администратору.
+      { to: '/settings/sales', label: 'Продавцы', visible: can('sales-plans.manage') },
       // Связка с чужими службами — решение о компании, а не право с галочкой.
       { to: '/settings/integrations', label: 'Интеграции', visible: isAdmin.value },
       // Платёжный ключ и модель — только суперадминистратору.
