@@ -74,6 +74,27 @@ final class StaffAnalyticsTest extends TestCase
             ->assertJsonPath('data.summary.left', 0);
     }
 
+    /**
+     * Удалённая запись считается по-прежнему.
+     *
+     * Ради этого удаление сотрудника и сделали мягким: уволенный в июле и
+     * удалённый сегодня в июньской численности работал, в июльских увольнениях
+     * стоит и в среднесписочной, по которой делится текучесть, тоже. Стёртая
+     * запись переписала бы всё это задним числом и молча — числа остались бы
+     * правдоподобными.
+     */
+    public function test_a_deleted_record_still_counts(): void
+    {
+        $this->hire('2025-06-01');
+        $leaver = $this->hire('2025-01-01', dismissed: '2026-07-20');
+
+        $before = $this->report()->json('data');
+
+        $leaver->delete();
+
+        $this->assertSame($before, $this->report()->json('data'));
+    }
+
     /** Края периода входят в него: принятый первого января принят за год. */
     public function test_the_period_includes_both_of_its_edges(): void
     {

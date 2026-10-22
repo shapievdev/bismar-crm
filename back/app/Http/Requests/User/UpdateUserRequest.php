@@ -35,15 +35,21 @@ final class UpdateUserRequest extends FormRequest
             'email' => [
                 'nullable', 'string', 'email', 'max:255',
                 // Ignores the edited user, so saving an unchanged address does
-                // not collide with their own record.
-                Rule::unique(User::class, 'email')->ignore($this->route('user')?->getKey()),
+                // not collide with their own record. Удалённые записи не
+                // спорят вовсе — уникальность, как и в базе, спрашивается у
+                // живых.
+                Rule::unique(User::class, 'email')
+                    ->ignore($this->route('user')?->getKey())
+                    ->whereNull('deleted_at'),
             ],
             // Телефон стёрть нельзя: с него сотрудник входит, и пустое поле
             // заперло бы его снаружи. Уникальность — по той же причине, что и у
             // почты, и с тем же исключением для собственной записи.
             'phone' => [
                 'required', 'string', 'regex:'.Phone::PATTERN,
-                Rule::unique(User::class, 'phone')->ignore($this->route('user')?->getKey()),
+                Rule::unique(User::class, 'phone')
+                    ->ignore($this->route('user')?->getKey())
+                    ->whereNull('deleted_at'),
             ],
 
             // Должность — по-прежнему необязательная: пустое поле значит «убрать».

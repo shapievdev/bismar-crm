@@ -129,6 +129,10 @@ final class StaffController extends Controller
         $allowed = $this->scope->departments($viewer);
 
         return User::query()
+            // С удалёнными записями: отчёт их считает (см. StaffReport), и
+            // должность, которая была только у удалённого, обязана оставаться в
+            // фильтре — иначе цифра в сводке есть, а раскрыть её нечем.
+            ->withTrashed()
             ->whereNotNull('job_title')
             ->when($allowed !== null, fn ($query) => $query
                 ->whereHas('departments', fn ($departments) => $departments

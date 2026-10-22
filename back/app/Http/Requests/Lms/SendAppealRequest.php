@@ -28,7 +28,7 @@ final class SendAppealRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'recipient_id' => ['required', 'integer', Rule::exists('users', 'id')],
+            'recipient_id' => ['required', 'integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
             'reason' => ['required', Rule::enum(AppealReason::class)],
             // Верхняя граница — та же, что у обычной реплики мессенджера: это
             // она и есть, просто написанная с другой страницы.

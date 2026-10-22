@@ -25,7 +25,7 @@ final class UpdateCourseAccessRequest extends FormRequest
             // Присутствует всегда: пустой список — это «убрать всех», и
             // отличить его от «поле не прислали» иначе нельзя.
             'members' => ['present', 'array'],
-            'members.*' => ['integer', Rule::exists('users', 'id')],
+            'members.*' => ['integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
         ];
     }
 

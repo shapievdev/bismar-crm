@@ -24,7 +24,7 @@ final class SubmitForApprovalRequest extends FormRequest
     {
         return [
             'approvers' => ['required', 'array', 'min:1'],
-            'approvers.*' => ['integer', Rule::exists('users', 'id')],
+            'approvers.*' => ['integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
         ];
     }
 

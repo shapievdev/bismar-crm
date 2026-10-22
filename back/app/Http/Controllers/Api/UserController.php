@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Api;
 use App\Actions\User\ChangeEmployment;
 use App\Actions\User\CreateUser;
 use App\Actions\User\DeleteUser;
+use App\Actions\User\RestoreUser;
 use App\Actions\User\SyncUserAccess;
+use App\Enums\AccessLevel;
 use App\Enums\DismissalReason;
 use App\Enums\EmploymentStatus;
 use App\Http\Controllers\Controller;
@@ -16,6 +18,7 @@ use App\Http\Requests\User\UpdateUserAccessRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,8 +29,27 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 final class UserController extends Controller
 {
+    /**
+     * Список сотрудников — и, по просьбе, список удалённых записей.
+     *
+     * Удалённые идут тем же адресом с `deleted=1`, а не своим: спрашивают у него
+     * одно и то же — людей с поиском и постранично, — и второй список с теми же
+     * столбцами разошёлся бы с первым на первой же правке. Видит их один
+     * суперадминистратор: удаляет и возвращает он, а остальным убранное
+     * показывать незачем — его для приложения нет.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
+        /** @var User $reader */
+        $reader = $request->user();
+
+        $deleted = $request->boolean('deleted');
+
+        abort_if(
+            $deleted && $reader->accessLevel() !== AccessLevel::SuperAdmin,
+            HttpResponse::HTTP_FORBIDDEN,
+        );
+
         // By surname, as a staff list is read, falling back to the given name
         // so that a record without a surname still lands in its alphabetical
         // place instead of being swept to the end with the other nulls.
@@ -35,6 +57,7 @@ final class UserController extends Controller
         // Collated to ICU because the databases use the C collation, which
         // orders Cyrillic by byte value and would put "Ёлкин" after "Яковлев".
         $users = User::query()
+            ->when($deleted, fn (Builder $query) => $query->onlyTrashed()->with('remover'))
             ->with([
                 'roles',
                 'permissions',
@@ -48,9 +71,12 @@ final class UserController extends Controller
             // двадцать пять человек из всех, и отбор по ней находил бы лишь
             // тех, кто и так на виду.
             ->matching($request->query('search'))
+            // Удалённые — свежими сверху, как в корзине базы знаний: возвращают
+            // обычно то, что убрали только что, а не то, что первое по алфавиту.
+            ->when($deleted, fn (Builder $query) => $query->orderByDesc('deleted_at'))
             // Уволенные — в конце списка: они здесь ради возвращения в строй,
             // а не ради ежедневной работы со списком сотрудников.
-            ->orderByRaw('dismissed_at IS NOT NULL')
+            ->when(! $deleted, fn (Builder $query) => $query->orderByRaw('dismissed_at IS NOT NULL'))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
             ->paginate(25)
@@ -173,7 +199,10 @@ final class UserController extends Controller
     }
 
     /**
-     * Удаление насовсем — после увольнения и только суперадминистратором.
+     * Удаление — после увольнения и только суперадминистратором.
+     *
+     * Мягкое: запись остаётся в базе, приложение её не показывает, а отчёт о
+     * движении персонала считает по-прежнему — см. DeleteUser.
      */
     public function destroy(Request $request, User $user, DeleteUser $deleteUser): Response
     {
@@ -183,5 +212,27 @@ final class UserController extends Controller
         $deleteUser->handle($user, $actor);
 
         return response()->noContent();
+    }
+
+    /**
+     * Возвращение удалённой записи.
+     *
+     * Номер человека, а не привязка по маршруту: та ищет среди живых, а нам
+     * нужна как раз удалённая запись — так же устроено возвращение из корзины
+     * базы знаний (см. Lms\TrashController).
+     *
+     * Отказ — «не найдено»: перебор номеров не должен рассказывать, чьи записи
+     * в компании удаляли.
+     */
+    public function restore(Request $request, int $user, RestoreUser $restoreUser): UserResource
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        $deleted = User::onlyTrashed()->find($user);
+
+        abort_if($deleted === null, HttpResponse::HTTP_NOT_FOUND);
+
+        return UserResource::make($restoreUser->handle($deleted, $actor));
     }
 }

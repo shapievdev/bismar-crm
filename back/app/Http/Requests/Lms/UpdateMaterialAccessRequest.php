@@ -25,7 +25,7 @@ final class UpdateMaterialAccessRequest extends FormRequest
             // Оба списка присутствуют всегда: пустой — это «убрать всех», и
             // отличить его от «поле не прислали» иначе нечем.
             'members' => ['present', 'array'],
-            'members.*' => ['integer', Rule::exists('users', 'id')],
+            'members.*' => ['integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
 
             'groups' => ['present', 'array'],
             'groups.*' => ['integer', Rule::exists('groups', 'id')],

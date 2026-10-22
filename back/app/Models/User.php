@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
@@ -30,8 +31,17 @@ use Spatie\Permission\Traits\HasRoles;
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
-    /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, Notifiable;
+    /**
+     * Удаление здесь мягкое, и это не уступка осторожности, а требование
+     * отчёта: движение персонала считается по датам приёма и увольнения, и
+     * стёртая запись переписала бы прошлое — убрала человека из численности на
+     * день, когда он работал. Удалённого приложение не показывает и внутрь не
+     * пускает (глобальный фильтр снимает его со всех запросов разом), а отчёт о
+     * штате спрашивает его намеренно — `withTrashed` в StaffReport.
+     *
+     * @use HasFactory<UserFactory>
+     */
+    use HasFactory, HasRoles, Notifiable, SoftDeletes;
 
     /**
      * Pins permission lookups to a single guard. Without this, spatie resolves
@@ -79,6 +89,17 @@ class User extends Authenticatable
     public function dismissedBy(): BelongsTo
     {
         return $this->belongsTo(self::class, 'dismissed_by_id');
+    }
+
+    /**
+     * Кто удалил запись. Пусто у всех, кого не удаляли, — и у восстановленных:
+     * возвращённая запись не «удалённая, которую достали», а обыкновенная.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function remover(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'deleted_by_id');
     }
 
     /**

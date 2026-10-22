@@ -51,6 +51,20 @@ class UserFactory extends Factory
     }
 
     /**
+     * Удалённый: сначала уволен, потом убран из приложения, — другого пути к
+     * удалению нет (см. App\Actions\User\DeleteUser).
+     *
+     * Запись при этом на месте: удаление мягкое, и отчёт о движении персонала
+     * считает её по-прежнему.
+     */
+    public function deleted(): static
+    {
+        return $this->dismissed()->state(fn (array $attributes) => [
+            'deleted_at' => now(),
+        ]);
+    }
+
+    /**
      * Indicate that the model's email address should be unverified.
      */
     public function unverified(): static

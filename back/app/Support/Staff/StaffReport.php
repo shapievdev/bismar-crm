@@ -301,11 +301,22 @@ final readonly class StaffReport
      * Уволенные здесь есть, и это главное отличие от прочих отчётов
      * приложения: движение персонала без ушедших не движение.
      *
+     * Удалённые — тоже, отсюда `withTrashed`. Удаление записи мягкое
+     * (App\Actions\User\DeleteUser), и сам отчёт о нём ничего не знает: он
+     * считает по датам приёма и увольнения, а человек, уволенный в декабре и
+     * удалённый в январе, в августовской численности работал. Снимите здесь
+     * `withTrashed` — и прошлое начнёт переписываться каждым удалением, причём
+     * молча: числа останутся правдоподобными.
+     *
+     * То же и в запросах ниже, написанных на SQL: они обращаются к таблице
+     * напрямую и `deleted_at` не спрашивают — намеренно, а не по забывчивости.
+     *
      * @return Builder<User>
      */
     private function matching(StaffFilters $filters): Builder
     {
         return User::query()
+            ->withTrashed()
             ->when($filters->departmentIds !== null, fn (Builder $query) => $query
                 ->whereHas('departments', fn (Builder $departments) => $departments
                     ->whereIn('departments.id', $filters->departmentIds === [] ? [0] : $filters->departmentIds)))

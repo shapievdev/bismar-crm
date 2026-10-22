@@ -111,6 +111,18 @@ final class UserResource extends JsonResource
             'dismissal_reason' => $this->dismissal_reason?->value,
             'dismissal_reason_label' => $this->dismissal_reason?->label(),
 
+            /*
+             * Когда запись удалили и кто. Пусто у всех, кого видно: удаление
+             * мягкое, и удалённого приложение показывает одному
+             * суперадминистратору — в списке удалённых, откуда их возвращают.
+             *
+             * Удаливший приходит только с этим списком: в остальных местах его
+             * не спрашивают, а лишний запрос на строку списка сотрудников —
+             * двадцать пять запросов на страницу.
+             */
+            'deleted_at' => $this->deleted_at?->toIso8601String(),
+            'deleted_by' => $this->whenLoaded('remover', fn (): ?string => $this->remover?->name),
+
             // Superadmin, administrator or plain user.
             'level' => $this->accessLevel()->value,
             'level_label' => $this->accessLevel()->label(),

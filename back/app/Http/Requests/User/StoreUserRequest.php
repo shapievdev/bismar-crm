@@ -25,13 +25,26 @@ final class StoreUserRequest extends FormRequest
             'first_name' => ['required', 'string', 'max:255'],
             // Not everyone has one, so it is the only part that may be left out.
             'middle_name' => ['nullable', 'string', 'max:255'],
-            // Почта необязательна: входят по телефону, а адрес есть не у
-            // каждого. Записанный — по-прежнему указывает на одного человека.
-            'email' => ['nullable', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
+            /*
+             * Почта необязательна: входят по телефону, а адрес есть не у
+             * каждого. Записанный — по-прежнему указывает на одного человека.
+             *
+             * Уникальность спрашивается у живых записей — то же условие, что и
+             * у индекса в базе. Удалённая запись номер и адрес не держит: иначе
+             * форма отвечала бы «номер занят», а кем — не показала бы, потому
+             * что удалённого в приложении не видно.
+             */
+            'email' => [
+                'nullable', 'string', 'email', 'max:255',
+                Rule::unique(User::class, 'email')->whereNull('deleted_at'),
+            ],
 
             // Телефон обязателен и уникален: с него сотрудник входит, и запись
             // без номера была бы учётной записью, в которую нельзя попасть.
-            'phone' => ['required', 'string', 'regex:'.Phone::PATTERN, Rule::unique(User::class, 'phone')],
+            'phone' => [
+                'required', 'string', 'regex:'.Phone::PATTERN,
+                Rule::unique(User::class, 'phone')->whereNull('deleted_at'),
+            ],
 
             // Должность по-прежнему необязательна: под рукой она бывает не
             // всегда, а завести человека нужно сегодня.

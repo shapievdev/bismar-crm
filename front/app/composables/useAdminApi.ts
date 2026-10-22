@@ -14,6 +14,14 @@ import { toValidationError } from '~/composables/useAuth'
 export interface StaffQuery {
   search?: string
   page?: number
+  /**
+   * Удалённые записи вместо живых.
+   *
+   * Тот же адрес, потому что спрашивают у него то же самое — людей с поиском и
+   * постранично. Отвечает он одному суперадминистратору: удаляет и возвращает
+   * он, а для остальных удалённого нет.
+   */
+  deleted?: boolean
 }
 
 /**
@@ -76,9 +84,18 @@ export function useAdminApi() {
     reinstateUser: (user: User): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${user.id}/dismissal`, { method: 'DELETE' }),
 
-    /** Удаление насовсем: только суперадминистратором и только уволенного. */
+    /**
+     * Удаление: только суперадминистратором и только уволенного.
+     *
+     * Мягкое — запись остаётся в базе и по-прежнему считается в отчёте о
+     * движении персонала, — и потому отменяемое: `restoreUser` ниже.
+     */
     deleteUser: (user: User): Promise<void> =>
       $api(`/api/users/${user.id}`, { method: 'DELETE' }),
+
+    /** Возвращение удалённой записи — уволенной, какой её и удаляли. */
+    restoreUser: (user: User): Promise<ResourceResponse<User>> =>
+      $api<ResourceResponse<User>>(`/api/users/${user.id}/restore`, { method: 'POST' }),
 
     /* ---------- Ручные теги ---------- */
 

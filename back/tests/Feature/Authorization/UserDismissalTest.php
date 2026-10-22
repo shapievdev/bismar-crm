@@ -15,7 +15,9 @@ use Tests\TestCase;
 
 /**
  * Увольнение: сотрудник в системе остаётся, платформа для него закрывается.
- * И удаление — крайняя мера, доступная одному суперадминистратору.
+ *
+ * Удаление записи — другое решение и другие правила; оно рядом, в
+ * UserDeletionTest.
  */
 final class UserDismissalTest extends TestCase
 {
@@ -161,39 +163,6 @@ final class UserDismissalTest extends TestCase
             'phone' => $user->phone,
             'password' => 'password',
         ])->assertOk();
-    }
-
-    public function test_a_superadmin_deletes_a_dismissed_record_for_good(): void
-    {
-        $user = User::factory()->dismissed()->create();
-
-        $this->actingAs($this->superAdministrator())
-            ->deleteJson(route('users.destroy', $user))
-            ->assertNoContent();
-
-        $this->assertDatabaseMissing('users', ['id' => $user->getKey()]);
-    }
-
-    public function test_only_a_dismissed_record_is_deleted(): void
-    {
-        $user = User::factory()->create();
-
-        $this->actingAs($this->superAdministrator())
-            ->deleteJson(route('users.destroy', $user))
-            ->assertStatus(409);
-
-        $this->assertDatabaseHas('users', ['id' => $user->getKey()]);
-    }
-
-    public function test_an_administrator_cannot_delete_a_record(): void
-    {
-        $user = User::factory()->dismissed()->create();
-
-        $this->actingAs($this->administrator())
-            ->deleteJson(route('users.destroy', $user))
-            ->assertStatus(409);
-
-        $this->assertDatabaseHas('users', ['id' => $user->getKey()]);
     }
 
     /**

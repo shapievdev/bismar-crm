@@ -975,9 +975,18 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
         Route::post('users/{user}/dismissal', [UserController::class, 'dismiss'])->name('users.dismiss');
         Route::delete('users/{user}/dismissal', [UserController::class, 'reinstate'])->name('users.reinstate');
 
-        // Удаление насовсем. Право на маршруте то же, но пускает не оно:
-        // удаляет один суперадминистратор и только уволенного — DeleteUser.
+        /*
+         * Удаление и возвращение удалённого. Право на маршруте то же, но
+         * пускает не оно: и то и другое делает один суперадминистратор, а
+         * удаляет он только уволенного — DeleteUser и RestoreUser.
+         *
+         * Удаление мягкое: запись остаётся в базе, приложение её не показывает,
+         * а отчёт о движении персонала считает по-прежнему — иначе стёртая
+         * запись переписывала бы прошлое, убирая человека из численности того
+         * дня, когда он работал.
+         */
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore');
     });
 
     /*

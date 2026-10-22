@@ -47,7 +47,7 @@ final class SaveNewsRequest extends FormRequest
             // сам по себе необязателен, но пустыми все три быть не могут —
             // такую новость не увидит никто; проверяет это after().
             'recipients' => ['sometimes', 'array'],
-            'recipients.*' => ['integer', Rule::exists('users', 'id')],
+            'recipients.*' => ['integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
 
             'department_ids' => ['sometimes', 'array'],
             'department_ids.*' => ['integer', Rule::exists(Department::class, 'id')],

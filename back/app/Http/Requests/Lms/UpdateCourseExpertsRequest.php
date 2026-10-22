@@ -18,7 +18,7 @@ final class UpdateCourseExpertsRequest extends FormRequest
             // Присутствует всегда: пустой список — это «за курс не отвечает
             // никто», и отличить его от «поле не прислали» иначе нельзя.
             'experts' => ['present', 'array'],
-            'experts.*' => ['integer', Rule::exists('users', 'id')],
+            'experts.*' => ['integer', Rule::exists('users', 'id')->whereNull('deleted_at')],
         ];
     }
 
