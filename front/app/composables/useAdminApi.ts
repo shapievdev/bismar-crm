@@ -94,6 +94,19 @@ export function useAdminApi() {
         body: { reason: reason || null },
       }),
 
+    /**
+     * Правка дня увольнения.
+     *
+     * Тем же адресом, что увольнение, но методом PUT: кнопка «уволить» ставит
+     * сегодняшний день, а оформляют уход обычно позже, и день приходится
+     * поправлять. Отчёт о движении персонала идёт за этой датой.
+     */
+    updateDismissalDate: (user: User, dismissedAt: string): Promise<ResourceResponse<User>> =>
+      $api<ResourceResponse<User>>(`/api/users/${user.id}/dismissal`, {
+        method: 'PUT',
+        body: { dismissed_at: dismissedAt },
+      }),
+
     /** Возвращение в строй — с прежним уровнем доступа и прежними правами. */
     reinstateUser: (user: User): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${user.id}/dismissal`, { method: 'DELETE' }),
@@ -101,8 +114,8 @@ export function useAdminApi() {
     /**
      * Удаление: только суперадминистратором и только уволенного.
      *
-     * Мягкое — запись остаётся в базе и по-прежнему считается в отчёте о
-     * движении персонала, — и потому отменяемое: `restoreUser` ниже.
+     * Мягкое: запись остаётся в базе и потому отменяемое (`restoreUser` ниже),
+     * но в приложении удалённого нет нигде — включая отчёт о штате.
      */
     deleteUser: (user: User): Promise<void> =>
       $api(`/api/users/${user.id}`, { method: 'DELETE' }),

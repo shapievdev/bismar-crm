@@ -17,6 +17,7 @@ const {
   updateUser,
   updateAccess,
   dismissUser,
+  updateDismissalDate,
   reinstateUser,
   deleteUser,
 } = useAdminApi()
@@ -396,6 +397,38 @@ async function workAsMember() {
  */
 const dismissalReason = ref('')
 
+/**
+ * День ухода у уже уволенного — его правят, а не заполняют с нуля.
+ *
+ * Поле заполняется тем, что стоит в записи, и следит за ней: после сохранения
+ * карточка перечитывается, и в поле снова оказывается сохранённое — иначе на
+ * экране остался бы набранный день, даже если сервер его не принял.
+ */
+const dismissalDate = ref('')
+
+watch(member, (person) => {
+  dismissalDate.value = person?.dismissed_at?.slice(0, 10) ?? ''
+}, { immediate: true })
+
+/** Сегодня в виде, который понимает `input type="date"`, — предел для поля. */
+const today = new Date().toLocaleDateString('sv-SE')
+
+/**
+ * Сохранять нечего, пока день тот же: кнопка гаснет, чтобы не спрашивать
+ * сервер о том, что он и так знает.
+ */
+const isDismissalDateChanged = computed(
+  () => dismissalDate.value !== '' && dismissalDate.value !== member.value?.dismissed_at?.slice(0, 10),
+)
+
+function saveDismissalDate() {
+  const person = member.value
+
+  return person && isDismissalDateChanged.value
+    ? act(() => updateDismissalDate(person, dismissalDate.value), 'Не удалось изменить день увольнения.')
+    : undefined
+}
+
 const DISMISSAL_REASONS = [
   { value: '', label: 'Причина не указана' },
   { value: 'own', label: 'По собственному' },
@@ -570,6 +603,28 @@ async function afterChange() {
           <!-- У уволенного одна дорога — обратно в строй: пока он не вернулся,
                править ему карточку и права незачем. -->
           <template v-if="canManage && member.dismissed_at">
+            <!-- День ухода: кнопка «Уволить» ставит сегодняшний, а оформляют
+                 обычно позже. Отчёт о движении персонала считает по этой дате,
+                 поэтому поправить её важнее, чем кажется. -->
+            <label class="dismissal-day">
+              <span class="field-label">Уволен</span>
+              <input
+                v-model="dismissalDate"
+                type="date"
+                class="input"
+                :max="today"
+                :disabled="isBusy"
+              >
+            </label>
+            <button
+              type="button"
+              class="button-secondary"
+              :disabled="isBusy || !isDismissalDateChanged"
+              @click="saveDismissalDate"
+            >
+              Сохранить день
+            </button>
+
             <button type="button" class="button-secondary" :disabled="isBusy" @click="reinstate">
               Вернуть в строй
             </button>
@@ -915,6 +970,18 @@ async function afterChange() {
   gap: 0.4rem;
 }
 
+/* Поле дня ухода стоит в одной строке с кнопками, но со своей подписью: без
+   неё дата в ряду кнопок читается как неизвестно что. */
+.dismissal-day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dismissal-day .input {
+  width: auto;
+}
+
 .profile__actions {
   display: flex;
   flex-wrap: wrap;
@@ -1136,7 +1203,19 @@ async function afterChange() {
     align-items: flex-start;
   }
 
-  .profile__actions {
+  /* Поле дня ухода стоит в одной строке с кнопками, но со своей подписью: без
+   неё дата в ряду кнопок читается как неизвестно что. */
+.dismissal-day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dismissal-day .input {
+  width: auto;
+}
+
+.profile__actions {
     margin-left: 0;
   }
 

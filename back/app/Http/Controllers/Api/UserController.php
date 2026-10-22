@@ -14,6 +14,7 @@ use App\Enums\DismissalReason;
 use App\Enums\EmploymentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\User\StoreUserRequest;
+use App\Http\Requests\User\UpdateDismissalRequest;
 use App\Http\Requests\User\UpdateUserAccessRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
@@ -208,6 +209,27 @@ final class UserController extends Controller
             $actor,
             $reason === null ? null : DismissalReason::from((string) $reason),
         ));
+    }
+
+    /**
+     * Правка дня увольнения.
+     *
+     * Тем же адресом, что увольнение и возвращение, только другим методом:
+     * POST увольняет, PUT поправляет день, DELETE возвращает в строй. Это одно
+     * и то же решение о человеке, и правила у него общие — см. ChangeEmployment.
+     *
+     * Не в форме карточки: там правят сведения о человеке, а день ухода — это
+     * решение, которое меняет прошлое в отчёте о штате.
+     */
+    public function updateDismissal(
+        UpdateDismissalRequest $request,
+        User $user,
+        ChangeEmployment $employment,
+    ): UserResource {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        return UserResource::make($employment->correctDismissalDate($user, $actor, $request->day()));
     }
 
     /**

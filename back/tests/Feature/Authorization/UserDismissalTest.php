@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Authorization;
 
 use App\Enums\AccessLevel;
+use App\Enums\EmploymentStatus;
 use App\Enums\Permission;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -143,6 +144,127 @@ final class UserDismissalTest extends TestCase
         $this->actingAs($this->userWith(Permission::ViewUsers))
             ->postJson(route('users.dismiss', $user))
             ->assertForbidden();
+    }
+
+    /* ---------- Правка дня увольнения ---------- */
+
+    /**
+     * Кнопка ставит сегодняшний день, а оформляют уход позже — день правят.
+     *
+     * Хранится конец дня: в день увольнения человек ещё числится в штате, и так
+     * же считает дата, поставленная кнопкой, — она приходит с часами.
+     */
+    public function test_an_administrator_corrects_the_day_of_dismissal(): void
+    {
+        $user = User::factory()->create(['hired_at' => '2025-01-10']);
+
+        $this->actingAs($this->administrator())->postJson(route('users.dismiss', $user))->assertOk();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-10-15'])
+            ->assertOk()
+            ->assertJsonPath('data.status', EmploymentStatus::Dismissed->value);
+
+        $corrected = $user->fresh()?->dismissed_at;
+
+        $this->assertSame('2026-10-15', $corrected?->toDateString());
+        $this->assertSame('23:59:59', $corrected?->format('H:i:s'));
+    }
+
+    /** Будущим днём не увольняют: человек либо ушёл, либо ещё работает. */
+    public function test_the_day_of_dismissal_is_not_in_the_future(): void
+    {
+        $user = User::factory()->dismissed()->create();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), [
+                'dismissed_at' => now()->addDay()->toDateString(),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('dismissed_at');
+    }
+
+    /**
+     * И не раньше приёма: отчёт считает стаж разностью этих дат, и
+     * перевёрнутая пара дала бы отрицательный стаж, который молча утянул бы
+     * средние.
+     */
+    public function test_the_day_of_dismissal_is_not_before_the_day_of_hire(): void
+    {
+        $user = User::factory()->dismissed()->create(['hired_at' => '2026-03-01']);
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-02-28'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('dismissed_at');
+
+        // А тем же днём — можно: пришёл и ушёл в один день бывает.
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-03-01'])
+            ->assertOk();
+    }
+
+    /** У работающего дня увольнения нет, и править нечего. */
+    public function test_a_working_person_has_no_day_of_dismissal_to_correct(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-10-15'])
+            ->assertStatus(409);
+
+        $this->assertNull($user->fresh()?->dismissed_at);
+    }
+
+    /**
+     * Лестница та же, что у самого увольнения: кого администратору нельзя
+     * уволить, тому он не перепишет и день ухода.
+     */
+    public function test_an_administrator_may_not_correct_a_superadmins_day(): void
+    {
+        $superAdministrator = $this->superAdministrator();
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('users.dismiss', $superAdministrator))
+            ->assertOk();
+
+        $before = $superAdministrator->fresh()?->dismissed_at;
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $superAdministrator), ['dismissed_at' => '2026-10-15'])
+            ->assertStatus(409);
+
+        $this->assertEquals($before, $superAdministrator->fresh()?->dismissed_at);
+    }
+
+    public function test_a_person_without_the_right_cannot_correct_the_day(): void
+    {
+        $user = User::factory()->dismissed()->create();
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-10-15'])
+            ->assertForbidden();
+    }
+
+    /**
+     * Отчёт о движении персонала идёт за поправленной датой — ради этого правка
+     * и нужна: уволенного пятнадцатого нельзя оставлять в численности до
+     * двадцатого.
+     */
+    public function test_the_staff_report_follows_the_corrected_day(): void
+    {
+        $user = User::factory()->create(['hired_at' => '2026-01-10']);
+
+        $this->actingAs($this->administrator())->postJson(route('users.dismiss', $user))->assertOk();
+
+        $this->actingAs($this->administrator())
+            ->putJson(route('users.dismissal.update', $user), ['dismissed_at' => '2026-09-15'])
+            ->assertOk();
+
+        $this->assertSame(1, User::query()
+            ->whereBetween('dismissed_at', ['2026-09-01 00:00:00', '2026-09-30 23:59:59'])
+            ->whereKey($user->getKey())
+            ->count());
     }
 
     public function test_reinstatement_gives_back_the_standing_and_the_ticked_rights(): void

@@ -1017,9 +1017,17 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
         // question, answered in SyncUserAccess.
         Route::put('users/{user}/access', [UserController::class, 'updateAccess'])->name('users.access.update');
 
-        // Увольнение и возвращение в строй — не правка карточки, а решение о
-        // человеке: своим адресом и со своими правилами, см. ChangeEmployment.
+        /*
+         * Увольнение, правка его даты и возвращение в строй — не правка
+         * карточки, а решение о человеке: своим адресом и со своими правилами,
+         * см. ChangeEmployment.
+         *
+         * Адрес один, методы разные: POST увольняет, PUT поправляет день ухода
+         * (кнопка ставит сегодняшний, а оформляют обычно позже), DELETE
+         * возвращает в строй.
+         */
         Route::post('users/{user}/dismissal', [UserController::class, 'dismiss'])->name('users.dismiss');
+        Route::put('users/{user}/dismissal', [UserController::class, 'updateDismissal'])->name('users.dismissal.update');
         Route::delete('users/{user}/dismissal', [UserController::class, 'reinstate'])->name('users.reinstate');
 
         /*
