@@ -996,6 +996,14 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
         // карточке были бы набором номеров. Правит его — кадровик, ниже.
         Route::get('staff-tags', [StaffTagController::class, 'index'])->name('staff-tags.index');
 
+        /*
+         * Должности для фильтра списка — до `users/{user}`, и это не вкусовщина:
+         * маршруты разбираются в порядке объявления, и ниже «job-titles»
+         * прочиталось бы как номер человека, а привязка модели ответила бы
+         * «не найдено».
+         */
+        Route::get('users/job-titles', [UserController::class, 'jobTitles'])->name('users.job-titles');
+
         // Профиль сотрудника отвечает тому же праву, что и список: открыть
         // карточку — то же чтение, только об одном человеке.
         Route::get('users/{user}', [UserController::class, 'show'])->name('users.show');

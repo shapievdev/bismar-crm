@@ -161,6 +161,78 @@ final class UserManagementTest extends TestCase
             ->assertJsonPath('data.0.id', $wanted->getKey());
     }
 
+    /* ---------- Отбор по должности ---------- */
+
+    /**
+     * Должность отбирается точным совпадением: её выбирают из списка, а не
+     * набирают, и «Мастер» не должен приводить с собой «Мастера-наставника».
+     */
+    public function test_the_staff_list_is_filtered_by_job_title(): void
+    {
+        $wanted = User::factory()->create(['job_title' => 'Мастер']);
+        User::factory()->create(['job_title' => 'Мастер-наставник']);
+        User::factory()->create(['job_title' => null]);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['job_title' => 'Мастер']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    /** Отбор идёт в базу: искомый стоит за концом первой страницы. */
+    public function test_the_job_title_filter_reaches_past_the_first_page(): void
+    {
+        User::factory()->count(30)->create(['job_title' => 'Кладовщик']);
+        $wanted = User::factory()->create(['job_title' => 'Кровельщик']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['job_title' => 'Кровельщик']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    /** Должность складывается с поиском, а не отменяет его. */
+    public function test_the_job_title_filter_adds_up_with_the_search(): void
+    {
+        $wanted = User::factory()->create(['last_name' => 'Ёлкина', 'job_title' => 'Кассир']);
+        User::factory()->create(['last_name' => 'Ёлкин', 'job_title' => 'Грузчик']);
+        User::factory()->create(['last_name' => 'Яковлев', 'job_title' => 'Кассир']);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.index', ['search' => 'ёлкин', 'job_title' => 'Кассир']))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $wanted->getKey());
+    }
+
+    /**
+     * Список должностей — из проставленного, без повторов и по-русски: «Ёлочник»
+     * обязан стоять перед «Яковлевым», а не после, — база собрана с
+     * C-сортировкой, и без ICU порядок был бы побайтовый.
+     */
+    public function test_the_job_titles_are_offered_from_what_people_actually_have(): void
+    {
+        User::factory()->count(2)->create(['job_title' => 'Ёлочник']);
+        User::factory()->create(['job_title' => 'Яковлевец']);
+        User::factory()->create(['job_title' => 'Бухгалтер']);
+        User::factory()->create(['job_title' => null]);
+
+        $this->actingAs($this->userWith(Permission::ViewUsers))
+            ->getJson(route('users.job-titles'))
+            ->assertOk()
+            ->assertJsonPath('data', ['Бухгалтер', 'Ёлочник', 'Яковлевец']);
+    }
+
+    /** Должности — часть списка людей, и право на них то же. */
+    public function test_the_job_titles_are_closed_to_those_who_may_not_see_people(): void
+    {
+        $this->actingAs($this->userWith(Permission::ViewCourses))
+            ->getJson(route('users.job-titles'))
+            ->assertForbidden();
+    }
+
     /**
      * Где человек в структуре компании — столбец списка, а не только карточки.
      */

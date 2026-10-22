@@ -7,7 +7,7 @@ import { maskPhone } from '~/utils/phone'
 definePageMeta({ middleware: 'auth', permission: 'users.view' })
 useHead({ title: 'Сотрудники' })
 
-const { fetchUsers, restoreUser } = useAdminApi()
+const { fetchUsers, restoreUser, fetchJobTitles } = useAdminApi()
 const { can, isSuperAdmin } = useAuth()
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +25,27 @@ const page = ref(pageFromQuery(route.query.page))
  * суперадминистратор — он их и возвращает; API проверяет то же самое.
  */
 const showDeleted = ref(route.query.deleted === '1')
+
+/**
+ * Должность, по которой отбирают, — точным совпадением с выбранной из списка.
+ *
+ * Отбирает сервер, как и ищет: на странице двадцать пять человек из всех, и
+ * фильтр по загруженному оставил бы на экране только тех, кто и так на виду.
+ */
+const jobTitle = ref(typeof route.query.job_title === 'string' ? route.query.job_title : '')
+
+/**
+ * Список должностей — из того, что реально проставлено людям.
+ *
+ * Своим запросом и один раз на открытие: он не зависит ни от страницы, ни от
+ * набранного в поиске.
+ */
+const { data: titles } = await useAsyncData('staff.job-titles', () => fetchJobTitles())
+
+const jobTitleOptions = computed(() => [
+  { value: '', label: 'Все должности' },
+  ...(titles.value?.data ?? []).map(one => ({ value: one, label: one })),
+])
 
 /**
  * Запрос отстаёт от набора на четверть секунды: одна фамилия — это десяток
@@ -55,15 +76,16 @@ const { data, pending, error, refresh } = await useAsyncData(
   () => fetchUsers({
     search: term.value || undefined,
     page: page.value > 1 ? page.value : undefined,
+    job_title: jobTitle.value || undefined,
     deleted: showDeleted.value || undefined,
   }),
-  { watch: [term, page, showDeleted] },
+  { watch: [term, page, showDeleted, jobTitle] },
 )
 
 // Найденное — свой, куда более короткий список: четвёртая страница всех
 // сотрудников почти никогда не четвёртая страница поиска и обычно за её концом.
 // Удалённых это касается тем более: их единицы.
-watch([term, showDeleted], () => {
+watch([term, showDeleted, jobTitle], () => {
   page.value = 1
 })
 
@@ -74,6 +96,7 @@ watchEffect(() => {
     query: {
       ...(term.value ? { search: term.value } : {}),
       ...(page.value > 1 ? { page: String(page.value) } : {}),
+      ...(jobTitle.value ? { job_title: jobTitle.value } : {}),
       ...(showDeleted.value ? { deleted: '1' } : {}),
     },
   })
@@ -177,6 +200,14 @@ function permissionsLabel(user: User): string {
     : `${count} ${pluralise(count, 'право', 'права', 'прав')}`
 }
 
+/**
+ * Отбирают ли сейчас хоть чем-нибудь.
+ *
+ * От этого зависит, что сказать, когда список пуст: «никого не нашли» — про
+ * отбор, а «сотрудников пока нет» — про пустую базу, и путать их нельзя.
+ */
+const isFiltered = computed(() => Boolean(term.value || jobTitle.value))
+
 function foundLabel(count: number): string {
   return showDeleted.value
     // Запись, а не сотрудник: удалённая карточка — это уже не человек в штате,
@@ -216,6 +247,17 @@ function foundLabel(count: number): string {
           aria-label="Поиск по сотрудникам"
         >
 
+        <!-- Должности — только те, что реально проставлены людям. Пока ни у
+             кого не заполнено, выбирать не из чего, и поля нет. -->
+        <UiSelect
+          v-if="jobTitleOptions.length > 1"
+          v-model="jobTitle"
+          :options="jobTitleOptions"
+          searchable
+          auto
+          aria-label="Отбор по должности"
+        />
+
         <!-- Удалённые смотрит и возвращает один суперадминистратор: остальным
              убранного в приложении нет. -->
         <button
@@ -229,7 +271,7 @@ function foundLabel(count: number): string {
         </button>
 
         <p v-if="!isFirstLoad && !error" class="muted" aria-live="polite">
-          {{ term ? `Нашли ${foundLabel(total)}` : foundLabel(total) }}
+          {{ isFiltered ? `Нашли ${foundLabel(total)}` : foundLabel(total) }}
         </p>
       </div>
     </header>
@@ -248,20 +290,20 @@ function foundLabel(count: number): string {
 
     <UiEmptyState
       v-else-if="!users.length && showDeleted"
-      :title="term ? 'Среди удалённых никого не нашли' : 'Удалённых записей нет'"
-      :description="term
-        ? 'Поиск идёт по фамилии, имени, отчеству и почте — проверьте написание.'
+      :title="isFiltered ? 'Среди удалённых никого не нашли' : 'Удалённых записей нет'"
+      :description="isFiltered
+        ? 'Поиск идёт по фамилии, имени, отчеству и почте, а должность берётся точным совпадением.'
         : 'Удаляют редко, и до увольнения — никого.'"
     />
 
     <UiEmptyState
       v-else-if="!users.length"
-      :title="term ? 'Никого не нашли' : 'Сотрудников пока нет'"
-      :description="term
-        ? 'Поиск идёт по фамилии, имени, отчеству и почте — проверьте написание.'
+      :title="isFiltered ? 'Никого не нашли' : 'Сотрудников пока нет'"
+      :description="isFiltered
+        ? 'Поиск идёт по фамилии, имени, отчеству и почте, а должность берётся точным совпадением — проверьте и то и другое.'
         : 'Как только появятся сотрудники, они будут здесь.'"
     >
-      <NuxtLink v-if="canManage && !term" to="/staff/new" class="button-primary">
+      <NuxtLink v-if="canManage && !isFiltered" to="/staff/new" class="button-primary">
         Завести первого
       </NuxtLink>
     </UiEmptyState>

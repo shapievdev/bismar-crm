@@ -15,6 +15,11 @@ export interface StaffQuery {
   search?: string
   page?: number
   /**
+   * Должность — точным совпадением: её выбирают из списка проставленных, а не
+   * набирают руками, поэтому «Мастер» не приводит с собой «Мастера-наставника».
+   */
+  job_title?: string
+  /**
    * Удалённые записи вместо живых.
    *
    * Тот же адрес, потому что спрашивают у него то же самое — людей с поиском и
@@ -47,6 +52,15 @@ export function useAdminApi() {
     /** Один сотрудник — для его профиля. */
     fetchStaffMember: (id: number): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${id}`),
+
+    /**
+     * Должности, которые есть у людей, — для фильтра списка.
+     *
+     * Отдельным запросом, а не со страницей списка: должности нужны все сразу,
+     * а страница — двадцать пять человек из всех.
+     */
+    fetchJobTitles: (): Promise<ResourceResponse<string[]>> =>
+      $api<ResourceResponse<string[]>>('/api/users/job-titles'),
 
     /*
      * Отправляющие форму разбирают отказ по полям — как и везде, где форму

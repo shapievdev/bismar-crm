@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\StaffTag;
 use App\Models\User;
+use App\Support\Staff\JobTitles;
 use App\Support\Staff\StaffQuery;
 use App\Support\Staff\StaffReport;
 use App\Support\Staff\StaffScope;
@@ -35,6 +36,7 @@ final class StaffController extends Controller
         private readonly StaffReport $report,
         private readonly StaffScope $scope,
         private readonly StaffQuery $query,
+        private readonly JobTitles $titles,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -116,30 +118,17 @@ final class StaffController extends Controller
     }
 
     /**
-     * Должности — из того, что реально проставлено.
+     * Должности, которые человеку можно выбрать в фильтре, — суженные тем же
+     * местом в структуре, что и весь отчёт.
      *
-     * Справочника должностей в приложении нет: должность здесь строка, которую
-     * пишет кадровик. Список собирается из заполненного, чтобы фильтр
-     * предлагал то, что найдётся, а не то, что кто-то однажды придумал.
+     * Сам список собирается в App\Support\Staff\JobTitles: его спрашивает ещё и
+     * список сотрудников, а разошедшиеся запросы однажды предложили бы в двух
+     * местах разные должности.
      *
      * @return list<string>
      */
     private function jobTitles(User $viewer): array
     {
-        $allowed = $this->scope->departments($viewer);
-
-        return User::query()
-            ->whereNotNull('job_title')
-            ->when($allowed !== null, fn ($query) => $query
-                ->whereHas('departments', fn ($departments) => $departments
-                    ->whereIn('departments.id', $allowed === [] ? [0] : $allowed)))
-            // Группировкой, а не `distinct`: при `select distinct` Postgres
-            // требует, чтобы выражение сортировки стояло и в списке выборки, а
-            // сортируем мы по коллации — «Бухгалтер» должен идти перед
-            // «Водителем», а не после «Washer».
-            ->groupBy('job_title')
-            ->orderByRaw('job_title collate "und-x-icu"')
-            ->pluck('job_title')
-            ->all();
+        return $this->titles->all($this->scope->departments($viewer));
     }
 }

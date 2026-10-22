@@ -18,6 +18,7 @@ use App\Http\Requests\User\UpdateUserAccessRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\Staff\JobTitles;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
@@ -37,6 +38,11 @@ final class UserController extends Controller
      * столбцами разошёлся бы с первым на первой же правке. Видит их один
      * суперадминистратор: удаляет и возвращает он, а остальным убранное
      * показывать незачем — его для приложения нет.
+     *
+     * Должность отбирается точным совпадением, а не вхождением: выбирают её из
+     * списка проставленных (см. `jobTitles`), а не набирают руками, и «Мастер»
+     * не должен приводить с собой «Мастера-наставника». Отбор идёт в базу, как и
+     * поиск: на странице двадцать пять человек из всех.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -44,6 +50,8 @@ final class UserController extends Controller
         $reader = $request->user();
 
         $deleted = $request->boolean('deleted');
+
+        $jobTitle = trim((string) $request->query('job_title', ''));
 
         abort_if(
             $deleted && $reader->accessLevel() !== AccessLevel::SuperAdmin,
@@ -71,6 +79,7 @@ final class UserController extends Controller
             // двадцать пять человек из всех, и отбор по ней находил бы лишь
             // тех, кто и так на виду.
             ->matching($request->query('search'))
+            ->when($jobTitle !== '', fn (Builder $query) => $query->where('job_title', $jobTitle))
             // Удалённые — свежими сверху, как в корзине базы знаний: возвращают
             // обычно то, что убрали только что, а не то, что первое по алфавиту.
             ->when($deleted, fn (Builder $query) => $query->orderByDesc('deleted_at'))
@@ -84,6 +93,20 @@ final class UserController extends Controller
             ->withQueryString();
 
         return UserResource::collection($users);
+    }
+
+    /**
+     * Должности для фильтра списка — из того, что реально проставлено.
+     *
+     * Своим адресом, а не вместе со списком людей: список страничный, а
+     * должности нужны все сразу, и ехать им с каждой страницей незачем.
+     * Собираются там же, где и должности для отчёта о штате
+     * (App\Support\Staff\JobTitles) — иначе два фильтра однажды предложили бы
+     * разное.
+     */
+    public function jobTitles(JobTitles $titles): JsonResponse
+    {
+        return response()->json(['data' => $titles->all()]);
     }
 
     /**
