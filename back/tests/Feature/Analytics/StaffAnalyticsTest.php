@@ -75,24 +75,48 @@ final class StaffAnalyticsTest extends TestCase
     }
 
     /**
-     * Удалённая запись считается по-прежнему.
+     * Удалённой записи в отчёте нет — ни цифрой, ни фамилией.
      *
-     * Ради этого удаление сотрудника и сделали мягким: уволенный в июле и
-     * удалённый сегодня в июньской численности работал, в июльских увольнениях
-     * стоит и в среднесписочной, по которой делится текучесть, тоже. Стёртая
-     * запись переписала бы всё это задним числом и молча — числа остались бы
-     * правдоподобными.
+     * Решение пользователя (2026-10-22): удалили, значит человека в отчёте нет.
+     * Мягкость удаления позволяла и обратное — отчёт считает по датам, а не по
+     * нынешнему положению, — но выбрано это, и вместе с ним подвижное прошлое:
+     * тот же период до удаления и после даёт разные числа. Проверяется здесь и
+     * то и другое, чтобы «перестал считать» не оказалось однажды «перестал
+     * считать только в сводке».
      */
-    public function test_a_deleted_record_still_counts(): void
+    public function test_a_deleted_record_drops_out_of_the_report(): void
     {
         $this->hire('2025-06-01');
         $leaver = $this->hire('2025-01-01', dismissed: '2026-07-20');
 
-        $before = $this->report()->json('data');
+        $this->report()
+            ->assertJsonPath('data.summary.headcount_start', 2)
+            ->assertJsonPath('data.summary.left', 1);
 
         $leaver->delete();
 
-        $this->assertSame($before, $this->report()->json('data'));
+        $this->report()
+            ->assertJsonPath('data.summary.headcount_start', 1)
+            ->assertJsonPath('data.summary.left', 0)
+            ->assertJsonPath('data.reasons.total', 0);
+
+        // Ушедших за период нет вовсе — значит и текучести нет. Числом, а не
+        // `assertJsonPath`: ноль уезжает в JSON целым, и сравнение с 0.0 его не
+        // узнаёт.
+        $this->assertSame(0.0, (float) $this->report()->json('data.summary.turnover'));
+
+        // В таблице по подразделениям — тоже: она считает своим запросом, и
+        // глобальный фильтр до неё не дотягивается.
+        $departments = $this->report()->json('data.departments');
+        $this->assertSame(1, $departments[0]['headcount']);
+        $this->assertSame(0, $departments[0]['left']);
+
+        // И в списке людей за цифрой: фамилия удалённого не должна всплыть и
+        // здесь — за этим список и проверяется отдельно от сводки.
+        $this->actingAs($this->hr())
+            ->getJson(route('analytics.staff.people', $this->asked(extra: ['slice' => 'headcount'])))
+            ->assertOk()
+            ->assertJsonMissing(['id' => $leaver->getKey()]);
     }
 
     /** Края периода входят в него: принятый первого января принят за год. */

@@ -201,8 +201,8 @@ final class UserController extends Controller
     /**
      * Удаление — после увольнения и только суперадминистратором.
      *
-     * Мягкое: запись остаётся в базе, приложение её не показывает, а отчёт о
-     * движении персонала считает по-прежнему — см. DeleteUser.
+     * Мягкое: запись остаётся в базе и удаление можно отменить, но в приложении
+     * удалённого нет нигде — включая отчёт о штате, см. DeleteUser.
      */
     public function destroy(Request $request, User $user, DeleteUser $deleteUser): Response
     {
