@@ -85,15 +85,16 @@ final readonly class DashboardSpec
     private static function filtersFrom(array $slice): ReportFilters
     {
         $preset = self::oneOf($slice['preset'] ?? null, Period::presets());
-        $granularity = self::oneOf($slice['granularity'] ?? null, Period::granularities());
+        $from = self::date($slice['from'] ?? null);
+        $to = self::date($slice['to'] ?? null);
+
+        $period = Period::fromRequest(preset: $preset, from: $from, to: $to);
+        $step = self::stepFor(self::oneOf($slice['granularity'] ?? null, Period::granularities()), $period);
 
         return new ReportFilters(
-            period: Period::fromRequest(
-                preset: $preset,
-                from: self::date($slice['from'] ?? null),
-                to: self::date($slice['to'] ?? null),
-                granularity: $granularity,
-            ),
+            // Без названного шага период оставляет тот, который выбрал себе
+            // сам по длине, — он почти всегда и есть верный.
+            period: $step === null ? $period : $period->withGranularity($step),
             channels: self::strings($slice['channels'] ?? null),
             warehouses: self::strings($slice['warehouses'] ?? null),
             managers: self::strings($slice['managers'] ?? null),
@@ -102,6 +103,36 @@ final readonly class DashboardSpec
             // возврат показывает продажу, которой не было.
             withReturns: ! array_key_exists('with_returns', $slice) || (bool) $slice['with_returns'],
         );
+    }
+
+    /**
+     * Шаг графика — названный моделью, если он осмыслен для этой длины.
+     *
+     * Модель выбирает его плохо: на месячном периоде она просит месячный шаг, а
+     * это одна точка — не график, а запятая. Проверяется не вкус, а счёт: шаг,
+     * дающий меньше трёх точек, заменяется тем, который период выбирает себе
+     * сам по длине (см. Period). Три — не круглое число, а наименьшее, на
+     * котором видно направление: две точки показывают только разницу.
+     *
+     * Названный шаг при этом остаётся главным, когда он годится: «покажи по
+     * неделям» должно работать, и подменять его своим расчётом значило бы не
+     * услышать просьбу.
+     */
+    private static function stepFor(?string $wanted, Period $period): ?string
+    {
+        if ($wanted === null) {
+            return null;
+        }
+
+        $days = $period->days();
+
+        $enough = match ($wanted) {
+            Period::GRANULARITY_MONTH => $days >= 90,
+            Period::GRANULARITY_WEEK => $days >= 21,
+            default => true,
+        };
+
+        return $enough ? $wanted : null;
     }
 
     /**
@@ -174,7 +205,10 @@ final readonly class DashboardSpec
                 $label = $metrics[$wanted[0]]['label'];
                 $where = $place === 'ranking' ? 'в раскладке по разрезу' : 'на графике';
 
-                $refused[] = mb_strtolower($label).' так не считается — '.$where.' её нет, только итогом за период';
+                // Без согласования по роду и числу: «возвраты» и «маржа» встают
+                // в одну и ту же строку, а подбирать окончания к названиям
+                // показателей — работа, которой здесь не место.
+                $refused[] = "«{$label}» {$where} не считаются — только итогом за период";
 
                 continue;
             }
