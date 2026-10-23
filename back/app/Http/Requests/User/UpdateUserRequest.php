@@ -26,6 +26,21 @@ final class UpdateUserRequest extends FormRequest
      */
     public function rules(): array
     {
+        return self::rulesFor($this->route('user'));
+    }
+
+    /**
+     * Те же правила — тем, кто правит карточку не формой.
+     *
+     * Статические и отдельно от `rules()`, потому что спрашивает их ещё и
+     * инструмент MCP (App\Mcp\Tools\Staff\UpdateStaff): коннектор приходит с
+     * JSON-RPC, и FormRequest собрать из него нечем. Два списка этих правил
+     * разошлись бы на первой же правке.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function rulesFor(?User $user): array
+    {
         return [
             'last_name' => ['required', 'string', 'max:255'],
             'first_name' => ['required', 'string', 'max:255'],
@@ -39,7 +54,7 @@ final class UpdateUserRequest extends FormRequest
                 // спорят вовсе — уникальность, как и в базе, спрашивается у
                 // живых.
                 Rule::unique(User::class, 'email')
-                    ->ignore($this->route('user')?->getKey())
+                    ->ignore($user?->getKey())
                     ->whereNull('deleted_at'),
             ],
             // Телефон стёрть нельзя: с него сотрудник входит, и пустое поле
@@ -48,7 +63,7 @@ final class UpdateUserRequest extends FormRequest
             'phone' => [
                 'required', 'string', 'regex:'.Phone::PATTERN,
                 Rule::unique(User::class, 'phone')
-                    ->ignore($this->route('user')?->getKey())
+                    ->ignore($user?->getKey())
                     ->whereNull('deleted_at'),
             ],
 
@@ -82,7 +97,7 @@ final class UpdateUserRequest extends FormRequest
             'mentor_id' => [
                 'nullable',
                 'integer',
-                Rule::notIn([$this->route('user')?->getKey()]),
+                Rule::notIn([$user?->getKey()]),
                 Rule::exists(User::class, 'id')->whereNull('dismissed_at'),
             ],
 

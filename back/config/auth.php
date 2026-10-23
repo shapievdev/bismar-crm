@@ -33,13 +33,33 @@ return [
     | users are actually retrieved out of your database or other storage
     | system used by the application. Typically, Eloquent is utilized.
     |
-    | Supported: "session"
+    | Supported: "session", "passport"
     |
     */
 
     'guards' => [
         'web' => [
             'driver' => 'session',
+            'provider' => 'users',
+        ],
+
+        /*
+         * Коннектор MCP: вход по токену OAuth, а не по cookie.
+         *
+         * Сайт работает на сессии (`auth:sanctum` поверх неё), и для него этот
+         * guard не нужен ни на одном маршруте. Нужен он единственному адресу —
+         * `/mcp`, куда приходит claude.ai: cookie у него нет и быть не может,
+         * он сторонний клиент и приносит токен, выданный Passport.
+         *
+         * Провайдер тот же, `users`, и этим второй guard обходится без
+         * последствий. Права и роли spatie по-прежнему читаются под `web`:
+         * модель прибивает guard гвоздём (App\Support\Authorization::GUARD), и
+         * появление `api` в этом списке на них не влияет. А мягкое удаление
+         * снимает удалённого с любого запроса, включая поиск по токену, — токен
+         * удалённого сотрудника перестаёт кого-либо находить.
+         */
+        'api' => [
+            'driver' => 'passport',
             'provider' => 'users',
         ],
     ],

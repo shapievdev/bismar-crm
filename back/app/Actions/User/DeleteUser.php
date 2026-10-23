@@ -40,6 +40,8 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class DeleteUser
 {
+    public function __construct(private RevokeOAuthTokens $revokeTokens) {}
+
     /**
      * @throws ConflictException
      */
@@ -57,6 +59,13 @@ final readonly class DeleteUser
                     ->where('user_id', $user->getKey())
                     ->delete();
             }
+
+            // Токены коннектора гасятся и здесь, хотя удаляют только
+            // уволенного, у которого они погашены увольнением: удалённого
+            // провайдер по токену больше не найдёт, но живая строка токена у
+            // записи, которой для приложения нет, — это мусор, который однажды
+            // прочитают.
+            $this->revokeTokens->handle($user);
 
             // Через запись, а не `delete()` с последующим сохранением: у
             // удалённой модели сохранять уже нечего — её не видит и собственный

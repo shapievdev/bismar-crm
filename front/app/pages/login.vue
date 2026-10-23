@@ -34,8 +34,7 @@ async function handleSubmit() {
       remember: form.remember,
     })
 
-    const { redirect } = route.query
-    await router.push(typeof redirect === 'string' ? redirect : '/')
+    await goAfterLogin()
   }
   catch (error) {
     if (error instanceof ApiValidationError) {
@@ -48,6 +47,32 @@ async function handleSubmit() {
   finally {
     isSubmitting.value = false
   }
+}
+
+/**
+ * Куда вести после входа.
+ *
+ * Обычно — туда, откуда человека сюда отправили, и это страница Nuxt: `push`
+ * открывает её, не перезагружая приложение. Но один адрес приложению не
+ * принадлежит — `/oauth/authorize`, экран согласия для коннектора claude.ai:
+ * его отдаёт Laravel, и `push` показал бы вместо него «страница не найдена».
+ * Такие пути отдаются браузеру.
+ *
+ * Берётся только путь и только свой — начинающийся с одной косой черты. Иначе
+ * «?redirect=https://чужой-сайт» превратил бы форму входа в удобный перенос:
+ * человек вошёл у нас, а оказался неизвестно где.
+ */
+async function goAfterLogin() {
+  const { redirect } = route.query
+  const target = typeof redirect === 'string' && /^\/(?!\/)/.test(redirect) ? redirect : '/'
+
+  if (target.startsWith('/oauth/')) {
+    window.location.assign(target)
+
+    return
+  }
+
+  await router.push(target)
 }
 </script>
 

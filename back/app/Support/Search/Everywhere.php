@@ -69,7 +69,13 @@ final readonly class Everywhere
      * глазами и привыкает, что курсы сверху, а люди снизу. Переставлять их по
      * числу находок значило бы каждый раз заставлять его читать заголовки.
      *
-     * @return list<array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}>
+     * У находки есть номер, хотя подсказке в шапке он не нужен — она ходит по
+     * адресу. Нужен он второму спрашивающему: коннектор MCP ищет тем же
+     * поиском (App\Mcp\Tools\Knowledge\SearchKnowledge), а читает найденное
+     * инструментом, который спрашивает номер, — и выковыривать его из адреса
+     * строкой значило бы сломаться на первой же правке маршрутов.
+     *
+     * @return list<array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}>
      */
     public function find(?string $term, User $reader): array
     {
@@ -97,7 +103,7 @@ final readonly class Everywhere
      * Курсы — те же, что в каталоге: закрытые только своим, черновики только
      * тем, кто их правит.
      *
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function courses(string $term, User $reader): ?array
     {
@@ -118,6 +124,7 @@ final readonly class Everywhere
 
         return $this->section('course', 'Курсы', $this->more('/lms', $term), $courses->map(
             fn (Course $course): array => [
+                'id' => $course->getKey(),
                 'title' => $course->title,
                 'subtitle' => $course->category?->name,
                 'url' => '/lms/'.$course->slug,
@@ -134,7 +141,7 @@ final readonly class Everywhere
      * Доступ решает курс, как и везде в базе знаний (см. PartOfCourse): у урока
      * своей закрытости нет.
      *
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function lessons(string $term, User $reader): ?array
     {
@@ -170,6 +177,7 @@ final readonly class Everywhere
                 $course = $lesson->owningCourse();
 
                 return [
+                    'id' => $lesson->getKey(),
                     'title' => $lesson->title,
                     'subtitle' => 'Курс «'.$course->title.'»',
                     'url' => '/lms/'.$course->slug.'/lessons/'.$lesson->getKey(),
@@ -191,7 +199,7 @@ final readonly class Everywhere
      * Права проверены до вызова: раздел попадает сюда, только если открыт (см.
      * MaterialKind::viewableBy).
      *
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function materials(MaterialKind $kind, string $term, User $reader): ?array
     {
@@ -209,6 +217,7 @@ final readonly class Everywhere
 
         return $this->section($kind->value, $kind->plural(), $this->more('/lms/'.$kind->section(), $term), $materials->map(
             fn (Regulation $material): array => [
+                'id' => $material->getKey(),
                 'title' => $material->title,
                 'subtitle' => $material->category?->name,
                 'url' => $material->path(),
@@ -222,7 +231,7 @@ final readonly class Everywhere
      * Тем же правилом, каким их отбирает лента (News::scopeReadableBy):
      * найденная в шапке новость, которую нельзя открыть, хуже ненайденной.
      *
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function news(string $term, User $reader): ?array
     {
@@ -236,6 +245,7 @@ final readonly class Everywhere
         // Лента новостей поиском не отбирается — обещать «показать все» нечем.
         return $this->section('news', 'Новости', null, $news->map(
             fn (News $one): array => [
+                'id' => $one->getKey(),
                 'title' => $one->title,
                 'subtitle' => $one->published_at?->format('d.m.Y'),
                 'url' => '/news/'.$one->slug,
@@ -251,7 +261,7 @@ final readonly class Everywhere
      * идут они после работающих и сказано об этом прямо: «Иванов» в подсказке
      * без пометки читался бы как коллега, которому можно написать.
      *
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function people(string $term, User $reader): ?array
     {
@@ -268,6 +278,7 @@ final readonly class Everywhere
 
         return $this->section('person', 'Сотрудники', $this->more('/staff', $term), $people->map(
             fn (User $person): array => [
+                'id' => $person->getKey(),
                 'title' => $person->name,
                 'subtitle' => $this->personSubtitle($person),
                 'url' => '/staff/'.$person->getKey(),
@@ -289,8 +300,8 @@ final readonly class Everywhere
     /**
      * Раздел выдачи — или ничего, когда в нём ничего не нашлось.
      *
-     * @param  Collection<int, array{title: string, subtitle: string|null, url: string}>  $items
-     * @return array{kind: string, label: string, more_url: string|null, items: list<array{title: string, subtitle: string|null, url: string}>}|null
+     * @param  Collection<int, array{id: int, title: string, subtitle: string|null, url: string}>  $items
+     * @return array{kind: string, label: string, more_url: string|null, items: list<array{id: int, title: string, subtitle: string|null, url: string}>}|null
      */
     private function section(string $kind, string $label, ?string $moreUrl, Collection $items): ?array
     {

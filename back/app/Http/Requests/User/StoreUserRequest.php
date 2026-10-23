@@ -20,6 +20,21 @@ final class StoreUserRequest extends FormRequest
      */
     public function rules(): array
     {
+        return self::rulesFor();
+    }
+
+    /**
+     * Те же правила — тем, кто заводит сотрудника не формой.
+     *
+     * Статические и отдельно от `rules()`, потому что спрашивает их ещё и
+     * инструмент MCP (App\Mcp\Tools\Staff\CreateStaff): коннектор приходит с
+     * JSON-RPC, а не с HTTP-формой, и собрать из него FormRequest нечем. Списком
+     * в двух местах эти правила быть не должны — разойдутся на первой же правке.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function rulesFor(): array
+    {
         return [
             'last_name' => ['required', 'string', 'max:255'],
             'first_name' => ['required', 'string', 'max:255'],

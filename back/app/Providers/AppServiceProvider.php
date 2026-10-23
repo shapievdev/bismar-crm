@@ -8,16 +8,18 @@ use Anthropic\Client;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Lesson;
+use App\Models\MaterialVersion;
 use App\Models\News;
 use App\Models\Regulation;
-use App\Models\MaterialVersion;
 use App\Models\User;
 use App\Support\Ai\Embedder;
 use App\Support\Ai\ModelSettings;
 use App\Support\Lms\MaterialVersions;
+use Carbon\CarbonInterval;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -56,6 +58,33 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->registerMorphMap();
         $this->registerAdministratorBypass();
+        $this->configureOAuth();
+    }
+
+    /**
+     * OAuth для коннектора MCP — и только для него.
+     *
+     * Passport здесь не способ входить на сайт: сайт работает на сессии, и ни
+     * один его маршрут этого guard не спрашивает. Он нужен единственному
+     * клиенту без cookie — claude.ai, который приходит на `/mcp` с токеном.
+     *
+     * Сроки короче годового умолчания Passport. Токен коннектора — ключ ко
+     * всему, что человеку можно, и лежит он на чужом сервере: сутки означают,
+     * что украденный ключ работает сутки, а не год. Обновление при этом
+     * незаметно — коннектор продлевает токен сам, пока живёт refresh.
+     *
+     * Пароль через OAuth не отдаётся: `enablePasswordGrant` не зовётся
+     * намеренно — это была бы вторая дверь для входа по логину и паролю, и
+     * открывать её незачем, когда нужна одна.
+     */
+    private function configureOAuth(): void
+    {
+        Passport::tokensExpireIn(CarbonInterval::day());
+        Passport::refreshTokensExpireIn(CarbonInterval::days(30));
+
+        // Экран согласия — свой и по-русски: тот, что идёт с пакетом, собран под
+        // приложение со сборкой стилей, которой у этого бэкенда нет.
+        Passport::authorizationView('mcp.authorize');
     }
 
     /**

@@ -29,6 +29,8 @@ use Illuminate\Support\Facades\DB;
  */
 final readonly class ChangeEmployment
 {
+    public function __construct(private RevokeOAuthTokens $revokeTokens) {}
+
     /**
      * @param  DismissalReason|null  $reason  почему ушёл: без неё доли в отчёте
      *                                        не сложатся, но и требовать её от
@@ -59,6 +61,10 @@ final readonly class ChangeEmployment
         ])->save();
 
         $this->signOutEverywhere($user);
+
+        // И токены коннектора: сессия — не единственный ключ от двери, а
+        // подключённый claude.ai работал бы от имени ушедшего ещё сутки.
+        $this->revokeTokens->handle($user);
 
         // Уведомления тоже: звать в закрытую платформу незачем, а подписка
         // жила бы на телефоне ушедшего, пока он сам её не отключит.

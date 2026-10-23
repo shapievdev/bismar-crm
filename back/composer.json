@@ -10,6 +10,8 @@
         "anthropic-ai/sdk": "^0.40.0",
         "glushkovds/phpclickhouse-laravel": "^2.7",
         "laravel/framework": "^13.8",
+        "laravel/mcp": "^1.1",
+        "laravel/passport": "^13.10",
         "laravel/reverb": "^1.11",
         "laravel/sanctum": "^4.0",
         "laravel/scout": "^11.6",

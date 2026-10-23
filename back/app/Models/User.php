@@ -22,6 +22,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable([
@@ -29,7 +31,7 @@ use Spatie\Permission\Traits\HasRoles;
     'hired_at', 'employment_status', 'work_mode', 'mentor_id',
 ])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements OAuthenticatable
 {
     /**
      * Удаление здесь мягкое: удалённого приложение не показывает и внутрь не
@@ -42,9 +44,14 @@ class User extends Authenticatable
      * одного `withTrashed` по этой модели в приложении нет. Единственное место,
      * где они видны, — список удалённых у суперадминистратора.
      *
+     * `HasApiTokens` — от Passport, и не ради входа на сайт: сайт работает на
+     * сессии. Он нужен единственному клиенту без cookie — коннектору MCP, —
+     * и даёт две вещи: токены, выданные этому человеку (`tokens()`, по ним
+     * увольнение их и гасит), и `tokenCan()` для проверки полномочий токена.
+     *
      * @use HasFactory<UserFactory>
      */
-    use HasFactory, HasRoles, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable, SoftDeletes;
 
     /**
      * Pins permission lookups to a single guard. Without this, spatie resolves
