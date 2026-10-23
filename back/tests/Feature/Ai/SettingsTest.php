@@ -205,6 +205,30 @@ final class SettingsTest extends TestCase
         $this->assertFalse(ModelSettings::current()->isConfigured());
     }
 
+    /**
+     * Ключ с чужого стенда не мешает сохранить новый.
+     *
+     * База приезжает дампом на ноутбуки, и ключ в ней зашифрован чужим
+     * `APP_KEY`. Сохранение такой строки падало с «The MAC is invalid»: Eloquent
+     * перед записью сравнивает новое значение со старым, а сравнить шифр он
+     * может, только расшифровав его. Получался тупик — ключ нельзя было
+     * заменить именно там, где он и не работает.
+     */
+    public function test_a_key_from_another_stand_does_not_block_saving_a_new_one(): void
+    {
+        $this->storeKeyFromAnotherStand();
+
+        $this->actingAs($this->superAdministrator())
+            ->putJson(route('ai.settings.update'), [
+                'model' => 'claude-haiku-4.5',
+                'api_key' => 'sk-aitunnel-svezhij',
+                'auth_scheme' => AiAuthScheme::Bearer->value,
+            ])
+            ->assertOk();
+
+        $this->assertSame('sk-aitunnel-svezhij', AiSetting::current()->readableKey());
+    }
+
     /* ---------- Проверка связи ---------- */
 
     /**

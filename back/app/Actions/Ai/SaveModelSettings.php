@@ -31,6 +31,11 @@ final readonly class SaveModelSettings
 
         $settings = AiSetting::current();
 
+        // Ключ с чужого стенда не должен мешать сохранить новый — см.
+        // AiSetting::forgetUnreadableKey. Без этого экран настроек на ноутбуке
+        // с дампом боевой базы отвечал «The MAC is invalid» на любое сохранение.
+        $settings->forgetUnreadableKey();
+
         // Пустой ключ означает «не трогать»: форма его не показывает, и
         // сохранение любой другой правки иначе стирало бы рабочий ключ.
         if (($attributes['api_key'] ?? null) === null || trim((string) $attributes['api_key']) === '') {
