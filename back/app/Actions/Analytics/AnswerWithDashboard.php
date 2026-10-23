@@ -121,6 +121,7 @@ final readonly class AnswerWithDashboard
         }
 
         $answer = $this->withRefusals($answer, $refused);
+        $answer = $this->withCaveats($answer, $dashboard);
 
         $stored = AnalyticsQuestion::query()->create([
             'user_id' => $reader->getKey(),
@@ -160,6 +161,26 @@ final readonly class AnswerWithDashboard
         }
 
         return trim($answer."\n\nЧего показать не смог: ".implode('; ', $reasons).'.');
+    }
+
+    /**
+     * Дописать оговорки о посчитанных цифрах.
+     *
+     * Говорит их тот, кто считал, и только когда они верны: модель настоящей
+     * доли выручки без себестоимости не знает и, если её попросить, повторяет
+     * предупреждение наизусть в каждом ответе — одинаково и мимо.
+     *
+     * @param  array<string, mixed>|null  $dashboard
+     */
+    private function withCaveats(string $answer, ?array $dashboard): string
+    {
+        $caveats = $dashboard['caveats'] ?? [];
+
+        if (! is_array($caveats) || $caveats === []) {
+            return $answer;
+        }
+
+        return trim($answer."\n\n".implode(' ', $caveats));
     }
 
     /**
@@ -286,7 +307,9 @@ final readonly class AnswerWithDashboard
         3. Панелей не больше восьми. Отвечай на заданный вопрос, а не на все соседние.
         4. В `answer` говори о том, что видно на панелях, и называй период. Не выдумывай
            чисел: ты их не знаешь — их посчитает приложение. Говори о том, **что смотреть**.
-        5. Если вопрос упирается в оговорки ниже — скажи об этом прямо в `answer`.
+        5. Оговорки о данных — долю выручки без себестоимости, незагруженные дни —
+           приложение допишет само, настоящими числами. Не пересказывай их и не
+           гадай: «если доля выше 20%» в каждом ответе — это шум, а не забота.
         6. «По неделям», «по месяцам», «по дням» — это **шаг графика**
            (`granularity`), а не длина периода. «Покажи то же по неделям» означает
            тот же период с недельным шагом, а не «за последние недели». Период

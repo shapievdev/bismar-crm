@@ -11,11 +11,13 @@ use App\Enums\Permission;
 use App\Models\AnalyticsQuestion;
 use App\Models\User;
 use App\Support\Analytics\ClickHouse;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\Support\FakeAnthropicTransport;
 use Tests\Support\FakeClickHouse;
+use Tests\Support\RankingClickHouse;
 use Tests\TestCase;
 
 /**
@@ -109,6 +111,89 @@ final class AiAnalystTest extends TestCase
             ->assertJsonPath('data.dashboard', null);
 
         $this->assertSame(AnalyticsAnswerOutcome::Explained, AnalyticsQuestion::query()->sole()->outcome);
+    }
+
+    /**
+     * Модели сказано, какое сегодня число, и как назвать день и месяц.
+     *
+     * Без этого она не могла выразить ни «вчера», ни «за август»: пресеты —
+     * это «последние N дней», и названный месяц в них не ложится. Выходило
+     * худшее: заголовок «Август» над цифрами за последние тридцать дней.
+     */
+    public function test_the_model_is_told_todays_date_and_how_to_name_a_period(): void
+    {
+        $this->fakeClickHouse();
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Готово.', 'dashboard' => null,
+        ])));
+
+        $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'как продажи за август?'])
+            ->assertOk();
+
+        $system = (string) json_encode($transport->payload()['system'] ?? '', JSON_UNESCAPED_UNICODE);
+
+        $this->assertStringContainsString(CarbonImmutable::today()->toDateString(), $system);
+        $this->assertStringContainsString(CarbonImmutable::yesterday()->toDateString(), $system);
+        // И прямое правило: названный месяц — это from и to, а не пресет.
+        $this->assertStringContainsString('пресетом не выражается', $system);
+    }
+
+    /**
+     * Оговорки о данных говорит тот, кто считал, а не модель по памяти.
+     *
+     * Прежде об этом просили её, и она повторяла предупреждение наизусть в
+     * каждом ответе: «если доля выручки без себестоимости выше 20%, маржа
+     * приблизительна». Настоящей доли она не знает — её знает сервер, и
+     * говорить о ней должен он: тогда оговорка появляется, когда верна, и с
+     * числом.
+     */
+    public function test_the_model_is_told_not_to_recite_the_caveats(): void
+    {
+        $this->fakeClickHouse();
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Выручка в плитке.',
+            'dashboard' => ['widgets' => [['type' => 'kpi', 'metric' => 'revenue']]],
+        ])));
+
+        $response = $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'как продажи?'])
+            ->assertOk();
+
+        $system = (string) json_encode($transport->payload()['system'] ?? '', JSON_UNESCAPED_UNICODE);
+
+        $this->assertStringContainsString('приложение допишет само', $system);
+
+        // Место для них в ответе есть всегда — пустое, когда говорить нечего.
+        $response->assertJsonPath('data.dashboard.caveats', []);
+    }
+
+    /**
+     * Высоту раскладки считает тот, кто знает число строк.
+     *
+     * Модель ставит её наугад и чаще не ставит вовсе, а умолчание — один ряд:
+     * рейтинг на десять строк оказывался в карточке, где видна одна строка с
+     * полосой прокрутки.
+     */
+    public function test_a_ranking_is_tall_enough_to_be_read(): void
+    {
+        $this->app->instance(ClickHouse::class, RankingClickHouse::withRows(8));
+
+        $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Рейтинг.',
+            'dashboard' => [
+                // Высоты модель не назвала — как и бывает почти всегда.
+                'widgets' => [['type' => 'bars', 'dimension' => 'warehouse', 'metric' => 'revenue']],
+            ],
+        ])));
+
+        $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'склады по выручке'])
+            ->assertOk()
+            ->assertJsonCount(8, 'data.dashboard.panels.0.items')
+            // Восемь строк — два ряда сетки. Один ряд показывал бы одну строку
+            // с полосой прокрутки.
+            ->assertJsonPath('data.dashboard.panels.0.rows', 2);
     }
 
     /* ---------- Граница: что модель выдумала ---------- */

@@ -62,7 +62,72 @@ final readonly class DashboardExecutor
             'title' => $spec->title,
             'slice' => $spec->filters->toArray(),
             'panels' => $panels,
+            'caveats' => $this->caveats($spec, $summary),
         ];
+    }
+
+    /**
+     * Оговорки об **этих** цифрах — от того, кто их посчитал.
+     *
+     * Раньше о них просили модель, и она пересказывала их наизусть в каждом
+     * ответе: «если доля выручки без себестоимости выше 20%, маржа
+     * приблизительна». Беда не в многословии, а в том, что настоящей доли она
+     * не знает — её знает сервер. Поэтому оговорка теперь говорится только
+     * тогда, когда она верна, и с настоящим числом.
+     *
+     * @param  array{current?: array<string, float|int>}|null  $summary
+     * @return list<string>
+     */
+    private function caveats(DashboardSpec $spec, ?array $summary): array
+    {
+        $caveats = [];
+
+        // Итоги уже посчитаны, если на дашборде есть плитки; иначе спрашиваем —
+        // запрос кэширован и общий с вкладками.
+        $share = (float) (($summary ?? $this->sales->summary($spec->filters))['current']['without_cost_share'] ?? 0);
+
+        if ($share > DashboardVocabulary::UNRELIABLE_MARGIN_SHARE) {
+            $caveats[] = 'Маржа и прибыль здесь приблизительны: у '.$this->percent($share)
+                .' выручки в этом срезе витрина не знает себестоимости.';
+        }
+
+        $unloaded = $this->unloadedDays($spec);
+
+        if ($unloaded !== null) {
+            $caveats[] = $unloaded;
+        }
+
+        return $caveats;
+    }
+
+    /**
+     * Захватывает ли срез дни, которых в витрине ещё нет.
+     *
+     * Выгрузка приходит ночью, и в течение дня самая свежая продажа —
+     * вчерашняя. Без этой оговорки «ноль за сегодня» читается как провал в
+     * торговле, а незаконченный месяц — как падение выручки.
+     */
+    private function unloadedDays(DashboardSpec $spec): ?string
+    {
+        $last = $this->vocabulary->lastLoadedDate();
+
+        if ($last === null || $spec->filters->period->to->toDateString() <= $last) {
+            return null;
+        }
+
+        return 'Данные доехали по '.$this->day($last).', а срез заканчивается '
+            .$this->day($spec->filters->period->to->toDateString())
+            .' — последние дни в нём неполные.';
+    }
+
+    private function percent(float $share): string
+    {
+        return rtrim(rtrim(number_format($share, 1, ',', ' '), '0'), ',').'%';
+    }
+
+    private function day(string $date): string
+    {
+        return implode('.', array_reverse(explode('-', $date)));
     }
 
     /**
@@ -164,17 +229,43 @@ final readonly class DashboardExecutor
 
         $format = $metrics[$metric]['format'] === 'money' ? 'money' : 'number';
 
+        $items = array_values(array_filter(array_map(
+            fn (array $row): ?array => $this->item($row, $metric, $metrics),
+            $rows,
+        )));
+
         return array_filter([
             'type' => $widget->type,
             'span' => $widget->span,
-            'rows' => $widget->rows,
+            'rows' => $this->rowsFitting($widget, count($items)),
             'title' => $widget->title,
             'format' => $format,
-            'items' => array_values(array_filter(array_map(
-                fn (array $row): ?array => $this->item($row, $metric, $metrics),
-                $rows,
-            ))),
+            'items' => $items,
         ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * Сколько рядов сетки занять раскладке — по числу строк, а не по мнению
+     * модели.
+     *
+     * Высоту она ставит наугад и чаще всего не ставит вовсе, а умолчание —
+     * один ряд: рейтинг на десять строк оказывался в карточке высотой в три,
+     * и человек видел одну строку с полосой прокрутки. Считать высоту должен
+     * тот, кто знает число строк, то есть это место.
+     *
+     * Названное моделью остаётся нижней границей: попросила выше — пусть будет
+     * выше, это её право. А три ряда — потолок: панель во весь экран вытесняет
+     * собой всё, ради чего рядом стоят остальные.
+     */
+    private function rowsFitting(DashboardWidget $widget, int $items): int
+    {
+        // Кольцо мерится не строками, а своим диаметром: долей в нём от двух до
+        // шести, и больше двух рядов ему ни к чему.
+        $needed = $widget->type === 'donut'
+            ? 2
+            : (int) ceil($items / 4);
+
+        return max(2, min(3, max($widget->rows, $needed)));
     }
 
     /**
