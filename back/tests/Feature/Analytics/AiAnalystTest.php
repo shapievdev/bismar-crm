@@ -167,6 +167,36 @@ final class AiAnalystTest extends TestCase
             ->assertJsonPath('data.dashboard', null);
     }
 
+    /**
+     * Показатель, который в этом месте не считается, панелью не становится.
+     *
+     * Любимая просьба модели — «возвраты по брендам»: по словарю есть и
+     * возвраты, и бренды, а отчёты такой строки не считают. Панель выходила
+     * пустой, и ответ словами ещё приглашал на неё посмотреть — хуже этого
+     * только обещание, которого никто не заметил.
+     */
+    public function test_a_metric_that_is_not_counted_in_a_ranking_is_dropped(): void
+    {
+        $this->fakeClickHouse();
+        $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Возвраты свёл в плитку.',
+            'dashboard' => [
+                'widgets' => [
+                    // Так — можно: итоги возвраты знают.
+                    ['type' => 'kpi', 'metric' => 'returns', 'span' => 3],
+                    // А так — нет: раскладка по брендам возвратов не считает.
+                    ['type' => 'bars', 'title' => 'Бренды по возвратам', 'dimension' => 'brand', 'metric' => 'returns'],
+                ],
+            ],
+        ])));
+
+        $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'возвраты по брендам'])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.dashboard.panels')
+            ->assertJsonPath('data.dashboard.panels.0.type', 'kpi');
+    }
+
     /** Предел строк в рейтинге свой, а не тот, который назвала модель. */
     public function test_the_limit_is_ours_not_the_one_the_model_asked_for(): void
     {

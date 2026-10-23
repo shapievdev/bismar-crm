@@ -140,6 +140,25 @@ final readonly class DashboardSpec
                 continue;
             }
 
+            /*
+             * Показатель должен считаться там, куда его просят.
+             *
+             * «Возвраты по брендам» — любимая просьба модели: по словарю есть и
+             * возвраты, и бренды, а отчёты такой строки не считают. Панель
+             * выходила пустой, и ответ словами ещё приглашал на неё посмотреть.
+             * Словарь теперь говорит, где показатель годится (поле `in`), а
+             * здесь это проверяется: полосы, столбцы и кольцо — одно место
+             * `ranking`, у них общая раскладка.
+             */
+            $place = match ($type) {
+                'kpi', 'line' => $type,
+                default => 'ranking',
+            };
+
+            if (! in_array($place, $metrics[$wanted[0]]['in'], true)) {
+                continue;
+            }
+
             $widgets[] = new DashboardWidget(
                 type: $type,
                 title: self::title($row['title'] ?? null, $metrics[$wanted[0]]['label']),

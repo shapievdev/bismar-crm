@@ -55,49 +55,65 @@ final readonly class DashboardVocabulary
      * числа — хорошая новость или плохая. Для возвратов плохая, и без этого
      * поля экран красил бы зелёным растущий возврат.
      *
-     * @return array<string, array{label: string, format: string, growth: string, hint?: string}>
+     * `in` — где показатель вообще считается, и это поле появилось не из
+     * стройности. Модель охотно просит «возвраты по брендам»: по словарю и
+     * возвраты есть, и бренды есть, — а отчёты такой строки не считают, и
+     * панель выходила пустой с обещанием в заголовке. Хуже пустой панели только
+     * пустая панель, про которую ответ словами сказал, что на неё стоит
+     * посмотреть.
+     *
+     * Три места: `kpi` — итоги за период (их тринадцать), `line` — точки
+     * графика (их четыре), `ranking` — раскладка по разрезу, то есть полосы,
+     * столбцы и кольцо.
+     *
+     * @return array<string, array{label: string, format: string, growth: string, in: list<string>, hint?: string}>
      */
     public function metrics(): array
     {
         return [
-            'revenue' => ['label' => 'Выручка', 'format' => 'money', 'growth' => 'good'],
-            'profit' => ['label' => 'Прибыль', 'format' => 'money', 'growth' => 'good'],
+            'revenue' => ['label' => 'Выручка', 'format' => 'money', 'growth' => 'good', 'in' => ['kpi', 'line', 'ranking']],
+            'profit' => ['label' => 'Прибыль', 'format' => 'money', 'growth' => 'good', 'in' => ['kpi', 'line', 'ranking']],
             'margin' => [
                 'label' => 'Маржа',
                 'format' => 'percent',
                 'growth' => 'good',
+                'in' => ['kpi', 'ranking'],
                 'hint' => 'Доля прибыли в выручке. Верна настолько, насколько витрина знает себестоимость — см. without_cost_share.',
             ],
             'without_cost_share' => [
                 'label' => 'Выручка без себестоимости',
                 'format' => 'percent',
                 'growth' => 'bad',
+                'in' => ['kpi', 'ranking'],
                 'hint' => 'Какой доле выручки витрина не знает себестоимости. Чем больше, тем меньше веры марже.',
             ],
-            'returns' => ['label' => 'Возвраты', 'format' => 'money', 'growth' => 'bad'],
-            'return_rate' => ['label' => 'Доля возвратов', 'format' => 'percent', 'growth' => 'bad'],
-            'return_orders' => ['label' => 'Возвратных документов', 'format' => 'number', 'growth' => 'bad'],
+            'returns' => ['label' => 'Возвраты', 'format' => 'money', 'growth' => 'bad', 'in' => ['kpi']],
+            'return_rate' => ['label' => 'Доля возвратов', 'format' => 'percent', 'growth' => 'bad', 'in' => ['kpi']],
+            'return_orders' => ['label' => 'Возвратных документов', 'format' => 'number', 'growth' => 'bad', 'in' => ['kpi']],
             'orders' => [
                 'label' => 'Документов',
                 'format' => 'number',
                 'growth' => 'good',
+                'in' => ['kpi', 'line', 'ranking'],
                 'hint' => 'Число документов продажи, а не покупок: в розничных каналах один документ — это магазин за день, а не чек.',
             ],
             'average_order' => [
                 'label' => 'Средний документ',
                 'format' => 'money',
                 'growth' => 'good',
+                'in' => ['kpi', 'line'],
                 'hint' => 'Выручка на документ. В розничных каналах бессмысленна — см. оговорки.',
             ],
-            'quantity' => ['label' => 'Количество', 'format' => 'decimal', 'growth' => 'neutral'],
-            'items' => ['label' => 'Товарных позиций', 'format' => 'number', 'growth' => 'neutral'],
+            'quantity' => ['label' => 'Количество', 'format' => 'decimal', 'growth' => 'neutral', 'in' => ['kpi', 'ranking']],
+            'items' => ['label' => 'Товарных позиций', 'format' => 'number', 'growth' => 'neutral', 'in' => ['kpi']],
             'customers' => [
                 'label' => 'Клиентов',
                 'format' => 'number',
                 'growth' => 'good',
+                'in' => ['kpi'],
                 'hint' => 'Покупки без карты в счёт не идут: за ними не стоит покупатель, которого можно посчитать.',
             ],
-            'lines' => ['label' => 'Строк в документах', 'format' => 'number', 'growth' => 'neutral'],
+            'lines' => ['label' => 'Строк в документах', 'format' => 'number', 'growth' => 'neutral', 'in' => ['kpi']],
         ];
     }
 
@@ -244,7 +260,10 @@ final readonly class DashboardVocabulary
         $metrics = [];
 
         foreach ($this->metrics() as $key => $meta) {
-            $metrics[] = "- `{$key}` — {$meta['label']}".(isset($meta['hint']) ? '. '.$meta['hint'] : '.');
+            $where = implode(', ', $meta['in']);
+
+            $metrics[] = "- `{$key}` — {$meta['label']}. Годится в: {$where}."
+                .(isset($meta['hint']) ? ' '.$meta['hint'] : '');
         }
 
         $dimensions = [];
