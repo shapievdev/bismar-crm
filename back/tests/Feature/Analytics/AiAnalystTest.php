@@ -380,6 +380,36 @@ final class AiAnalystTest extends TestCase
         $this->assertStringContainsString('average_order', $system);
     }
 
+    /**
+     * Подсказка не тащит с собой лишнего.
+     *
+     * Полный справочник отбора весил четырнадцать тысяч знаков — две трети
+     * подсказки, то есть две трети расхода на каждый вопрос. Выручка за
+     * значениями нужна интерфейсу, а не модели; менеджеров сто семьдесят
+     * восемь, и вопрос о человеке честнее закрывается раскладкой по разрезу.
+     * Проверяется не размер — он зависит от витрины, — а что ни того, ни
+     * другого в подсказке нет.
+     */
+    public function test_the_prompt_does_not_carry_what_the_model_cannot_use(): void
+    {
+        $this->fakeClickHouse();
+        $transport = $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Готово.', 'dashboard' => null,
+        ])));
+
+        $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'как продажи?'])
+            ->assertOk();
+
+        $system = (string) json_encode($transport->payload()['system'] ?? '', JSON_UNESCAPED_UNICODE);
+
+        // Выручка за значениями отбора — дело интерфейса.
+        $this->assertStringNotContainsString('"revenue":', $system);
+        // Менеджеры — числом и объяснением, а не списком.
+        $this->assertStringNotContainsString('"managers"', $system);
+        $this->assertStringContainsString('списком они не переданы', $system);
+    }
+
     /* ---------- Своя переписка ---------- */
 
     public function test_history_shows_only_your_own_and_recounts_the_panels(): void

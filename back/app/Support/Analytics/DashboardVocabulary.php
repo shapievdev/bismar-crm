@@ -285,12 +285,6 @@ final readonly class DashboardVocabulary
         }
 
         $periods = implode(', ', Period::presets());
-        $values = $this->filters();
-
-        $filters = ($values['unavailable'] ?? false) === true
-            ? 'Сейчас недоступны — сервер аналитики не ответил. Не отбирай ни по складам, ни по каналам: '
-                .'названий ты не знаешь, а выдуманное даст пустую панель.'
-            : (string) json_encode($values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return <<<TEXT
         # Показатели
@@ -324,12 +318,73 @@ final readonly class DashboardVocabulary
 
         # Чем можно отобрать и по какое число доехали данные
 
-        {$filters}
+        {$this->filtersForPrompt()}
 
         # Что обязательно знать об этих цифрах
 
         {$this->lines($caveats)}
         TEXT;
+    }
+
+    /**
+     * Справочник отбора — тем, что модели действительно нужно.
+     *
+     * Полный справочник весит четырнадцать тысяч знаков и съедал две трети
+     * подсказки, то есть две трети расхода на **каждый** вопрос. Урезан он
+     * дважды, и оба раза не наугад.
+     *
+     * Выручка у каждого значения выброшена: она здесь ради интерфейса — чтобы
+     * крупные склады стояли в списке выше мелких, — а модели от неё нет
+     * никакой пользы. Одна эта правка снимает больше половины веса.
+     *
+     * Менеджеры выброшены списком: их сто семьдесят восемь, и это сам по себе
+     * самый длинный кусок подсказки. Модели они не нужны: вопрос о конкретном
+     * человеке честнее закрывается раскладкой по разрезу `manager`, где он
+     * виден вместе с соседями, чем отбором по одному имени, которое модель
+     * всё равно угадывает по созвучию. Число оставлено — чтобы она понимала
+     * порядок величин и не предлагала рейтинг на двести строк.
+     *
+     * Склады, каналы и сегменты остаются целиком: их шесть десятков на всех,
+     * а отбор «по магазину Центральный» без точного названия не работает.
+     */
+    private function filtersForPrompt(): string
+    {
+        $values = $this->filters();
+
+        if (($values['unavailable'] ?? false) === true) {
+            return 'Сейчас недоступны — сервер аналитики не ответил. Не отбирай ни по складам, ни по каналам: '
+                .'названий ты не знаешь, а выдуманное даст пустую панель.';
+        }
+
+        $trimmed = [
+            'channels' => self::names($values['channels'] ?? []),
+            'warehouses' => self::names($values['warehouses'] ?? []),
+            'segments' => self::names($values['segments'] ?? []),
+            'freshness' => $values['freshness'] ?? [],
+        ];
+
+        $managers = count(self::names($values['managers'] ?? []));
+
+        return (string) json_encode($trimmed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            ."\n\nМенеджеров {$managers}, и списком они не переданы намеренно. Отбирать по одному имени не нужно: "
+            .'на вопрос о конкретном человеке отвечай раскладкой по разрезу `manager` — в ней он виден вместе с соседями.';
+    }
+
+    /**
+     * Имена значений без выручки за ними.
+     *
+     * @return list<string>
+     */
+    private static function names(mixed $values): array
+    {
+        if (! is_array($values)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $one): string => is_array($one) ? (string) ($one['value'] ?? '') : (string) $one,
+            $values,
+        ), static fn (string $one): bool => $one !== ''));
     }
 
     /**
