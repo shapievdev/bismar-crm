@@ -21,10 +21,11 @@ namespace App\Support\Analytics;
 final readonly class ReportFilters
 {
     /**
-     * @param  list<string>  $channels    Накладные, чеки ККМ — как их зовёт витрина
+     * @param  list<string>  $channels  Накладные, чеки ККМ — как их зовёт витрина
      * @param  list<string>  $warehouses
      * @param  list<string>  $managers
-     * @param  list<string>  $segments    сегмент клиента: КОРП, Розница, Тендер…
+     * @param  list<string>  $segments  сегмент клиента: КОРП, Розница, Тендер…
+     * @param  list<string>  $employees  имена продавцов, как их пишет 1С
      */
     public function __construct(
         public Period $period,
@@ -38,6 +39,20 @@ final readonly class ReportFilters
          * когда нужно увидеть отгрузку саму по себе.
          */
         public bool $withReturns = true,
+        /**
+         * Продавцы — именами из витрины, а не сотрудниками платформы.
+         *
+         * Нужен этот отбор одному спрашивающему — ИИ-аналитику, и приходит он
+         * к нему не от человека: человек спрашивает «продажи оптового отдела»,
+         * а в имена продавцов это разворачивает структура компании (см.
+         * App\Support\Analytics\CompanyStructure). Экранам вкладок он не
+         * нужен — у них для людей своя вкладка.
+         *
+         * Стоит последним намеренно: отбор добавлен позже остальных, а
+         * вставленный в середину он переломал бы всех, кто собирает срез
+         * позиционно, — и ради стройности списка.
+         */
+        public array $employees = [],
     ) {}
 
     public function withPeriod(Period $period): self
@@ -49,6 +64,7 @@ final readonly class ReportFilters
             $this->managers,
             $this->segments,
             $this->withReturns,
+            $this->employees,
         );
     }
 
@@ -92,6 +108,9 @@ final readonly class ReportFilters
             'warehouses' => ['sklad', $this->warehouses],
             'managers' => ['menedzher', $this->managers],
             'segments' => ['segment_klienta', $this->segments],
+            // Тот же столбец, по которому ведётся сопоставление продавцов с
+            // отделами, — см. EmployeeReport.
+            'employees' => ['sotrudnik', $this->employees],
         ];
     }
 
@@ -106,6 +125,7 @@ final readonly class ReportFilters
             'warehouses' => $this->warehouses,
             'managers' => $this->managers,
             'segments' => $this->segments,
+            'employees' => $this->employees,
             'with_returns' => $this->withReturns,
         ];
     }

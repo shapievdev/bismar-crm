@@ -48,7 +48,10 @@ final readonly class DashboardVocabulary
      */
     public const UNRELIABLE_MARGIN_SHARE = 20.0;
 
-    public function __construct(private Directory $directory) {}
+    public function __construct(
+        private Directory $directory,
+        private CompanyStructure $structure,
+    ) {}
 
     /**
      * Показатели — ровно те, что считают отчёты.
@@ -133,14 +136,28 @@ final readonly class DashboardVocabulary
      * у строки есть доля выручки без себестоимости, то есть видно, верить ли
      * марже.
      *
+     * `employee` и `department` — про структуру компании, а не про витрину.
+     * Витрина знает продавца строкой, как её записали в 1С; сопоставление
+     * (`sales_people`) превращает эту строку в сотрудника платформы и его
+     * отдел. Поэтому имя в рейтинге — то же, что в карточке сотрудника, а
+     * строка из 1С остаётся лишь там, где сопоставления нет. См.
+     * App\Support\Analytics\CompanyStructure.
+     *
      * @return array<string, array{label: string, report: string}>
      */
     public function dimensions(): array
     {
         return [
             'warehouse' => ['label' => 'Склад или магазин', 'report' => 'sales'],
-            'manager' => ['label' => 'Менеджер', 'report' => 'sales'],
-            'seller' => ['label' => 'Продавец', 'report' => 'sales'],
+            'employee' => [
+                'label' => 'Сотрудник — именем из платформы, как в карточке',
+                'report' => 'employees',
+            ],
+            'department' => [
+                'label' => 'Отдел компании — по структуре, вместе с подчинёнными',
+                'report' => 'departments',
+            ],
+            'manager' => ['label' => 'Менеджер клиента (имя из 1С, не сотрудник платформы)', 'report' => 'sales'],
             'customer' => ['label' => 'Клиент (без анонимной розницы)', 'report' => 'sales'],
             'direction' => ['label' => 'Направление', 'report' => 'sales'],
             'organisation' => ['label' => 'Организация', 'report' => 'sales'],
@@ -223,6 +240,12 @@ final readonly class DashboardVocabulary
         } catch (AnalyticsUnavailable) {
             return ['unavailable' => true];
         }
+    }
+
+    /** Структура компании — её спрашивают и спец, и исполнитель. */
+    public function structure(): CompanyStructure
+    {
+        return $this->structure;
     }
 
     /**
@@ -366,6 +389,13 @@ final readonly class DashboardVocabulary
 
         # Чем можно отобрать и по какое число доехали данные
 
+        Отбор кладётся в `slice`: `channels`, `warehouses`, `segments`, `departments` —
+        каждый списком названий ровно в том виде, в каком они перечислены ниже.
+
+        `departments` — отбор по структуре компании: «продажи оптового отдела»
+        означает всех его продавцов вместе с подчинёнными отделами. Это не склад
+        и не канал: склад — место, отдел — люди.
+
         {$this->filtersForPrompt()}
 
         # Что обязательно знать об этих цифрах
@@ -408,6 +438,9 @@ final readonly class DashboardVocabulary
             'channels' => self::names($values['channels'] ?? []),
             'warehouses' => self::names($values['warehouses'] ?? []),
             'segments' => self::names($values['segments'] ?? []),
+            // Отделы — из структуры компании, а не из витрины: «оптовый отдел»
+            // живёт у нас, а не в 1С.
+            'departments' => $this->structure->departmentNames(),
             'freshness' => $values['freshness'] ?? [],
         ];
 
