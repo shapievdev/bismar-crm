@@ -22,8 +22,16 @@ export function useAiApi() {
     saveSettings: (body: AiSettingsPayload): Promise<ResourceResponse<AiSettings>> =>
       $api<ResourceResponse<AiSettings>>('/api/ai/settings', { method: 'PUT', body }),
 
-    testConnection: (): Promise<{ message: string }> =>
-      $api<{ message: string }>('/api/ai/settings/test', { method: 'POST' }),
+    /**
+     * Проверить связь — тем, что набрано в форме, а не тем, что сохранено.
+     *
+     * Иначе выходила ловушка: вставил свежий ключ, нажал «Проверить» — и получил
+     * отказ по старому, потому что новый ещё не сохранён. Непришедшее поле
+     * сервер берёт из сохранённого; пустой ключ значит «проверь тем, что в базе»
+     * — форма его и не показывает.
+     */
+    testConnection: (body: Partial<AiSettingsPayload> = {}): Promise<{ message: string }> =>
+      $api<{ message: string }>('/api/ai/settings/test', { method: 'POST', body }),
 
     // Журнал открыт авторам курсов, а не только суперадминистратору: пробел в
     // базе закрывают они.

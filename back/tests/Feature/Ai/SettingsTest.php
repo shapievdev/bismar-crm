@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Ai;
 
+use Anthropic\RequestOptions;
 use App\Enums\AiAuthScheme;
 use App\Models\AiSetting;
 use App\Models\Group;
@@ -13,6 +14,7 @@ use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
+use Tests\Support\FakeAnthropicTransport;
 use Tests\TestCase;
 
 /**
@@ -201,6 +203,105 @@ final class SettingsTest extends TestCase
             ->assertJsonPath('data.name', 'Для розницы');
 
         $this->assertFalse(ModelSettings::current()->isConfigured());
+    }
+
+    /* ---------- Проверка связи ---------- */
+
+    /**
+     * Проверяется набранное в форме, а не сохранённое.
+     *
+     * Раньше это была ловушка, и попадались в неё первым же действием: вставил
+     * свежий ключ, нажал «Проверить связь» — и получил отказ по старому,
+     * потому что новый ещё не сохранён. Отказ при этом обвинял ровно тот ключ,
+     * который только что вставили и который на самом деле хорош.
+     */
+    public function test_the_connection_is_checked_with_what_was_typed(): void
+    {
+        $this->storeKeyFromAnotherStand();
+
+        $transport = $this->fakeModel();
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('ai.settings.test'), [
+                'model' => 'claude-haiku-4.5',
+                'api_key' => 'sk-aitunnel-svezhij',
+            ])
+            ->assertOk();
+
+        // Спросили ту модель, которую набрали, а не ту, что лежит в базе.
+        $this->assertSame('claude-haiku-4.5', $transport->payload()['model'] ?? null);
+    }
+
+    /**
+     * Пустое поле ключа значит «тем, что уже в базе».
+     *
+     * Форма ключ не показывает, и пустым он приезжает всегда, когда его не
+     * меняли. Понять это как «проверь без ключа» значило бы отвечать отказом
+     * на каждую проверку, в которой трогали только имя модели.
+     */
+    public function test_an_empty_key_means_the_stored_one(): void
+    {
+        AiSetting::query()->create([
+            'model' => 'gpt-4o-mini',
+            'api_key' => 'sk-sohranjonnyj',
+            'auth_scheme' => AiAuthScheme::Bearer,
+        ]);
+
+        $transport = $this->fakeModel();
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('ai.settings.test'), ['model' => 'claude-haiku-4.5'])
+            ->assertOk();
+
+        $this->assertSame('claude-haiku-4.5', $transport->payload()['model'] ?? null);
+    }
+
+    /** Ключа нет нигде — отказ словами, а не запрос без авторизации. */
+    public function test_no_key_anywhere_is_refused_before_asking(): void
+    {
+        config()->set('ai.api_key', null);
+        config()->set('ai.auth_token', null);
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('ai.settings.test'), ['model' => 'claude-haiku-4.5'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Ключ не задан — ни в поле выше, ни в настройках, ни в переменных окружения.');
+    }
+
+    /** Проверка ничего не сохраняет: опечатка не должна ломать работающего. */
+    public function test_checking_does_not_save_anything(): void
+    {
+        AiSetting::query()->create([
+            'model' => 'gpt-4o-mini',
+            'api_key' => 'sk-sohranjonnyj',
+            'auth_scheme' => AiAuthScheme::Bearer,
+        ]);
+
+        $this->fakeModel();
+
+        $this->actingAs($this->superAdministrator())
+            ->postJson(route('ai.settings.test'), ['model' => 'opechatka-v-imeni'])
+            ->assertOk();
+
+        $this->assertSame('gpt-4o-mini', AiSetting::current()->model);
+    }
+
+    private function fakeModel(): FakeAnthropicTransport
+    {
+        $transport = FakeAnthropicTransport::replying('Связь.');
+
+        /*
+         * Клиента проверка связи собирает сама — из набранного в форме, — и
+         * готового из контейнера не берёт. Поэтому подменяется не он, а
+         * настройки запроса под ним: ключ и адрес при этом остаются теми,
+         * которые мы и хотим проверить.
+         */
+        $this->app->instance(RequestOptions::class, RequestOptions::with(
+            transporter: $transport,
+            maxRetries: 0,
+        ));
+
+        return $transport;
     }
 
     /** Строка ключа, какой она приезжает с чужого стенда: шифр не наш. */

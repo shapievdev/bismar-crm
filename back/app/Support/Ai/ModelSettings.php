@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Ai;
 
 use Anthropic\Client;
+use Anthropic\RequestOptions;
 use App\Enums\AiAuthScheme;
 use App\Models\AiSetting;
 
@@ -100,6 +101,17 @@ final readonly class ModelSettings
             apiKey: $bearer ? null : $key,
             authToken: $bearer ? $key : null,
             baseUrl: $this->baseUrl(),
+            /*
+             * Настройки запроса берутся из контейнера, если их туда положили.
+             *
+             * Ради одного места — проверки связи на экране настроек. Она
+             * собирает клиента из набранного в форме, а не из сохранённого, и
+             * потому не может взять готового из контейнера, как все остальные.
+             * Тесту при этом нужно подменить транспорт, не трогая ни ключ, ни
+             * адрес, — иначе проверять было бы нечего. Ничего не положили —
+             * `null`, и SDK берёт своё.
+             */
+            requestOptions: app()->bound(RequestOptions::class) ? app(RequestOptions::class) : null,
         );
     }
 

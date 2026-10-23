@@ -87,13 +87,25 @@ async function save(): Promise<void> {
   }
 }
 
-/** Спрашивает модель на два слова — дешевле, чем узнать о поломке от людей. */
+/**
+ * Спрашивает модель на два слова — дешевле, чем узнать о поломке от людей.
+ *
+ * Проверяется набранное в форме, а не сохранённое: иначе вставленный ключ
+ * проверялся бы старым, и отказ обвинял бы ровно тот ключ, который только что
+ * вставили. Сохранять ради проверки тоже нельзя — опечатка в имени модели
+ * сломала бы работающего консультанта.
+ */
 async function check(): Promise<void> {
   isTesting.value = true
   testResult.value = null
 
   try {
-    const { message } = await testConnection()
+    const { message } = await testConnection({
+      model: form.model.trim() || undefined,
+      base_url: form.base_url.trim() || undefined,
+      api_key: form.api_key.trim() || undefined,
+      auth_scheme: form.auth_scheme,
+    })
 
     testResult.value = { ok: true, message }
   }
