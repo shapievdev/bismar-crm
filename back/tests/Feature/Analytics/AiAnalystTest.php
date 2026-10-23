@@ -56,7 +56,9 @@ final class AiAnalystTest extends TestCase
 
     public function test_the_analyst_answers_in_words_and_composes_a_dashboard(): void
     {
-        $this->fakeClickHouse();
+        // Витрина, у которой есть и точки графика, и строки для рейтинга:
+        // пустая отдала бы ноль точек, а график из ничего не рисуется.
+        $this->app->instance(ClickHouse::class, RankingClickHouse::withRows(6));
         $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
             'answer' => 'Выручку свёл в плитку, магазины — в рейтинг.',
             'dashboard' => [
@@ -194,6 +196,34 @@ final class AiAnalystTest extends TestCase
             // Восемь строк — два ряда сетки. Один ряд показывал бы одну строку
             // с полосой прокрутки.
             ->assertJsonPath('data.dashboard.panels.0.rows', 2);
+    }
+
+    /**
+     * График из одной точки не рисуется.
+     *
+     * «Продажи вчера» — это один день, и дневной шаг даёт на нём ровно одну
+     * точку: не график, а запятая. Плитки рядом говорят то же самое и говорят
+     * честнее.
+     */
+    public function test_a_chart_of_one_point_is_not_drawn(): void
+    {
+        $this->fakeClickHouse();
+        $this->fakeModel(FakeAnthropicTransport::replying((string) json_encode([
+            'answer' => 'Вчера.',
+            'dashboard' => [
+                'slice' => ['from' => '2026-10-22', 'to' => '2026-10-22', 'granularity' => 'day'],
+                'widgets' => [
+                    ['type' => 'kpi', 'metric' => 'revenue'],
+                    ['type' => 'line', 'metrics' => ['revenue']],
+                ],
+            ],
+        ])));
+
+        $this->actingAs($this->analyst())
+            ->postJson(route('analytics.ai.ask'), ['question' => 'как шли продажи вчера?'])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.dashboard.panels')
+            ->assertJsonPath('data.dashboard.panels.0.type', 'kpi');
     }
 
     /* ---------- Граница: что модель выдумала ---------- */

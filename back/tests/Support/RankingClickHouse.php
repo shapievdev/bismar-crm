@@ -35,6 +35,17 @@ final class RankingClickHouse extends ClickHouse
      */
     public function select(string $sql, array $bindings = []): array
     {
+        // Точки графика — свой запрос и свои поля. Без них панель с линией
+        // исчезает: график из одной точки не рисуется.
+        if (str_contains($sql, 'AS bucket')) {
+            return array_map(static fn (int $day): array => [
+                'bucket' => sprintf('2026-10-%02d', $day),
+                'revenue' => 1000.0 * $day,
+                'profit' => 100.0 * $day,
+                'orders' => $day,
+            ], range(1, 5));
+        }
+
         if (! str_contains($sql, 'AS name')) {
             return [];
         }
