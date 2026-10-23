@@ -193,6 +193,13 @@ const links = computed<NavLink[]>(() => {
       { to: '/analytics/departments', label: 'Отделы', visible: can('analytics.view') },
       // Та же гонка, повёрнутая к залу: проценты плана и места, а не рубли.
       { to: '/analytics/race', label: 'Битва', visible: can('analytics.view') },
+      /*
+       * Последним, и это не задвинутость: остальные вкладки отвечают на
+       * заранее известные вопросы, а эта — на незаданный. Человек идёт сюда,
+       * когда нужного разреза на других вкладках не нашлось, и искать её он
+       * будет в конце списка, а не вместо продаж.
+       */
+      { to: '/analytics/ai', label: 'ИИ-аналитик', visible: can('analytics.view') },
     ].filter(link => link.visible)
   }
 

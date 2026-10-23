@@ -7,6 +7,7 @@ use App\Enums\Permission;
 use App\Http\Controllers\Api\Ai\ConsultantController;
 use App\Http\Controllers\Api\Ai\QuestionLogController;
 use App\Http\Controllers\Api\Ai\SettingsController;
+use App\Http\Controllers\Api\Analytics\AnalystController;
 use App\Http\Controllers\Api\Analytics\CustomerController as AnalyticsCustomerController;
 use App\Http\Controllers\Api\Analytics\DepartmentSalesController as AnalyticsDepartmentSalesController;
 use App\Http\Controllers\Api\Analytics\DirectoryController as AnalyticsDirectoryController;
@@ -936,6 +937,27 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::Vie
     ->group(function (): void {
         // Списки для фильтров и дата, по которую доехала витрина.
         Route::get('directory', [AnalyticsDirectoryController::class, 'index'])->name('directory');
+
+        /*
+         * ИИ-аналитик: спросить о цифрах словами и получить в ответ объяснение
+         * вместе с собранным дашбордом.
+         *
+         * Тем же правом, что и вкладки: разделять «кто видит выручку» и «кто
+         * складывает из неё панель» нечем — это та же цифра, в том же разрезе,
+         * посчитанная тем же кодом (см. DashboardExecutor).
+         *
+         * У самого вопроса предел частоты строже: каждый стоит вызова модели,
+         * и зажатая кнопка не должна превращаться в счёт от поставщика. Чтение
+         * своей переписки под него не попадает — оно модель не трогает.
+         */
+        Route::prefix('ai')->as('ai.')->group(function (): void {
+            Route::post('ask', [AnalystController::class, 'ask'])
+                ->middleware('throttle:20,1')
+                ->name('ask');
+
+            Route::get('history', [AnalystController::class, 'history'])->name('history');
+            Route::delete('history', [AnalystController::class, 'forget'])->name('forget');
+        });
 
         Route::get('sales', [AnalyticsSalesController::class, 'index'])->name('sales');
         // Разрез ограничен на маршруте: имя колонки попадает в SQL склейкой,

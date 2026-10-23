@@ -1,0 +1,225 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Data\Analytics;
+
+use App\Support\Analytics\DashboardVocabulary;
+use App\Support\Analytics\Period;
+use App\Support\Analytics\ReportFilters;
+
+/**
+ * Дашборд, собранный моделью, — после проверки по словарю.
+ *
+ * Между ответом модели и этим объектом стоит `fromModel()`, и это единственная
+ * дверь: ни одно слово из ответа не доходит до запроса, не пройдя через словарь
+ * (App\Support\Analytics\DashboardVocabulary). Выдуманный показатель, выдуманный
+ * разрез, «сто двадцать строк в рейтинге», отрицательная ширина — всё это
+ * отсеивается здесь.
+ *
+ * Негодная панель выбрасывается, а не отменяет весь ответ. Модель на бою —
+ * слабая (gpt-4o-mini), и одна панель из шести у неё выйдет неверной
+ * непременно; отказ от дашборда целиком означал бы, что сотрудник не видит
+ * ничего из-за одной ошибки. Если же не уцелела ни одна — дашборда нет, и
+ * остаётся ответ словами: это честнее пустой сетки.
+ *
+ * Период и отбор собираются теми же классами, что и для вкладок (Period,
+ * ReportFilters): ни одно значение отбора не склеивается с SQL, все уходят в
+ * запрос параметрами.
+ */
+final readonly class DashboardSpec
+{
+    /** Сколько панелей разрешено. Больше восьми — это уже не ответ, а свалка. */
+    private const MAX_WIDGETS = 8;
+
+    /** Сетка на двенадцать колонок — та же, что у нынешних вкладок. */
+    private const COLUMNS = 12;
+
+    /**
+     * @param  list<DashboardWidget>  $widgets
+     */
+    private function __construct(
+        public string $title,
+        public ReportFilters $filters,
+        public array $widgets,
+    ) {}
+
+    /**
+     * Разобрать то, что прислала модель.
+     *
+     * @param  array<string, mixed>  $decoded
+     */
+    public static function fromModel(array $decoded, DashboardVocabulary $vocabulary): ?self
+    {
+        $widgets = self::widgetsFrom($decoded['widgets'] ?? null, $vocabulary);
+
+        if ($widgets === []) {
+            return null;
+        }
+
+        return new self(
+            title: self::title($decoded['title'] ?? null),
+            filters: self::filtersFrom(is_array($decoded['slice'] ?? null) ? $decoded['slice'] : []),
+            widgets: $widgets,
+        );
+    }
+
+    /**
+     * Срез — через те же Period и ReportFilters, что у экранов.
+     *
+     * Значения отбора не сверяются со словарём намеренно, хотя он их знает:
+     * несовпавшее даст пустую панель, а не ошибку, и это лучше отказа — склад
+     * мог появиться в витрине после того, как словарь собрали. А вот период и
+     * шаг графика сверяются: они попадают в выражение запроса.
+     *
+     * @param  array<string, mixed>  $slice
+     */
+    private static function filtersFrom(array $slice): ReportFilters
+    {
+        $preset = self::oneOf($slice['preset'] ?? null, Period::presets());
+        $granularity = self::oneOf($slice['granularity'] ?? null, Period::granularities());
+
+        return new ReportFilters(
+            period: Period::fromRequest(
+                preset: $preset,
+                from: self::date($slice['from'] ?? null),
+                to: self::date($slice['to'] ?? null),
+                granularity: $granularity,
+            ),
+            channels: self::strings($slice['channels'] ?? null),
+            warehouses: self::strings($slice['warehouses'] ?? null),
+            managers: self::strings($slice['managers'] ?? null),
+            segments: self::strings($slice['segments'] ?? null),
+            // Возвраты входят в выручку, пока их явно не исключили: спрятанный
+            // возврат показывает продажу, которой не было.
+            withReturns: ! array_key_exists('with_returns', $slice) || (bool) $slice['with_returns'],
+        );
+    }
+
+    /**
+     * @return list<DashboardWidget>
+     */
+    private static function widgetsFrom(mixed $raw, DashboardVocabulary $vocabulary): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $kinds = $vocabulary->widgets();
+        $metrics = $vocabulary->metrics();
+        $dimensions = $vocabulary->dimensions();
+
+        $widgets = [];
+
+        foreach ($raw as $row) {
+            if (! is_array($row) || count($widgets) >= self::MAX_WIDGETS) {
+                continue;
+            }
+
+            $type = self::oneOf($row['type'] ?? null, array_keys($kinds));
+
+            if ($type === null) {
+                continue;
+            }
+
+            // Показатель приходит то полем, то списком: у графика их два, у
+            // остальных один, и модель путает эти два вида записи постоянно.
+            $wanted = array_values(array_filter(array_map(
+                static fn (mixed $value): ?string => self::oneOf($value, array_keys($metrics)),
+                is_array($row['metrics'] ?? null) ? $row['metrics'] : [$row['metric'] ?? null],
+            )));
+
+            if ($wanted === []) {
+                continue;
+            }
+
+            $dimension = self::oneOf($row['dimension'] ?? null, array_keys($dimensions));
+
+            // Разрез обязателен там, где без него нечего раскладывать.
+            if (in_array('dimension', $kinds[$type]['needs'], true) && $dimension === null) {
+                continue;
+            }
+
+            $widgets[] = new DashboardWidget(
+                type: $type,
+                title: self::title($row['title'] ?? null, $metrics[$wanted[0]]['label']),
+                // График рисует две линии, остальные — одну: вторая величина в
+                // ширине полосы не выражается.
+                metrics: $type === 'line' ? array_slice($wanted, 0, 2) : [$wanted[0]],
+                dimension: $dimension,
+                limit: self::bounded($row['limit'] ?? null, 3, 25, 10),
+                span: self::bounded($row['span'] ?? null, 3, self::COLUMNS, $type === 'kpi' ? 3 : 6),
+                rows: self::bounded($row['rows'] ?? null, 1, 3, 1),
+                // Сравнение с прошлым периодом умеет только плитка: у
+                // остальных панелей рисовать его нечем.
+                compare: $type === 'kpi' && (bool) ($row['compare'] ?? true),
+            );
+        }
+
+        return $widgets;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+            'title' => $this->title,
+            'slice' => $this->filters->toArray(),
+            'widgets' => array_map(static fn (DashboardWidget $widget): array => $widget->toArray(), $this->widgets),
+        ];
+    }
+
+    private static function title(mixed $value, string $fallback = 'Дашборд'): string
+    {
+        $title = trim((string) (is_string($value) ? $value : ''));
+
+        return $title === '' ? $fallback : mb_substr($title, 0, 120);
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     */
+    private static function oneOf(mixed $value, array $allowed): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return in_array($value, $allowed, true) ? $value : null;
+    }
+
+    private static function bounded(mixed $value, int $min, int $max, int $default): int
+    {
+        if (! is_int($value) && ! (is_string($value) && ctype_digit($value))) {
+            return $default;
+        }
+
+        return max($min, min($max, (int) $value));
+    }
+
+    private static function date(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($value)) === 1
+            ? trim($value)
+            : null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function strings(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map(static fn (mixed $one): string => trim((string) (is_scalar($one) ? $one : '')), $value),
+            static fn (string $one): bool => $one !== '',
+        ));
+    }
+}

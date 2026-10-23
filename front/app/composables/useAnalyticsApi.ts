@@ -1,5 +1,7 @@
 import type { SurveySummary } from '~/types/survey'
+import { toValidationError } from '~/composables/useAuth'
 import type {
+  AnalystTurn,
   AnalyticsFilters,
   AnalyticsResponse,
   BreakdownRow,
@@ -83,6 +85,34 @@ export function useAnalyticsApi() {
   return {
     fetchDirectory: (): Promise<AnalyticsResponse<Directory>> =>
       $api<AnalyticsResponse<Directory>>('/api/analytics/directory'),
+
+    /* ---------- ИИ-аналитик ---------- */
+
+    /**
+     * Спросить о цифрах словами.
+     *
+     * Отвечает и словами, и собранной панелью — сразу с посчитанными цифрами.
+     * Долго: один вызов модели плюс запросы в ClickHouse, так что экран обязан
+     * показать, что он занят.
+     */
+    askAnalyst: (question: string): Promise<{ data: AnalystTurn }> =>
+      $api<{ data: AnalystTurn }>('/api/analytics/ai/ask', {
+        method: 'POST',
+        body: { question },
+      }).catch(toValidationError),
+
+    /**
+     * Своя переписка — с пересчитанными панелями.
+     *
+     * Панели считаются заново при каждом чтении: вчерашний разговор должен
+     * показывать, как дела сегодня, а не снимок вчерашнего дня.
+     */
+    fetchAnalystHistory: (): Promise<{ data: AnalystTurn[] }> =>
+      $api<{ data: AnalystTurn[] }>('/api/analytics/ai/history'),
+
+    /** Очистить переписку: разговор с чистого листа. */
+    forgetAnalystHistory: (): Promise<void> =>
+      $api('/api/analytics/ai/history', { method: 'DELETE' }),
 
     fetchSales: (filters: AnalyticsFilters): Promise<AnalyticsResponse<SalesPayload>> =>
       $api<AnalyticsResponse<SalesPayload>>('/api/analytics/sales', { query: query(filters) }),

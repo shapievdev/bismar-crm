@@ -787,3 +787,54 @@ export interface AnalyticsResponse<T> {
   data: T
   meta?: ReportMeta
 }
+/* ---------- ИИ-аналитик ---------- */
+
+/**
+ * Панель, собранная моделью и посчитанная сервером.
+ *
+ * Поля разные у разных видов, и это не небрежность типа: плитке нужны число и
+ * прошлое, графику — точки и серии, рейтингу — список имён со значениями.
+ * Общего знаменателя у них нет, а свести их в объединение значило бы проверять
+ * вид дважды — здесь и в разметке.
+ */
+export interface ComposedPanel {
+  type: 'kpi' | 'line' | 'bars' | 'columns' | 'donut'
+  span?: number
+  rows?: number
+
+  /** Плитка. */
+  label?: string
+  value?: number
+  previous?: number
+  growth?: 'good' | 'bad' | 'neutral'
+  hint?: string
+
+  /** Всё остальное. */
+  title?: string
+  format?: 'money' | 'number' | 'percent' | 'decimal'
+
+  /** График. */
+  points?: Record<string, unknown>[]
+  series?: { key: string, label: string, slot: 1 | 2, format?: 'money' | 'number' }[]
+  granularity?: Granularity
+
+  /** Рейтинг, столбцы, кольцо. */
+  items?: { name: string, value: number, meta?: string, uncertain?: boolean }[]
+}
+
+export interface ComposedDashboard {
+  title: string
+  slice?: ReportMeta
+  panels: ComposedPanel[]
+}
+
+/** Один круг разговора с ИИ-аналитиком. */
+export interface AnalystTurn {
+  id: number | null
+  question: string
+  answer: string
+  /** Собрал ли он панель: половина вопросов отвечается словами. */
+  composed?: boolean
+  dashboard: ComposedDashboard | null
+  asked_at?: string
+}
