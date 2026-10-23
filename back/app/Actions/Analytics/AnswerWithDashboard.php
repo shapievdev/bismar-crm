@@ -80,8 +80,19 @@ final readonly class AnswerWithDashboard
         }
 
         $answer = trim((string) ($reply['answer'] ?? ''));
+
+        /*
+         * Чего собрать не удалось — дописывается к ответу, а не теряется.
+         *
+         * Слова модель пишет прежде, чем мы её проверили, и выброшенная панель
+         * оставляет в них обещание: «по брендам представил рейтинг» — а рейтинга
+         * нет. Молча исчезнувшая панель хуже пустой: пустая хотя бы видна, и
+         * сотрудник понимает, что искать её не надо.
+         */
+        $refused = [];
+
         $spec = is_array($reply['dashboard'] ?? null)
-            ? DashboardSpec::fromModel($reply['dashboard'], $this->vocabulary)
+            ? DashboardSpec::fromModel($reply['dashboard'], $this->vocabulary, $refused)
             : null;
 
         if ($answer === '' && $spec === null) {
@@ -109,6 +120,8 @@ final readonly class AnswerWithDashboard
             }
         }
 
+        $answer = $this->withRefusals($answer, $refused);
+
         $stored = AnalyticsQuestion::query()->create([
             'user_id' => $reader->getKey(),
             'question' => $question,
@@ -128,6 +141,25 @@ final readonly class AnswerWithDashboard
             'dashboard' => $dashboard,
             'question_id' => (int) $stored->getKey(),
         ];
+    }
+
+    /**
+     * Дописать к ответу то, чего собрать не вышло.
+     *
+     * Две причины самое большее: их и бывает одна-две, а список из шести
+     * отказов читается как поломка, хотя это всего лишь «так не считается».
+     *
+     * @param  list<string>  $refused
+     */
+    private function withRefusals(string $answer, array $refused): string
+    {
+        $reasons = array_slice(array_values(array_unique($refused)), 0, 2);
+
+        if ($reasons === []) {
+            return $answer;
+        }
+
+        return trim($answer."\n\nЧего показать не смог: ".implode('; ', $reasons).'.');
     }
 
     /**
@@ -255,7 +287,13 @@ final readonly class AnswerWithDashboard
         4. В `answer` говори о том, что видно на панелях, и называй период. Не выдумывай
            чисел: ты их не знаешь — их посчитает приложение. Говори о том, **что смотреть**.
         5. Если вопрос упирается в оговорки ниже — скажи об этом прямо в `answer`.
-        6. Отвечай по-русски.
+        6. «По неделям», «по месяцам», «по дням» — это **шаг графика**
+           (`granularity`), а не длина периода. «Покажи то же по неделям» означает
+           тот же период с недельным шагом, а не «за последние недели». Период
+           меняй только тогда, когда о нём спросили прямо: «за полгода», «в сентябре».
+        7. Уточняя прошлый ответ, меняй в прошлом описании только то, о чём
+           спросили. Остальное — период, отбор, набор панелей — оставляй как было.
+        8. Отвечай по-русски.
 
         {$this->vocabulary->forPrompt()}
         TEXT;

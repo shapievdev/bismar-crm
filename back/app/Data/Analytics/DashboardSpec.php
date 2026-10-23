@@ -47,11 +47,19 @@ final readonly class DashboardSpec
     /**
      * Разобрать то, что прислала модель.
      *
+     * `$refused` заполняется причинами, по которым панели выброшены, и это не
+     * отладка. Ответ словами модель пишет **до** того, как мы её проверили, и
+     * выброшенная панель оставляет в нём обещание: «по брендам представил
+     * рейтинг» — а рейтинга нет. Молча исчезнувшая панель хуже пустой: пустая
+     * хотя бы видна. Поэтому причины уезжают обратно сотруднику — дописываются
+     * к ответу (см. AnswerWithDashboard).
+     *
      * @param  array<string, mixed>  $decoded
+     * @param  list<string>  $refused
      */
-    public static function fromModel(array $decoded, DashboardVocabulary $vocabulary): ?self
+    public static function fromModel(array $decoded, DashboardVocabulary $vocabulary, array &$refused = []): ?self
     {
-        $widgets = self::widgetsFrom($decoded['widgets'] ?? null, $vocabulary);
+        $widgets = self::widgetsFrom($decoded['widgets'] ?? null, $vocabulary, $refused);
 
         if ($widgets === []) {
             return null;
@@ -97,9 +105,10 @@ final readonly class DashboardSpec
     }
 
     /**
+     * @param  list<string>  $refused
      * @return list<DashboardWidget>
      */
-    private static function widgetsFrom(mixed $raw, DashboardVocabulary $vocabulary): array
+    private static function widgetsFrom(mixed $raw, DashboardVocabulary $vocabulary, array &$refused = []): array
     {
         if (! is_array($raw)) {
             return [];
@@ -119,6 +128,8 @@ final readonly class DashboardSpec
             $type = self::oneOf($row['type'] ?? null, array_keys($kinds));
 
             if ($type === null) {
+                $refused[] = 'такого вида панели у меня нет';
+
                 continue;
             }
 
@@ -130,6 +141,8 @@ final readonly class DashboardSpec
             )));
 
             if ($wanted === []) {
+                $refused[] = 'такого показателя аналитика не считает';
+
                 continue;
             }
 
@@ -137,6 +150,8 @@ final readonly class DashboardSpec
 
             // Разрез обязателен там, где без него нечего раскладывать.
             if (in_array('dimension', $kinds[$type]['needs'], true) && $dimension === null) {
+                $refused[] = 'такого разреза в аналитике нет';
+
                 continue;
             }
 
@@ -156,6 +171,11 @@ final readonly class DashboardSpec
             };
 
             if (! in_array($place, $metrics[$wanted[0]]['in'], true)) {
+                $label = $metrics[$wanted[0]]['label'];
+                $where = $place === 'ranking' ? 'в раскладке по разрезу' : 'на графике';
+
+                $refused[] = mb_strtolower($label).' так не считается — '.$where.' её нет, только итогом за период';
+
                 continue;
             }
 

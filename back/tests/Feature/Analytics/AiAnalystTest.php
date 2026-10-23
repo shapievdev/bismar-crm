@@ -160,11 +160,16 @@ final class AiAnalystTest extends TestCase
             'dashboard' => ['title' => 'Пусто', 'widgets' => [['type' => 'pie', 'metric' => 'ebitda']]],
         ])));
 
-        $this->actingAs($this->analyst())
+        $response = $this->actingAs($this->analyst())
             ->postJson(route('analytics.ai.ask'), ['question' => 'что-нибудь'])
             ->assertOk()
-            ->assertJsonPath('data.answer', 'Вот что получилось.')
             ->assertJsonPath('data.dashboard', null);
+
+        $answer = (string) $response->json('data.answer');
+
+        $this->assertStringStartsWith('Вот что получилось.', $answer);
+        // И почему панели нет — тоже словами: иначе ответ обещает её впустую.
+        $this->assertStringContainsString('Чего показать не смог', $answer);
     }
 
     /**
@@ -190,11 +195,19 @@ final class AiAnalystTest extends TestCase
             ],
         ])));
 
-        $this->actingAs($this->analyst())
+        $response = $this->actingAs($this->analyst())
             ->postJson(route('analytics.ai.ask'), ['question' => 'возвраты по брендам'])
             ->assertOk()
             ->assertJsonCount(1, 'data.dashboard.panels')
             ->assertJsonPath('data.dashboard.panels.0.type', 'kpi');
+
+        /*
+         * И об этом сказано словами. Слова модель пишет прежде, чем мы её
+         * проверили, так что в них остаётся обещание рейтинга, которого нет, —
+         * молча исчезнувшая панель хуже пустой.
+         */
+        $this->assertStringContainsString('Чего показать не смог', (string) $response->json('data.answer'));
+        $this->assertStringContainsString('только итогом за период', (string) $response->json('data.answer'));
     }
 
     /** Предел строк в рейтинге свой, а не тот, который назвала модель. */
