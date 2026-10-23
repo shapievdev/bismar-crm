@@ -17,13 +17,12 @@ use App\Http\Controllers\Api\Analytics\RaceController as AnalyticsRaceController
 use App\Http\Controllers\Api\Analytics\SalesController as AnalyticsSalesController;
 use App\Http\Controllers\Api\Analytics\SharedStaffReportController;
 use App\Http\Controllers\Api\Analytics\StaffController;
-use App\Http\Controllers\Api\Sales\PlanController as SalesPlanController;
-use App\Http\Controllers\Api\Sales\SellerController as SalesSellerController;
 use App\Http\Controllers\Api\Analytics\StaffExportController;
 use App\Http\Controllers\Api\Analytics\StaffLinkController;
 use App\Http\Controllers\Api\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Api\Auth\AuthenticatedUserController;
 use App\Http\Controllers\Api\Auth\ImpersonationController;
+use App\Http\Controllers\Api\Auth\PasswordResetController;
 use App\Http\Controllers\Api\Chat\ContactController;
 use App\Http\Controllers\Api\Chat\ConversationController;
 use App\Http\Controllers\Api\Chat\ConversationMarkController;
@@ -75,6 +74,8 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\Push\BroadcastController;
 use App\Http\Controllers\Api\PushSubscriptionController;
+use App\Http\Controllers\Api\Sales\PlanController as SalesPlanController;
+use App\Http\Controllers\Api\Sales\SellerController as SalesSellerController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\Staff\StaffTagController;
 use App\Http\Controllers\Api\Staff\UserStaffTagController;
@@ -99,6 +100,20 @@ use Illuminate\Support\Facades\Route;
  */
 Route::prefix('auth')->as('auth.')->group(function (): void {
     Route::post('login', [AuthenticatedSessionController::class, 'store'])->name('login');
+
+    /*
+     * Забытый пароль. До входа, и потому без прав — защищает их предел частоты.
+     *
+     * Он здесь строже обычного и считается по адресу просящего: первый адрес
+     * рассылает письма чужим людям, второй перебирает токены. Своя защита есть
+     * и у каждого: ответ формы одинаков на любую просьбу, второй ссылки подряд
+     * одному человеку не выдаётся (config/auth.php), а токен живёт час и
+     * срабатывает один раз.
+     */
+    Route::middleware('throttle:6,1')->group(function (): void {
+        Route::post('password/forgot', [PasswordResetController::class, 'store'])->name('password.forgot');
+        Route::post('password/reset', [PasswordResetController::class, 'update'])->name('password.reset');
+    });
 
     Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
         Route::get('user', [AuthenticatedUserController::class, 'show'])->name('user');

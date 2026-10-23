@@ -196,6 +196,48 @@ export function useAuth() {
     }).catch(toValidationError)
   }
 
+  /* ---------- Забытый пароль ---------- */
+
+  /**
+   * Попросить ссылку на смену пароля.
+   *
+   * Ответ один на все случаи — нашли учётную запись или нет, записана ли у неё
+   * почта, — и показывается он как есть: сервер нарочно не рассказывает
+   * больше, иначе формой перебором узнавали бы, кто в компании работает.
+   *
+   * Поле одно: входят по телефону, а ссылка уходит на почту, и какое из двух
+   * человек помнит — заранее неизвестно.
+   */
+  async function requestPasswordReset(login: string): Promise<string> {
+    const answer = await $api<{ message: string }>('/api/auth/password/forgot', {
+      method: 'POST',
+      body: { login },
+    }).catch(toValidationError)
+
+    return answer.message
+  }
+
+  /**
+   * Поставить новый пароль по ссылке из письма.
+   *
+   * Номер сотрудника и токен приезжают из адреса, а не набираются. Войти это
+   * не входит: человек возвращается на форму и входит заново — открыть сессию
+   * по ссылке из письма значило бы пускать внутрь всякого, кому её переслали.
+   */
+  async function resetPassword(payload: {
+    user: number
+    token: string
+    password: string
+    password_confirmation: string
+  }): Promise<string> {
+    const answer = await $api<{ message: string }>('/api/auth/password/reset', {
+      method: 'POST',
+      body: payload,
+    }).catch(toValidationError)
+
+    return answer.message
+  }
+
   async function uploadAvatar(file: File): Promise<User> {
     const form = new FormData()
     form.append('avatar', file)
@@ -248,6 +290,8 @@ export function useAuth() {
     workAs,
     returnToSelf,
     changePassword,
+    requestPasswordReset,
+    resetPassword,
     uploadAvatar,
     removeAvatar,
   }

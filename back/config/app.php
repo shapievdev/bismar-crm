@@ -88,9 +88,22 @@ return [
     | by Laravel's translation / localization methods. This option can be
     | set to any locale for which you plan to have translation strings.
     |
+    | Русский, и это не заявка на перевод приложения. Переводить его незачем:
+    | весь интерфейс и так написан по-русски прямо в коде — в правилах формы, в
+    | отказах действий, в подписях экранов. Общего перевода (`lang/ru/*.php`)
+    | нет, и его отсутствие ничего не ломает: ключевые строки вроде
+    | `auth.failed` берутся из запасного `en`, как и раньше.
+    |
+    | Нужен этот язык ровно одному — письму о смене пароля. Шаблон письма от
+    | фреймворка подставляет в него две английские строки своими словами
+    | («All rights reserved.», «If you're having trouble clicking…»), и
+    | перевести их можно либо здесь, через `lang/ru.json`, либо забрав себе
+    | десяток служебных шаблонов Laravel. Первое дешевле и не придётся
+    | пересматривать при обновлении фреймворка.
+    |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    'locale' => env('APP_LOCALE', 'ru'),
 
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 

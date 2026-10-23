@@ -20,6 +20,9 @@ const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSubmitting = ref(false)
 
+/** Пришёл со смены пароля — об этом надо сказать, см. разметку. */
+const hasJustChangedPassword = computed(() => route.query.changed === '1')
+
 async function handleSubmit() {
   isSubmitting.value = true
   errors.value = {}
@@ -89,6 +92,14 @@ async function goAfterLogin() {
         {{ generalError }}
       </p>
 
+      <!--
+        Человек пришёл сюда со смены пароля. Без этой строки он видел бы пустую
+        форму входа и гадал, сохранился ли новый пароль.
+      -->
+      <p v-else-if="hasJustChangedPassword" class="alert alert--success">
+        Пароль изменён. Войдите с ним — номер остался прежним.
+      </p>
+
       <FormField
         id="phone"
         v-model="form.phone"
@@ -110,10 +121,16 @@ async function goAfterLogin() {
         :errors="errors.password"
       />
 
-      <label class="auth-checkbox">
-        <input v-model="form.remember" type="checkbox">
-        Запомнить меня
-      </label>
+      <div class="auth-row">
+        <label class="auth-checkbox">
+          <input v-model="form.remember" type="checkbox">
+          Запомнить меня
+        </label>
+
+        <NuxtLink to="/password/forgot" class="auth-row__link">
+          Забыли пароль?
+        </NuxtLink>
+      </div>
 
       <button type="submit" class="button-primary" :disabled="isSubmitting">
         {{ isSubmitting ? 'Входим…' : 'Войти' }}
