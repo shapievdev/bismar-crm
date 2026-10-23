@@ -21,32 +21,12 @@ use App\Support\Analytics\ClickHouse;
  */
 final class RankingClickHouse extends ClickHouse
 {
-    /**
-     * @param  array<string, float>  $named
-     */
-    private function __construct(
-        private readonly int $rows,
-        private readonly array $named = [],
-    ) {}
+    private function __construct(private readonly int $rows) {}
 
     /** Столько строк в раскладке — чтобы было что мерить высотой панели. */
     public static function withRows(int $rows): self
     {
         return new self($rows);
-    }
-
-    /**
-     * Поимённая выручка — так, как её отдаёт витрина: строками из 1С.
-     *
-     * Нужна там, где проверяют структуру компании: сопоставление превращает
-     * эти строки в сотрудников и отделы, и подменить их безымянными «Склад №1»
-     * значило бы проверять не то.
-     *
-     * @param  array<string, float>  $revenueByName
-     */
-    public static function withEmployees(array $revenueByName): self
-    {
-        return new self(0, $revenueByName);
     }
 
     /**
@@ -68,20 +48,6 @@ final class RankingClickHouse extends ClickHouse
 
         if (! str_contains($sql, 'AS name')) {
             return [];
-        }
-
-        if ($this->named !== []) {
-            return array_map(static fn (string $name, float $revenue): array => [
-                'name' => $name,
-                'revenue' => $revenue,
-                'profit' => $revenue * 0.1,
-                'revenue_without_cost' => 0,
-                'quantity' => 1.0,
-                'orders' => 1,
-                'lines' => 1,
-                'customers' => 1,
-                'items' => 1,
-            ], array_keys($this->named), array_values($this->named));
         }
 
         $rows = [];

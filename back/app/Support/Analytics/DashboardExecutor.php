@@ -31,7 +31,6 @@ final readonly class DashboardExecutor
     public function __construct(
         private SalesReport $sales,
         private ProductReport $products,
-        private EmployeeReport $employees,
         private DashboardVocabulary $vocabulary,
     ) {}
 
@@ -340,11 +339,6 @@ final readonly class DashboardExecutor
         $report = $this->vocabulary->dimensions()[$dimension]['report'] ?? 'sales';
 
         return match ($report) {
-            // Сотрудники и отделы — не из витрины, а из структуры компании: она
-            // знает продавца строкой из 1С, а человека и отдел за этой строкой
-            // знаем мы (см. CompanyStructure).
-            'employees' => $this->byEmployee($spec, $limit),
-            'departments' => $this->byDepartment($spec, $limit),
             'channels' => array_map(
                 static fn (array $row): array => ['name' => $row['channel'], ...$row],
                 $this->sales->channels($spec->filters),
@@ -356,71 +350,6 @@ final readonly class DashboardExecutor
             'products' => $this->products->breakdown($spec->filters, $dimension, $limit),
             default => $this->sales->breakdown($spec->filters, $dimension, $limit),
         };
-    }
-
-    /**
-     * Рейтинг сотрудников — именами платформы.
-     *
-     * Строка из 1С остаётся там, где сопоставления нет: так в отчёте видно и
-     * того, кто есть в карточках, и того, кого забыли сопоставить.
-     *
-     * @return list<array<string, float|int|string>>
-     */
-    private function byEmployee(DashboardSpec $spec, int $limit): array
-    {
-        $structure = $this->vocabulary->structure();
-
-        $rows = array_map(
-            static fn (array $row): array => [
-                ...$row,
-                'name' => $structure->nameFor((string) $row['name']),
-            ],
-            $this->employees->ranking($spec->filters, $limit),
-        );
-
-        return $rows;
-    }
-
-    /**
-     * Рейтинг отделов — свёрткой продавцов по структуре.
-     *
-     * Соединить это запросом нельзя: витрина и структура компании стоят на
-     * разных серверах, и витрина об отделах не знает. Поэтому сумма считается
-     * здесь, по тому же сопоставлению, на котором стоит отчёт план-факт.
-     *
-     * Свёртка плоская, без переноса на вышестоящие отделы: иначе родитель и
-     * ребёнок стояли бы в одном рейтинге, и выручка считалась бы дважды. Чтобы
-     * спросить отдел вместе с подчинёнными, его называют отбором — там ветка
-     * разворачивается целиком.
-     *
-     * @return list<array<string, float|int|string>>
-     */
-    private function byDepartment(DashboardSpec $spec, int $limit): array
-    {
-        $structure = $this->vocabulary->structure();
-
-        $totals = [];
-
-        foreach ($this->employees->everyone($spec->filters) as $row) {
-            // Несопоставленные собираются в одну строку: «кто это» — вопрос к
-            // экрану отделов продаж, а не к отчёту, но молча потерять их
-            // выручку нельзя.
-            $name = $structure->departmentOf((string) $row['name']) ?? 'Не сопоставлены с отделом';
-
-            $totals[$name] ??= ['name' => $name, 'revenue' => 0.0, 'profit' => 0.0, 'orders' => 0];
-            $totals[$name]['revenue'] += (float) $row['revenue'];
-            $totals[$name]['profit'] += (float) $row['profit'];
-            $totals[$name]['orders'] += (int) $row['orders'];
-        }
-
-        $rows = array_values($totals);
-
-        usort($rows, static fn (array $a, array $b): int => $b['revenue'] <=> $a['revenue']);
-
-        return array_map(static fn (array $row): array => [
-            ...$row,
-            'margin' => $row['revenue'] > 0 ? round($row['profit'] / $row['revenue'] * 100, 1) : 0.0,
-        ], array_slice($rows, 0, $limit));
     }
 
     private function needsSummary(DashboardSpec $spec): bool

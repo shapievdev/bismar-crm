@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Data\Analytics;
 
-use App\Support\Analytics\CompanyStructure;
 use App\Support\Analytics\DashboardVocabulary;
 use App\Support\Analytics\Period;
 use App\Support\Analytics\ReportFilters;
@@ -68,11 +67,7 @@ final readonly class DashboardSpec
 
         return new self(
             title: self::title($decoded['title'] ?? null),
-            filters: self::filtersFrom(
-                is_array($decoded['slice'] ?? null) ? $decoded['slice'] : [],
-                $vocabulary->structure(),
-                $refused,
-            ),
+            filters: self::filtersFrom(is_array($decoded['slice'] ?? null) ? $decoded['slice'] : []),
             widgets: $widgets,
         );
     }
@@ -85,25 +80,10 @@ final readonly class DashboardSpec
      * мог появиться в витрине после того, как словарь собрали. А вот период и
      * шаг графика сверяются: они попадают в выражение запроса.
      *
-     * Отдел — особый случай: витрина о структуре компании не знает ничего, и
-     * отобрать по нему напрямую нельзя. Названный отдел разворачивается в имена
-     * его продавцов — своих и всех подчинённых отделов, — и уже они уходят в
-     * запрос. Не нашлось ни одного — говорим об этом: молча показать выручку
-     * всей компании вместо одного отдела было бы худшим из ответов.
-     *
      * @param  array<string, mixed>  $slice
-     * @param  list<string>  $refused
      */
-    private static function filtersFrom(array $slice, CompanyStructure $structure, array &$refused = []): ReportFilters
+    private static function filtersFrom(array $slice): ReportFilters
     {
-        $departments = self::strings($slice['departments'] ?? null);
-        $employees = $departments === [] ? [] : $structure->sellersOf($departments);
-
-        if ($departments !== [] && $employees === []) {
-            $refused[] = 'за отделом «'.implode('», «', $departments)
-                .'» не закреплён ни один продавец — сопоставьте их на экране отделов продаж';
-        }
-
         $preset = self::oneOf($slice['preset'] ?? null, Period::presets());
         $from = self::date($slice['from'] ?? null);
         $to = self::date($slice['to'] ?? null);
@@ -119,7 +99,6 @@ final readonly class DashboardSpec
             warehouses: self::strings($slice['warehouses'] ?? null),
             managers: self::strings($slice['managers'] ?? null),
             segments: self::strings($slice['segments'] ?? null),
-            employees: $employees,
             // Возвраты входят в выручку, пока их явно не исключили: спрятанный
             // возврат показывает продажу, которой не было.
             withReturns: ! array_key_exists('with_returns', $slice) || (bool) $slice['with_returns'],
