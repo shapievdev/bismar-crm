@@ -46,12 +46,8 @@ function onTagsChanged(updated: User): void {
   }
 }
 
-/**
- * Чужой план открывает тот, кому доверено обучение (`enrollments.manage`);
- * должность администратора это право включает. Сам сотрудник видит свой план
- * у себя, на «Моём плане».
- */
-const canSeePlans = computed(() => can('enrollments.manage'))
+/** Ведущему адаптацию — дорога к журналам стажировок прямо из карточки. */
+const canSeeOnboarding = computed(() => can('onboarding.manage'))
 
 /**
  * Карточка человека — то, ради чего сюда заходят; каталог прав и список коллег
@@ -100,21 +96,6 @@ function permissionsCount(user: User): string {
 }
 
 /* ---------- План обучения ---------- */
-
-/**
- * План раскрывается кнопкой, а не висит открытым: в карточку заходят чаще за
- * телефоном и должностью, а план — отдельный разговор и целый экран высотой.
- */
-const isPlanOpen = ref(false)
-
-/**
- * Менять план — дело должности: администратор и суперадминистратор, и никто
- * ниже, даже с отмеченным правом вести обучение. То же правило проверяет
- * сервер — UpdateLearningPlanRequest::authorize().
- *
- * Уволенному план не меняют и они: проходить назначенное ему уже негде.
- */
-const mayEditPlan = computed(() => isAdmin.value && !isDismissed.value)
 
 /* ---------- Учётная запись ---------- */
 
@@ -588,17 +569,14 @@ async function afterChange() {
           </div>
         </div>
 
-        <div v-if="canManage || canSeePlans" class="profile__actions">
-          <button
-            v-if="canSeePlans"
-            type="button"
+        <div v-if="canManage || canSeeOnboarding" class="profile__actions">
+          <NuxtLink
+            v-if="canSeeOnboarding"
+            to="/onboarding/manage/people"
             class="button-secondary"
-            :aria-expanded="isPlanOpen"
-            aria-controls="learning-plan"
-            @click="isPlanOpen = !isPlanOpen"
           >
-            План обучения
-          </button>
+            Адаптация
+          </NuxtLink>
 
           <!-- У уволенного одна дорога — обратно в строй: пока он не вернулся,
                править ему карточку и права незачем. -->
@@ -793,23 +771,20 @@ async function afterChange() {
             {{ permissionsCount(member) }}
           </p>
         </section>
-      </div>
 
-      <section v-if="isPlanOpen" id="learning-plan" class="card panel">
-        <header class="panel__head">
+        <!--
+          Достижения — то, что человек заработал, а не то, что ему выдали:
+          карточка показывает их наравне с должностью и правами. Выдачи и
+          отзыва здесь нет — значки приходят от закрытых шагов маршрута.
+        -->
+        <section v-if="member.achievements?.length" class="card panel panel--wide">
           <h2 class="panel__title">
-            План обучения
+            Достижения
           </h2>
-        </header>
 
-        <p v-if="!mayEditPlan" class="muted">
-          {{ isDismissed
-            ? 'Уволенному план не меняют — сначала верните его в строй.'
-            : 'Только просмотр: менять план может администратор или суперадминистратор.' }}
-        </p>
-
-        <LearningPlanEditor :learner-id="member.id" :editable="mayEditPlan" />
-      </section>
+          <AchievementsShelf :achievements="member.achievements" />
+        </section>
+      </div>
 
       <form v-if="isEditing" class="card panel form" novalidate @submit.prevent="saveAccount">
         <h2 class="panel__title">
@@ -918,6 +893,12 @@ async function afterChange() {
 </template>
 
 <style scoped>
+/* Полка значков читается в ряд, а не в колонку рядом с «что доступно»: на
+   широком экране она занимает всю ширину сетки карточек. */
+.panel--wide {
+  grid-column: 1 / -1;
+}
+
 .back {
   display: inline-block;
   margin-bottom: 0.9rem;

@@ -1,5 +1,6 @@
 import { toValidationError } from '~/composables/useAuth'
 import type { ResourceResponse } from '~/types/auth'
+import type { LearningSurveyRow } from '~/types/analytics'
 import type { MaterialSection } from '~/types/lms'
 import type {
   Survey,
@@ -53,6 +54,11 @@ export function useSurveyApi() {
   const { $api } = useNuxtApp()
 
   return {
+    fetchSurveyResultsList: (page = 1, search = ''): Promise<{
+      data: LearningSurveyRow[]
+      meta: { current_page: number, last_page: number, per_page: number, total: number }
+    }> => $api('/api/analytics/learning/surveys', { query: { page, search } }),
+
     /** Завести или переписать целиком: редактор присылает опрос весь. */
     saveSurvey: (owner: SurveyOwner, payload: SurveyPayload): Promise<ResourceResponse<Survey>> =>
       $api<ResourceResponse<Survey>>(baseOf(owner), { method: 'PUT', body: payload })

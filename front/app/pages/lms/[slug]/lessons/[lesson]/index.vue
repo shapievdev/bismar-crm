@@ -36,12 +36,7 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  // Урок закрыт вместе со своим курсом, и причина та же — очередь плана.
-  const locked = planLockMessage(error.value)
-
-  throw locked === null
-    ? createError({ statusCode: 404, statusMessage: 'Урок не найден', fatal: true })
-    : createError({ statusCode: 403, statusMessage: locked, fatal: true })
+  throw createError({ statusCode: 404, statusMessage: 'Урок не найден', fatal: true })
 }
 
 const lesson = computed(() => data.value?.lesson)
@@ -522,6 +517,11 @@ function formatSize(bytes: number): string {
             kind="lesson"
             :material-id="lesson.id"
             :model-value="lesson.is_favourite === true"
+          />
+          <MaterialShare
+            :material="{ kind: 'lesson', id: lesson.id }"
+            :title="lesson.title"
+            :path="`/lms/${courseSlug}/lessons/${lessonId}`"
           />
 
           <NuxtLink

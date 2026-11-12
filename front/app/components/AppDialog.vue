@@ -25,10 +25,14 @@ watch(request, async (value) => {
   element.value?.showModal()
 
   // Курсор сразу в поле, а набранное выделено: чаще всего прежнее название
-  // заменяют целиком, а не дописывают к нему.
+  // заменяют целиком, а не дописывают к нему. Выделять можно только строку —
+  // у поля с датой выделять нечего, и браузер на такую просьбу ругается.
   if (value.kind === 'prompt') {
     field.value?.focus()
-    field.value?.select()
+
+    if ((value.type ?? 'text') === 'text') {
+      field.value?.select()
+    }
   }
 })
 
@@ -61,7 +65,7 @@ function submit() {
           ref="field"
           v-model="draft"
           class="input"
-          type="text"
+          :type="request.type ?? 'text'"
           autocomplete="off"
           :placeholder="request.placeholder"
         >

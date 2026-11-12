@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Chat;
 
 use App\Models\Message;
+use App\Support\Chat\AchievementCard;
 use App\Support\Chat\MaterialCard;
 use App\Support\Chat\ReactionSummary;
 use Illuminate\Http\Request;
@@ -85,11 +86,16 @@ final class MessageResource extends JsonResource
      * Рисуется тем же кодом, что и карточка над полем ввода: адресат должен
      * увидеть ровно то, что видел отправитель, когда писал.
      *
-     * @return array<string, string|null>|null
+     * Видов карточки два: материал, с которого написали, и достижение, о
+     * котором уведомили. Разбирает их здесь, по виду в снимке, — сам
+     * MaterialCard остаётся без обращений к базе, какой он и есть, а
+     * AchievementCard за картинкой в базу ходит.
+     *
+     * @return array<string, mixed>|null
      */
     private function materialCard(): ?array
     {
-        return MaterialCard::render($this->about);
+        return AchievementCard::render($this->about) ?? MaterialCard::render($this->about);
     }
 
     /**

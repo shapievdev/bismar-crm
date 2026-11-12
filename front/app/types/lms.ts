@@ -266,12 +266,6 @@ export interface Course {
   modules?: CourseModule[]
   enrollment: LearnerEnrollment | null
 
-  /**
-   * Дошла ли до курса очередь плана обучения. Приходит из каталога: на самой
-   * странице курса поля нет — закрытый курс туда не пускает.
-   */
-  is_locked?: boolean
-
   /** Отложен ли курс в избранное тем, кто спрашивает. */
   is_favourite?: boolean
 }
@@ -286,75 +280,6 @@ export interface Enrollment {
   course?: Course
 }
 
-/** Что бывает шагом плана обучения. */
-export type PlannableKind = 'course' | 'document' | 'handbook'
-
-/**
- * Материал, который можно поставить шагом плана.
- *
- * Приходит списком целиком, с категорией у каждой строки: план составляют,
- * глядя на то, что есть, а не угадывая название. `is_visible_to_learner`
- * говорит про сотрудника — назначить закрытое от него не запрещено, но знать
- * об этом составитель должен сразу.
- */
-export interface PlannableItem {
-  kind: PlannableKind
-  id: number
-  title: string
-  slug: string
-  category: string | null
-  is_visible_to_learner: boolean
-}
-
-export interface LearningPlanItem {
-  id: number
-  position: number
-  assigned_at: string | null
-  assigned_by?: { id: number, name: string } | null
-
-  /**
-   * Шаг приходит плоско: вид, название и адрес. Двух вложенных объектов на
-   * выбор здесь нет намеренно — экран плана рисует список одинаковых строк.
-   */
-  kind: PlannableKind
-  item_id: number
-  title: string | null
-  slug: string | null
-  summary: string | null
-
-  progress: number
-  is_started: boolean
-  is_completed: boolean
-  /** Когда шаг был пройден. Пусто у непройденного. */
-  completed_at?: string | null
-
-  /**
-   * Дошла ли до шага очередь. Приходит только в своём плане: составителю
-   * показывают, что назначено, а не что кому открыто. Документы не запираются
-   * никогда — очередь держит только курсы.
-   */
-  is_locked?: boolean
-
-  /**
-   * Проверка при документе и то, как её прошёл этот человек. Null — проверки
-   * нет; у курса её и не бывает, там тест висит на уроке.
-   */
-  quiz?: {
-    questions: number
-    attempts: number
-    best_score: number | null
-    passed: boolean
-    last_at: string | null
-  } | null
-
-  /**
-   * Увидит ли сотрудник этот шаг у себя. Приходит только тому, кто план
-   * составляет: материал могли закрыть уже после назначения.
-   */
-  is_visible_to_learner?: boolean
-}
-
-/** Категория документов. Своё дерево, не общее с учебными категориями. */
 export interface RegulationCategory {
   id: number
   name: string

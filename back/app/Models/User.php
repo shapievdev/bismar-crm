@@ -179,6 +179,29 @@ class User extends Authenticatable implements OAuthenticatable
     }
 
     /**
+     * Заработанные значки — в карточке и в своём профиле.
+     *
+     * Спрятанные из каталога приходят вместе со всеми (`withTrashed`):
+     * достижение убирают, чтобы его больше не выдавали, а не чтобы отобрать у
+     * тех, кто его заслужил.
+     *
+     * Свежее сверху: профиль читают сверху вниз, и последняя заслуга важнее
+     * первой.
+     *
+     * @return BelongsToMany<Achievement, $this>
+     */
+    public function achievements(): BelongsToMany
+    {
+        return $this->belongsToMany(Achievement::class, 'achievement_user')
+            ->withTrashed()
+            ->using(AchievementAward::class)
+            ->withPivot(['id', 'awarded_at', 'reason', 'source_type', 'source_id'])
+            ->withTimestamps()
+            ->orderByPivot('awarded_at', 'desc')
+            ->orderByPivot('id', 'desc');
+    }
+
+    /**
      * Работающие сотрудники — те, кого предлагают выбрать.
      *
      * Уволенного не с чем позвать в переписку, некому назначить план и незачем
@@ -319,16 +342,6 @@ class User extends Authenticatable implements OAuthenticatable
     public function pushSubscriptions(): HasMany
     {
         return $this->hasMany(PushSubscription::class);
-    }
-
-    /**
-     * План обучения: что этому человеку назначили пройти и в каком порядке.
-     *
-     * @return HasMany<LearningPlanItem, $this>
-     */
-    public function planItems(): HasMany
-    {
-        return $this->hasMany(LearningPlanItem::class)->inOrder();
     }
 
     /**

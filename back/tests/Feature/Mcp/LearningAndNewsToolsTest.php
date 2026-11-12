@@ -7,17 +7,10 @@ namespace Tests\Feature\Mcp;
 use App\Enums\NewsStatus;
 use App\Enums\Permission;
 use App\Mcp\Servers\Bismar;
-use App\Mcp\Tools\Learning\PlannableMaterials;
-use App\Mcp\Tools\Learning\SetLearningPlan;
-use App\Mcp\Tools\Learning\ShowLearningPlan;
 use App\Mcp\Tools\News\ListNews;
 use App\Mcp\Tools\News\PublishNews;
-use App\Models\Course;
 use App\Models\News;
-use App\Models\Regulation;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Collection;
 use Illuminate\Testing\Fluent\AssertableJson;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
@@ -32,101 +25,6 @@ use Tests\TestCase;
 final class LearningAndNewsToolsTest extends TestCase
 {
     use MakesUsers, RefreshDatabase;
-
-    /* ---------- План обучения ---------- */
-
-    public function test_reading_plans_and_changing_them_are_different_rights(): void
-    {
-        // Доверено обучение — читает планы, но не решает, что проходить.
-        Bismar::actingAs($this->userWith(Permission::ManageEnrollments))
-            ->tools()
-            ->assertRegistered([ShowLearningPlan::class, PlannableMaterials::class])
-            ->assertNotRegistered(SetLearningPlan::class);
-
-        Bismar::actingAs($this->administrator())
-            ->tools()
-            ->assertRegistered(SetLearningPlan::class);
-    }
-
-    public function test_an_administrator_composes_a_plan_and_it_is_read_back(): void
-    {
-        $learner = User::factory()->create();
-        $course = Course::factory()->published()->create(['title' => 'Работа с возражениями']);
-        $document = Regulation::factory()->published()->create(['title' => 'Правила возврата']);
-
-        Bismar::actingAs($this->administrator())
-            ->tool(SetLearningPlan::class, [
-                'employee_id' => $learner->getKey(),
-                'items' => [
-                    ['kind' => 'document', 'id' => $document->getKey()],
-                    ['kind' => 'course', 'id' => $course->getKey()],
-                ],
-            ])
-            ->assertOk()
-            ->assertHasNoErrors();
-
-        // Порядок присланного и есть порядок шагов.
-        Bismar::actingAs($this->administrator())
-            ->tool(ShowLearningPlan::class, ['employee_id' => $learner->getKey()])
-            ->assertOk()
-            ->assertStructuredContent(fn (AssertableJson $json) => $json
-                ->where('steps', fn (Collection $steps): bool => $steps->count() === 2
-                    && $steps[0]['title'] === 'Правила возврата'
-                    && $steps[1]['title'] === 'Работа с возражениями'
-                    && $steps[0]['kind'] === 'document'
-                    && $steps[1]['kind'] === 'course')
-                ->where('finished', false)
-                ->etc());
-    }
-
-    /** Пустой список — это «убрать весь план», и так и должно работать. */
-    public function test_an_empty_list_removes_the_plan(): void
-    {
-        $learner = User::factory()->create();
-        $document = Regulation::factory()->published()->create();
-
-        $administrator = $this->administrator();
-
-        Bismar::actingAs($administrator)
-            ->tool(SetLearningPlan::class, [
-                'employee_id' => $learner->getKey(),
-                'items' => [['kind' => 'document', 'id' => $document->getKey()]],
-            ])
-            ->assertOk();
-
-        Bismar::actingAs($administrator)
-            ->tool(SetLearningPlan::class, ['employee_id' => $learner->getKey(), 'items' => []])
-            ->assertOk();
-
-        $this->assertSame(0, $learner->planItems()->count());
-    }
-
-    /**
-     * Назначить можно только то, что видишь сам: иначе чужой закрытый материал
-     * попадал бы в план по угаданному номеру, и сотрудник увидел бы название,
-     * которое ему закрыто.
-     *
-     * Для администратора закрытость не помеха — руководству видно всё
-     * (RegulationAccess), — а вот убранное в корзину не видно и ему: это и
-     * проверяется, потому что случай житейский — материал нашли и тут же
-     * выбросили.
-     */
-    public function test_material_the_composer_cannot_see_is_refused(): void
-    {
-        $learner = User::factory()->create();
-
-        $thrownAway = Regulation::factory()->published()->create();
-        $thrownAway->delete();
-
-        Bismar::actingAs($this->administrator())
-            ->tool(SetLearningPlan::class, [
-                'employee_id' => $learner->getKey(),
-                'items' => [['kind' => 'document', 'id' => $thrownAway->getKey()]],
-            ])
-            ->assertHasErrors();
-
-        $this->assertSame(0, $learner->planItems()->count());
-    }
 
     /* ---------- Новости ---------- */
 

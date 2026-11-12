@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'quiz_id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at',
+    'quiz_id', 'user_id', 'score', 'passed', 'answers', 'scores', 'completed_at', 'started_at',
     'review_status', 'reviewed_by', 'reviewed_at', 'review_comment',
 ])]
 class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
@@ -68,6 +68,9 @@ class QuizAttempt extends Model implements PartOfCourse, PartOfRegulation
             'scores' => 'array',
             'passed' => 'boolean',
             'completed_at' => 'datetime',
+            // Когда человек сел за работу. Есть только у экзаменов: таймер
+            // стартует с «Начать», а у теста при материале начала не бывает.
+            'started_at' => 'datetime',
             'review_status' => AttestationStatus::class,
             'reviewed_at' => 'datetime',
         ];

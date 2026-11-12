@@ -1,3 +1,4 @@
+import type { AwardedAchievement } from '~/types/achievements'
 import type { DepartmentRoleKind } from '~/types/structure'
 
 /** Отдел, в котором человек числится, — с ролью, в которой он там стоит. */
@@ -87,6 +88,13 @@ export interface User {
    * персонала, а не в карточке.
    */
   tags?: StaffTag[]
+  /**
+   * Заработанные значки — свежие сверху.
+   *
+   * Приходят только с карточкой сотрудника: списку людей и выбору собеседника
+   * они не нужны, а свой профиль спрашивает их отдельным адресом.
+   */
+  achievements?: AwardedAchievement[]
   /** Всё, что человек реально может. У администратора — весь список. */
   permissions: string[]
   /**

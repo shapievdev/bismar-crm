@@ -6,7 +6,6 @@ namespace App\Support\Lms;
 
 use App\Models\Course;
 use App\Models\Enrollment;
-use App\Models\LearningPlanItem;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\Quiz;
@@ -49,7 +48,6 @@ final readonly class ProgressReport
 
         $learners = $this->circle([
             Enrollment::query()->where('course_id', $course->getKey())->select('user_id'),
-            $this->planned('course', (int) $course->getKey()),
         ]);
 
         $enrollments = Enrollment::query()
@@ -69,16 +67,15 @@ final readonly class ProgressReport
             ->pluck('total', 'user_id');
 
         $passed = $this->passedQuizzesBy($quizIds);
-        $inPlan = $this->plannedUserIds('course', (int) $course->getKey());
 
         $lessons = count($lessonIds);
 
-        $people = $learners->map(function (User $learner) use ($enrollments, $completed, $passed, $inPlan, $lessons, $quizIds): array {
+        $people = $learners->map(function (User $learner) use ($enrollments, $completed, $passed, $lessons, $quizIds): array {
             $enrollment = $enrollments->get($learner->getKey());
             $done = (int) ($completed[$learner->getKey()] ?? 0);
 
             return [
-                ...$this->person($learner, in_array((int) $learner->getKey(), $inPlan, strict: true)),
+                ...$this->person($learner),
 
                 'is_enrolled' => $enrollment !== null,
                 'status' => $this->status($enrollment, $done),
@@ -184,7 +181,6 @@ final readonly class ProgressReport
 
         $sources = $course === null ? [] : [
             Enrollment::query()->where('course_id', $course->getKey())->select('user_id'),
-            $this->planned('course', (int) $course->getKey()),
         ];
 
         if ($quiz !== null) {
@@ -200,10 +196,9 @@ final readonly class ProgressReport
             ->pluck('lesson_completions.completed_at', 'enrollments.user_id');
 
         $attempts = $quiz === null ? collect() : $this->attemptsByUser((int) $quiz->getKey());
-        $inPlan = $course === null ? [] : $this->plannedUserIds('course', (int) $course->getKey());
 
         $people = $learners->map(fn (User $learner): array => [
-            ...$this->person($learner, in_array((int) $learner->getKey(), $inPlan, strict: true)),
+            ...$this->person($learner),
 
             'is_done' => $completions->has($learner->getKey()),
             'done_at' => $this->moment($completions->get($learner->getKey())),
@@ -253,7 +248,6 @@ final readonly class ProgressReport
             DB::table('regulation_acknowledgements')
                 ->where('regulation_id', $regulation->getKey())
                 ->select('user_id'),
-            $this->planned('regulation', (int) $regulation->getKey()),
         ];
 
         if ($quizzes->isNotEmpty()) {
@@ -275,14 +269,13 @@ final readonly class ProgressReport
         $names = $regulation->versions()->pluck('name', 'id');
 
         $attempts = $quizIds === [] ? collect() : $this->attemptsAcross($quizIds);
-        $inPlan = $this->plannedUserIds('regulation', (int) $regulation->getKey());
 
-        $people = $learners->map(function (User $learner) use ($acknowledgements, $attempts, $inPlan, $quizzes, $names): array {
+        $people = $learners->map(function (User $learner) use ($acknowledgements, $attempts, $quizzes, $names): array {
             $acknowledgement = $acknowledgements->get($learner->getKey());
             $own = $attempts->get($learner->getKey());
 
             return [
-                ...$this->person($learner, in_array((int) $learner->getKey(), $inPlan, strict: true)),
+                ...$this->person($learner),
 
                 'is_done' => $acknowledgement !== null,
                 'done_at' => $this->moment($acknowledgement?->acknowledged_at),
@@ -491,15 +484,9 @@ final readonly class ProgressReport
      *
      * @return array<string, mixed>
      */
-    private function person(User $learner, bool $inPlan): array
+    private function person(User $learner): array
     {
-        return [
-            ...$this->identity($learner),
-
-            // Назначено планом или взято самим: у первого спрашивают, почему не
-            // сделано, у второго — нет.
-            'in_plan' => $inPlan,
-        ];
+        return $this->identity($learner);
     }
 
     /**
@@ -565,27 +552,6 @@ final readonly class ProgressReport
         return $enrollment->started_at !== null || $completedLessons > 0
             ? 'in_progress'
             : 'not_started';
-    }
-
-    /**
-     * Выборка номеров сотрудников, у кого материал стоит в плане.
-     *
-     * @return Builder<LearningPlanItem>
-     */
-    private function planned(string $type, int $id): Builder
-    {
-        return LearningPlanItem::query()
-            ->where('plannable_type', $type)
-            ->where('plannable_id', $id)
-            ->select('user_id');
-    }
-
-    /**
-     * @return list<int>
-     */
-    private function plannedUserIds(string $type, int $id): array
-    {
-        return $this->planned($type, $id)->pluck('user_id')->map(intval(...))->all();
     }
 
     /**

@@ -10,7 +10,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\StoreAvatarRequest;
 use App\Http\Requests\Profile\UpdatePasswordRequest;
 use App\Http\Requests\Profile\UpdateProfileRequest;
+use App\Http\Resources\AchievementResource;
 use App\Http\Resources\UserResource;
+use App\Models\Achievement;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -52,6 +54,27 @@ final class ProfileController extends Controller
         $changePassword->handle($user, (string) $request->validated('password'));
 
         return response()->noContent();
+    }
+
+    /**
+     * Свои достижения — отдельным адресом, а не полем вошедшего.
+     *
+     * Карточку вошедшего приложение спрашивает постоянно, на каждой странице,
+     * и значки с их подписанными ссылками ехали бы в ней всегда ради одного
+     * экрана. Профиль просит их сам — ровно тогда, когда собирается показать.
+     *
+     * @return array<string, mixed>
+     */
+    public function achievements(Request $request): array
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return [
+            'data' => $user->achievements()->get()
+                ->map(static fn (Achievement $achievement): array => AchievementResource::awarded($achievement))
+                ->all(),
+        ];
     }
 
     public function storeAvatar(StoreAvatarRequest $request, StoreAvatar $storeAvatar): UserResource

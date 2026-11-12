@@ -54,7 +54,9 @@ final class MessengerTest extends TestCase
             ->json('data.id');
 
         $this->assertSame($first, $second);
-        $this->assertSame(1, Conversation::query()->count());
+
+        // Считаем личные: общий чат компании стоит в базе с первой миграции.
+        $this->assertSame(1, Conversation::query()->where('kind', ConversationKind::Direct)->count());
     }
 
     /**
@@ -304,10 +306,7 @@ final class MessengerTest extends TestCase
             ->assertForbidden();
 
         // Список переписок у него тоже чист.
-        $this->actingAs($mate)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
+        $this->assertSame([], $this->conversationsOf($mate));
     }
 
     /** Файл прикладывается к сообщению и отдаётся подписанной ссылкой. */
@@ -393,6 +392,28 @@ final class MessengerTest extends TestCase
         ]);
 
         require base_path('routes/channels.php');
+    }
+
+    /**
+     * Список переписок человека — без общего чата компании.
+     *
+     * Общий чат есть у каждого и приходит в каждом списке; этим проверкам
+     * интересны те разговоры, которые они сами и завели. Отбор по виду, а не
+     * по номеру: номер у общего чата в каждом прогоне свой.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function conversationsOf(User $reader): array
+    {
+        $data = $this->actingAs($reader)
+            ->getJson(route('chat.conversations.index'))
+            ->assertOk()
+            ->json('data');
+
+        return array_values(array_filter(
+            $data,
+            static fn (array $row): bool => $row['kind'] !== 'general',
+        ));
     }
 
     private function employee(): User

@@ -155,6 +155,11 @@ final class MessageController extends Controller
         Conversation $conversation,
         SayInConversation $say,
     ): JsonResponse {
+        // Проверкой прав тут не обойтись: администратора пропускает
+        // Gate::before, а в ленте уведомлений не говорит никто — она не
+        // разговор, а список случившегося.
+        abort_if($conversation->isSystem(), 422, 'В уведомления не пишут: отвечать здесь некому.');
+
         Gate::authorize('speak', $conversation);
 
         /** @var User $author */

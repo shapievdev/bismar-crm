@@ -7,7 +7,8 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
   },
   "dependencies": {
     "@tiptap/extension-code-block": "^3.29.2",
@@ -31,5 +32,8 @@
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.9",
     "workbox-precaching": "^7.4.1"
+  },
+  "engines": {
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
   }
 }

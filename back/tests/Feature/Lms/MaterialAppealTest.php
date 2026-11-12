@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Lms;
 
+use App\Enums\ConversationKind;
 use App\Models\Conversation;
 use App\Models\Course;
 use App\Models\Message;
@@ -100,7 +101,9 @@ final class MaterialAppealTest extends TestCase
             ])
             ->assertCreated();
 
-        $conversation = Conversation::query()->firstOrFail();
+        // Именно личная: общий чат компании стоит в базе с миграции и по
+        // номеру идёт первым.
+        $conversation = Conversation::query()->where('kind', ConversationKind::Direct)->firstOrFail();
 
         $this->actingAs($author)
             ->getJson(route('chat.messages.index', $conversation))
@@ -266,30 +269,5 @@ final class MaterialAppealTest extends TestCase
             ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('reason');
-    }
-
-    /**
-     * Материал, закрытый очередью плана обучения, не даёт написать и о себе:
-     * читать его этот человек ещё не должен.
-     */
-    public function test_a_locked_course_takes_no_appeals(): void
-    {
-        $learner = $this->learner();
-        $assigned = Course::factory()->withLessons(1)->create();
-        $other = $this->course($this->author());
-
-        $this->actingAs($this->administrator())
-            ->putJson(route('lms.plans.update', $learner), [
-                'items' => [['type' => 'course', 'id' => $assigned->id]],
-            ])
-            ->assertOk();
-
-        $this->actingAs($learner)
-            ->postJson(route('lms.courses.appeal', $other), [
-                'recipient_id' => $other->author_id,
-                'reason' => 'missing',
-                'body' => 'Хотел бы уточнить.',
-            ])
-            ->assertForbidden();
     }
 }

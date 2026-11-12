@@ -6,7 +6,6 @@ namespace App\Support\Lms;
 
 use App\Models\Course;
 use App\Models\Enrollment;
-use App\Models\LearningPlanItem;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
@@ -16,46 +15,56 @@ use Carbon\CarbonImmutable as Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * Когда шаг плана обучения считается пройденным — одно правило на приложение.
+ * Когда материал считается изученным — одно правило на приложение.
  *
- * Правил на самом деле два, по числу видов шага: курс пройден, когда закрыты
- * все его уроки, документ — когда с ним ознакомились. Но у документа бывает
- * проверка, и тогда одной отметки мало: «ознакомлен» ставят нажатием, и без
- * сданного теста шаг открывал бы следующий тому, кто ничего не читал.
+ * Правил два, по числу видов: курс пройден, когда закрыты все его уроки,
+ * документ — когда с ним ознакомились. Но у документа бывает проверка, и тогда
+ * одной отметки мало: «ознакомлен» ставят нажатием, и без сданного теста
+ * материал считался бы изученным тем, кто ничего не читал.
  *
- * Класс отвечает только на этот вопрос и ничего не решает про доступ — очередь
- * шагов строит поверх него LearningPlan. Отдельно он потому, что ответ нужен
- * двоим: экрану плана, который рисует галочки, и запрету, который по этим же
- * галочкам открывает курсы. Разойдись они хоть на день — сотрудник увидел бы
- * пройденный план и закрытый каталог.
+ * Спрашивает об этом маршрут адаптации (StageRequirements): требование
+ * «изучите материал» закрывается ровно этим правилом. Родился класс при плане
+ * обучения — план ушёл (2026-10-25), правило осталось.
  *
- * Считается пачкой на весь план: шагов бывает десяток, и вопрос «сдан ли тест»
- * на каждом из них — это десяток запросов там, где хватает трёх.
+ * Считается пачкой на весь маршрут: материалов бывает десяток, и вопрос «сдан
+ * ли тест» на каждом — это десяток запросов там, где хватает трёх.
  */
 final class StepCompletion
 {
     /**
-     * Когда каждый из шагов был пройден.
+     * Когда изучен каждый материал из списка пар «morph-вид + номер».
      *
-     * Ключ есть у всякого шага, а не только у пройденного: `null` — честный
-     * ответ «не пройден», и вызывающему не приходится гадать, шаг это без
-     * отметки или шаг, о котором забыли спросить.
-     *
-     * @param  Collection<int, LearningPlanItem>  $steps
-     * @return array<int, ?Carbon> номер шага => когда пройден
+     * @param  list<array{type: string, id: int}>  $materials
+     * @return array<string, ?Carbon> «type:id» => когда изучен
      */
-    public function of(User $learner, Collection $steps): array
+    public function ofMaterials(User $learner, array $materials): array
     {
-        $courses = $this->finishedCourses($learner, $this->idsOf($steps, Course::class));
-        $documents = $this->readDocuments($learner, $this->idsOf($steps, Regulation::class));
+        $courseMorph = (new Course)->getMorphClass();
+        $regulationMorph = (new Regulation)->getMorphClass();
 
-        return $steps
-            ->mapWithKeys(fn (LearningPlanItem $step): array => [
-                (int) $step->getKey() => $step->plannable instanceof Regulation
-                    ? ($documents[(int) $step->plannable_id] ?? null)
-                    : ($courses[(int) $step->plannable_id] ?? null),
-            ])
-            ->all();
+        $courseIds = [];
+        $regulationIds = [];
+
+        foreach ($materials as $material) {
+            if ($material['type'] === $courseMorph) {
+                $courseIds[] = $material['id'];
+            } elseif ($material['type'] === $regulationMorph) {
+                $regulationIds[] = $material['id'];
+            }
+        }
+
+        $courses = $this->finishedCourses($learner, $courseIds);
+        $documents = $this->readDocuments($learner, $regulationIds);
+
+        $done = [];
+
+        foreach ($materials as $material) {
+            $done[$material['type'].':'.$material['id']] = $material['type'] === $courseMorph
+                ? ($courses[$material['id']] ?? null)
+                : ($documents[$material['id']] ?? null);
+        }
+
+        return $done;
     }
 
     /**
@@ -158,25 +167,5 @@ final class StepCompletion
             ->all();
 
         return $quizzes->except($passed)->values()->all();
-    }
-
-    /**
-     * Номера того, что назначено, — по видам.
-     *
-     * @param  Collection<int, LearningPlanItem>  $steps
-     * @param  class-string  $model
-     * @return list<int>
-     */
-    private function idsOf(Collection $steps, string $model): array
-    {
-        $type = (new $model)->getMorphClass();
-
-        return $steps
-            ->where('plannable_type', $type)
-            ->pluck('plannable_id')
-            ->map(intval(...))
-            ->unique()
-            ->values()
-            ->all();
     }
 }

@@ -92,6 +92,8 @@ function scaleShare(question: SurveyQuestionSummary, count: number): number {
         </li>
       </ul>
     </article>
+
+    <SurveyIndividualResponses v-if="!summary.is_anonymous" :responses="summary.responses ?? []" />
   </section>
 </template>
 

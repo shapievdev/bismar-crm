@@ -6,7 +6,14 @@ const route = useRoute()
  * Сколько работ ждёт проверки и есть ли они вообще. Считает навигация — она
  * спрашивает сервер один раз на вход, а не каждая страница по отдельности.
  */
-const { pendingAttestations, hasAttestations, pendingApprovals, isApprover } = useNavigation()
+const {
+  pendingAttestations,
+  hasAttestations,
+  pendingApprovals,
+  isApprover,
+  hasJourney,
+  pendingOnboarding,
+} = useNavigation()
 
 /* ---------- Прокрутка полосы ---------- */
 
@@ -109,15 +116,12 @@ const links = computed<NavLink[]>(() => {
         visible: can('handbooks.view'),
         matches: (p: string) => p.startsWith('/lms/handbooks') && p !== '/lms/handbooks/categories',
       },
-      // «Мой план» — назначенное, «Мои материалы» — всё, за что человек брался
-      // сам. Первое идёт раньше: с него начинают. План ведёт и в документы,
-      // поэтому виден всякому, кому открыт хоть один раздел.
-      { to: '/lms/plan', label: 'Мой план', visible: true },
       { to: '/lms/my', label: 'Мои курсы', visible: can('courses.view') },
-      // «Избранное» — рядом с планом и моими курсами, третьим личным разделом:
-      // план назначают, курсы набираются сами, а это человек складывает руками.
-      // Открыто тому же, кому открыт хоть один раздел: избранное есть и у
-      // продавца, которому доступны одни справочники.
+      { to: '/lms/surveys', label: 'Результаты опросов', visible: can('enrollments.manage') },
+      // «Избранное» — рядом с моими курсами, вторым личным разделом: курсы
+      // набираются сами, а это человек складывает руками. Открыто тому же,
+      // кому открыт хоть один раздел: избранное есть и у продавца, которому
+      // доступны одни справочники.
       { to: '/lms/favourites', label: 'Избранное', visible: true },
       // Вкладка есть у того, кому сдают работы: назначение — не право с
       // галочкой, и пустой раздел в меню обещал бы то, чего за ним нет.
@@ -200,6 +204,59 @@ const links = computed<NavLink[]>(() => {
        * будет в конце списка, а не вместо продаж.
        */
       { to: '/analytics/ai', label: 'ИИ-аналитик', visible: can('analytics.view') },
+    ].filter(link => link.visible)
+  }
+
+  /*
+   * Адаптация. Вкладки разные у разных людей, и это не про права, а про роль
+   * в маршруте: у сотрудника свой маршрут, у наставника — встречи, которые
+   * он проводит, у ведущего — чужие маршруты, шаблоны и отчёт.
+   *
+   * «Мой маршрут» виден тому, у кого он есть: кадровику без собственного
+   * маршрута вкладка обещала бы пустой экран.
+   */
+  if (path.startsWith('/onboarding')) {
+    return [
+      {
+        to: '/onboarding',
+        label: 'Мой маршрут',
+        visible: hasJourney.value,
+        matches: (p: string) => p === '/onboarding',
+      },
+      {
+        to: '/onboarding/meetings',
+        label: pendingOnboarding.value > 0
+          ? `Мои поручения · ${pendingOnboarding.value}`
+          : 'Мои поручения',
+        // Видна, когда есть что подтверждать, — и когда человек уже на ней:
+        // иначе страница открыта, а полоса показывает другой раздел.
+        visible: true,
+      },
+      {
+        to: '/onboarding/manage/people',
+        label: 'Сотрудники',
+        visible: can('onboarding.manage'),
+        matches: (p: string) => p.startsWith('/onboarding/manage/people'),
+      },
+      {
+        // Шаблоны живут в корне админки: с них начинают, собирая программу.
+        to: '/onboarding/manage',
+        label: 'Шаблоны',
+        visible: can('onboarding.manage'),
+        matches: (p: string) => p === '/onboarding/manage' || p.startsWith('/onboarding/manage/templates'),
+      },
+      {
+        to: '/onboarding/manage/report',
+        label: 'Отчёт',
+        visible: can('onboarding.manage'),
+      },
+      {
+        // Каталог значков — своё право: заводить достижения и строить по ним
+        // маршруты делают разные люди, и вкладка видна тому, кто их рисует.
+        to: '/onboarding/manage/achievements',
+        label: 'Достижения',
+        visible: can('achievements.manage'),
+      },
     ].filter(link => link.visible)
   }
 

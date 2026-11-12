@@ -138,68 +138,6 @@ final class HandbookTest extends TestCase
 
     /* ---------- План обучения ---------- */
 
-    public function test_a_handbook_can_be_planned_and_comes_back_as_a_handbook(): void
-    {
-        $learner = $this->learner();
-        $handbook = Regulation::factory()->published()->handbook()->create(['title' => 'Клиент требует возврат']);
-
-        $this->actingAs($this->administrator())
-            ->putJson(route('lms.plans.update', $learner), [
-                'items' => [['type' => 'handbook', 'id' => $handbook->getKey()]],
-            ])
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.kind', 'handbook')
-            ->assertJsonPath('data.0.title', 'Клиент требует возврат');
-
-        // В базе он лежит обычным материалом: вид записан в нём самом.
-        $this->assertDatabaseHas('learning_plan_items', [
-            'user_id' => $learner->getKey(),
-            'plannable_type' => 'regulation',
-            'plannable_id' => $handbook->getKey(),
-        ]);
-    }
-
-    public function test_the_plan_material_list_offers_both_sections_apart(): void
-    {
-        Regulation::factory()->published()->create(['title' => 'Кассовая дисциплина']);
-        Regulation::factory()->published()->handbook()->create(['title' => 'Клиент требует возврат']);
-
-        $offered = collect($this->actingAs($this->administrator())
-            ->getJson(route('lms.plans.material', $this->learner()))
-            ->assertOk()
-            ->json('data'))
-            ->keyBy('title');
-
-        $this->assertSame('document', $offered['Кассовая дисциплина']['kind']);
-        $this->assertSame('handbook', $offered['Клиент требует возврат']['kind']);
-    }
-
-    /**
-     * Прочитанный справочник закрывает свой шаг плана так же, как документ:
-     * отметка об ознакомлении у них одна и та же.
-     */
-    public function test_reading_a_handbook_closes_its_step(): void
-    {
-        $learner = $this->learner();
-        $handbook = Regulation::factory()->published()->handbook()->create();
-
-        $this->actingAs($this->administrator())
-            ->putJson(route('lms.plans.update', $learner), [
-                'items' => [['type' => 'handbook', 'id' => $handbook->getKey()]],
-            ])
-            ->assertOk();
-
-        $this->actingAs($learner)
-            ->postJson(route('lms.handbooks.acknowledge', $handbook))
-            ->assertOk();
-
-        $this->actingAs($learner)
-            ->getJson(route('lms.my-plan'))
-            ->assertOk()
-            ->assertJsonPath('data.0.is_completed', true);
-    }
-
     /* ---------- Соседи и корзина ---------- */
 
     public function test_a_document_cannot_be_put_next_to_a_handbook(): void

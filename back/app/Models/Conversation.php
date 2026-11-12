@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
- * Переписка: личная на двоих или групповая.
+ * Переписка: личная на двоих, групповая или общая на всю компанию.
  *
  * @property-read ConversationKind $kind
  */
@@ -121,6 +121,18 @@ class Conversation extends Model
     public function isGroup(): bool
     {
         return $this->kind->isGroup();
+    }
+
+    /** Общий чат компании: один на всех, и в нём все. */
+    public function isGeneral(): bool
+    {
+        return $this->kind->isGeneral();
+    }
+
+    /** Личные уведомления: в них пишет приложение, а не люди. */
+    public function isSystem(): bool
+    {
+        return $this->kind->isSystem();
     }
 
     /** Состоит ли человек в переписке сейчас. */

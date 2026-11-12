@@ -44,17 +44,13 @@ final class ConversationDeletionTest extends TestCase
             ->deleteJson(route('chat.conversations.destroy', $conversation), ['scope' => DeletionScope::Mine->value])
             ->assertOk();
 
-        $this->actingAs($me)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
+        $this->assertSame([], $this->conversationsOf($me));
 
         // У собеседника всё на месте — и разговор, и сказанное в нём.
-        $this->actingAs($other)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.last_message.body', 'Здравствуйте');
+        $his = $this->conversationsOf($other);
+
+        $this->assertCount(1, $his);
+        $this->assertSame('Здравствуйте', $his[0]['last_message']['body']);
 
         $this->assertDatabaseHas('conversations', ['id' => $conversation->id]);
         $this->assertSame(1, $conversation->messages()->count());
@@ -88,11 +84,10 @@ final class ConversationDeletionTest extends TestCase
 
         Carbon::setTestNow();
 
-        $this->actingAs($me)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.last_message.body', 'Новое');
+        $mine = $this->conversationsOf($me);
+
+        $this->assertCount(1, $mine);
+        $this->assertSame('Новое', $mine[0]['last_message']['body']);
 
         // В ленте — только сказанное после удаления.
         $this->actingAs($me)
@@ -142,12 +137,11 @@ final class ConversationDeletionTest extends TestCase
             ->assertNoContent();
 
         // Переписка в списке осталась — пустой строчкой, без прежних слов.
-        $this->actingAs($me)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $conversation->id)
-            ->assertJsonMissingPath('data.0.last_message');
+        $mine = $this->conversationsOf($me);
+
+        $this->assertCount(1, $mine);
+        $this->assertSame($conversation->id, $mine[0]['id']);
+        $this->assertArrayNotHasKey('last_message', $mine[0]);
     }
 
     /** Непрочитанное из убранной истории не висит цифрой. */
@@ -219,10 +213,7 @@ final class ConversationDeletionTest extends TestCase
         $this->assertDatabaseMissing('conversation_participants', ['conversation_id' => $conversation->id]);
         $this->assertSame([], Storage::disk('s3')->allFiles());
 
-        $this->actingAs($other)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
+        $this->assertSame([], $this->conversationsOf($other));
     }
 
     /** Удалённая пара может начать разговор заново — ключ пары освободился. */
@@ -272,10 +263,7 @@ final class ConversationDeletionTest extends TestCase
 
         $this->assertDatabaseMissing('conversations', ['id' => $group->id]);
 
-        $this->actingAs($mate)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
+        $this->assertSame([], $this->conversationsOf($mate));
     }
 
     /**
@@ -294,18 +282,12 @@ final class ConversationDeletionTest extends TestCase
 
         $this->actingAs($mate)->deleteJson(route('chat.conversations.destroy', $group))->assertOk();
 
-        $this->actingAs($mate)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
+        $this->assertSame([], $this->conversationsOf($mate));
 
         $this->assertTrue($group->refresh()->includes($mate));
         $this->assertDatabaseHas('conversations', ['id' => $group->id]);
 
-        $this->actingAs($owner)
-            ->getJson(route('chat.conversations.index'))
-            ->assertOk()
-            ->assertJsonCount(1, 'data');
+        $this->assertCount(1, $this->conversationsOf($owner));
     }
 
     /** Посторонний не удаляет чужую переписку — ни себе, ни всем. */
@@ -364,6 +346,28 @@ final class ConversationDeletionTest extends TestCase
     }
 
     /* ---------- helpers ---------- */
+
+    /**
+     * Список переписок человека — без общего чата компании.
+     *
+     * Общий чат есть у каждого и приходит в каждом списке; этим проверкам
+     * интересны те разговоры, которые они сами и завели. Отбор по виду, а не
+     * по номеру: номер у общего чата в каждом прогоне свой.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function conversationsOf(User $reader): array
+    {
+        $data = $this->actingAs($reader)
+            ->getJson(route('chat.conversations.index'))
+            ->assertOk()
+            ->json('data');
+
+        return array_values(array_filter(
+            $data,
+            static fn (array $row): bool => $row['kind'] !== 'general',
+        ));
+    }
 
     private function employee(): User
     {

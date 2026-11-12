@@ -16,6 +16,8 @@ export interface DialogRequest {
   message?: string
   /** Подпись поля — только у вопроса с вводом. */
   label?: string
+  /** Вид поля: обычная строка, дата или дата со временем. */
+  type?: 'text' | 'date' | 'datetime-local'
   value: string
   placeholder?: string
   confirmLabel: string
@@ -37,6 +39,7 @@ export interface PromptOptions {
   title: string
   message?: string
   label?: string
+  type?: 'text' | 'date' | 'datetime-local'
   value?: string
   placeholder?: string
   confirmLabel?: string
@@ -80,6 +83,7 @@ export function useAppDialog() {
         title: options.title,
         message: options.message,
         label: options.label,
+        type: options.type,
         value: options.value ?? '',
         placeholder: options.placeholder,
         confirmLabel: options.confirmLabel ?? 'Сохранить',

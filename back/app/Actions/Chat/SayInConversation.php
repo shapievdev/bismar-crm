@@ -12,6 +12,7 @@ use App\Models\Message;
 use App\Models\User;
 use App\Support\Chat\Announcement;
 use App\Support\Chat\VoiceRecording;
+use App\Support\Media\WebpImage;
 use App\Support\Push\PushMessage;
 use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Http\UploadedFile;
@@ -62,13 +63,18 @@ final readonly class SayInConversation
             ]);
 
             foreach ($files as $at => $file) {
-                // Имя объекта выбирает Laravel: пришедшее от клиента годится
-                // только для показа.
-                $path = $file->store('chat/'.$conversation->getKey(), self::DISK);
-
                 // Надиктованная запись всегда одна и всегда первая: записывают
                 // её отдельной кнопкой, вместе с файлами не отправляют.
                 $spoken = $voice !== null && $at === 0;
+
+                // Снимок экрана и фотография едут в хранилище одним форматом:
+                // WebP, ужатый по длинной стороне. Запись голоса и всё, что не
+                // картинка, проходит как есть.
+                $file = WebpImage::from($file);
+
+                // Имя объекта выбирает Laravel: пришедшее от клиента годится
+                // только для показа.
+                $path = $file->store('chat/'.$conversation->getKey(), self::DISK);
 
                 $message->attachments()->create([
                     'disk' => self::DISK,
@@ -191,13 +197,18 @@ final readonly class SayInConversation
      *
      * Текст записывается готовым, а не собирается при чтении: участник мог с
      * тех пор смениться или уволиться, а сказано было то, что сказано.
+     *
+     * @param  array<string, mixed>|null  $about  карточка под текстом: у отметок
+     *                                            состава её нет, у уведомления о
+     *                                            достижении — есть
      */
-    public function system(Conversation $conversation, string $text): Message
+    public function system(Conversation $conversation, string $text, ?array $about = null): Message
     {
-        $message = DB::transaction(function () use ($conversation, $text): Message {
+        $message = DB::transaction(function () use ($conversation, $text, $about): Message {
             $message = $conversation->messages()->create([
                 'kind' => MessageKind::System,
                 'body' => $text,
+                'about' => $about,
             ]);
 
             $conversation->forceFill(['last_message_at' => $message->created_at])->save();

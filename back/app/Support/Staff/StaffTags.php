@@ -14,20 +14,23 @@ use Illuminate\Support\Facades\DB;
  * следующего ночного пересчёта и ровно столько же врёт. Вычисленный не
  * устаревает никогда.
  *
- * Стажёрство — единственный тег с двумя условиями: тридцать дней **или**
- * несданная аттестация испытательного срока. Второе считается не по человеку, а
- * по тому, что ему назначено, и потому живёт здесь, а не в самом перечислении.
+ * Стажёрство — единственный тег с тремя условиями: тридцать дней, **или**
+ * непустой незавершённый маршрут адаптации, **или** несданная аттестация
+ * испытательного срока. Последние два считаются не по человеку, а по тому,
+ * что ему положили, и потому живут здесь, а не в самом перечислении.
  *
  * **Назначенной** аттестация считается тогда, когда человек до неё дотянулся:
- * записан на курс, в котором она стоит, или материал с ней лежит у него в плане
- * обучения. Без этого условия обошлось бы дешевле, но стажёрами навсегда стали
- * бы все, кому аттестацию не назначали вовсе, — а это вся компания в тот день,
- * когда отметку «аттестация испытательного срока» поставят первой проверке.
+ * записан на курс, в котором она стоит. Без этого условия обошлось бы дешевле,
+ * но стажёрами навсегда стали бы все, кому аттестацию не назначали вовсе, — а
+ * это вся компания в тот день, когда отметку «аттестация испытательного
+ * срока» поставят первой проверке. (Прежде сюда входило и назначение планом
+ * обучения — план уступил место маршруту адаптации, 2026-10-25.)
  */
 final readonly class StaffTags
 {
     /**
-     * Кто ещё не сдал назначенную ему аттестацию испытательного срока.
+     * Кто ещё числится стажёром по назначению: идёт маршрут адаптации или не
+     * сдана назначенная аттестация испытательного срока.
      *
      * Одним запросом на весь отчёт, а не по человеку: список людей в отчёте —
      * это вся компания, и три запроса на каждого означали бы полтысячи
@@ -57,45 +60,33 @@ final readonly class StaffTags
                 join enrollments e on e.course_id = m.course_id
                 where e.user_id = any(?)
             ),
-            -- И тому, кому этот курс назначен планом: план — тоже назначение.
-            by_plan_course as (
-                select i.user_id, p.id as quiz_id
-                from probation p
-                join lessons l on p.quizzable_type = 'lesson' and l.id = p.quizzable_id
-                join course_modules m on m.id = l.module_id
-                join learning_plan_items i
-                    on i.plannable_type = 'course' and i.plannable_id = m.course_id
-                where i.user_id = any(?)
+            awaiting_probation as (
+                select distinct a.user_id
+                from by_course a
+                where not exists (
+                    select 1 from quiz_attempts t
+                    where t.quiz_id = a.quiz_id and t.user_id = a.user_id and t.passed
+                )
             ),
-            -- Аттестация документа и его версии — тому, кому назначен документ.
-            by_plan_document as (
-                select i.user_id, p.id as quiz_id
-                from probation p
-                left join material_versions v
-                    on p.quizzable_type = 'material_version'
-                    and v.versionable_type = 'regulation'
-                    and v.id = p.quizzable_id
-                join learning_plan_items i
-                    on i.plannable_type = 'regulation'
-                    and i.plannable_id = coalesce(v.versionable_id, p.quizzable_id)
-                where p.quizzable_type in ('regulation', 'material_version')
-                  and i.user_id = any(?)
-            ),
-            assigned as (
-                select * from by_course
-                union
-                select * from by_plan_course
-                union
-                select * from by_plan_document
+            /*
+             * Непустой незавершённый маршрут — человек ещё проходит адаптацию,
+             * каким бы ни был стаж. Пустая карта не в счёт: она заведена у
+             * каждого сотрудника, и по ней стажёрами стала бы вся компания.
+             */
+            on_route as (
+                select distinct j.user_id
+                from onboarding_journeys j
+                where j.status in ('active', 'paused')
+                  and j.user_id = any(?)
+                  and exists (
+                      select 1 from onboarding_journey_stages s
+                      where s.journey_id = j.id
+                  )
             )
-            select distinct a.user_id
-            from assigned a
-            where not exists (
-                select 1 from quiz_attempts t
-                where t.quiz_id = a.quiz_id and t.user_id = a.user_id and t.passed
-            )
+            select user_id from awaiting_probation
+            union
+            select user_id from on_route
             SQL, [
-            '{'.implode(',', $userIds).'}',
             '{'.implode(',', $userIds).'}',
             '{'.implode(',', $userIds).'}',
         ]);

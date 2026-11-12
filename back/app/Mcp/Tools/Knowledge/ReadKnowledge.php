@@ -13,7 +13,6 @@ use App\Models\News;
 use App\Models\Regulation;
 use App\Models\User;
 use App\Support\Lms\CourseAccess;
-use App\Support\Lms\LearningPlan;
 use App\Support\Lms\RichTextExtractor;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -35,14 +34,11 @@ use Laravel\Mcp\Server\Attributes\Title;
  * разошлись бы, и поиск начал бы находить то, чего в прочитанном нет.
  *
  * Правила доступа — не свои, а те же, что у страницы: политика материала
- * (`view`), доступ к приватному курсу (CourseAccess) и очередь плана обучения
- * (LearningPlan). Последняя здесь не формальность: план на то и план, что
- * шестой урок не читают прежде первого, и коннектор не должен быть лазейкой
- * вокруг него.
+ * (`view`) и доступ к приватному курсу (CourseAccess).
  */
 #[Name('knowledge_read')]
 #[Title('Прочитать материал')]
-#[Description('Отдаёт материал целиком: статью документа или справочника, урок с текстом, курс с его оглавлением, новость. Вид и номер берутся из knowledge_search. Доступ тот же, что на сайте: закрытый курс, черновик и запертый очередью плана обучения материал ответят отказом.')]
+#[Description('Отдаёт материал целиком: статью документа или справочника, урок с текстом, курс с его оглавлением, новость. Вид и номер берутся из knowledge_search. Доступ тот же, что на сайте: закрытый курс и черновик ответят отказом.')]
 final class ReadKnowledge extends BismarTool
 {
     public function handle(Request $request, RichTextExtractor $text): ResponseFactory|Response
@@ -176,9 +172,8 @@ final class ReadKnowledge extends BismarTool
     }
 
     /**
-     * Закрытость курса и очередь плана — те же две проверки, что стоят на
-     * входе во все маршруты базы знаний (EnsureCourseAccess и
-     * EnsureLearningPlanOrder).
+     * Закрытость курса — та же проверка, что стоит на входе во все маршруты
+     * базы знаний (EnsureCourseAccess).
      *
      * @throws AuthorizationException
      */
@@ -186,14 +181,6 @@ final class ReadKnowledge extends BismarTool
     {
         if (! CourseAccess::of($actor)->allows($course)) {
             throw new AuthorizationException('Этот курс вам не открыт.');
-        }
-
-        if (LearningPlan::restrains($actor)) {
-            $plan = LearningPlan::of($actor);
-
-            if (! $plan->allows($course)) {
-                throw new AuthorizationException($plan->refusal());
-            }
         }
     }
 

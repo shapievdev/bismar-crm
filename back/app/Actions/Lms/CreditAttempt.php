@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Lms;
 
+use App\Actions\Onboarding\RefreshJourneyProgress;
 use App\Models\Enrollment;
 use App\Models\Lesson;
+use App\Models\OnboardingJourneyStage;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -33,6 +35,18 @@ final readonly class CreditAttempt
         $learner = $attempt->user;
 
         if ($owner === null || $learner === null) {
+            return;
+        }
+
+        /*
+         * Тест этапа маршрута зачитывает не материал, а сам этап: вердикт
+         * проверяющего должен закрыть его сразу, не дожидаясь утреннего
+         * пересчёта. Разрешается лениво, чтобы не тянуть адаптацию в
+         * конструктор каждого зачёта.
+         */
+        if ($owner instanceof OnboardingJourneyStage) {
+            app(RefreshJourneyProgress::class)->handle($owner->loadMissing('journey')->journey);
+
             return;
         }
 

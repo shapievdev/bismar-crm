@@ -40,6 +40,6 @@ final class UserStaffTagController extends Controller
             ['assigned_by_id' => $request->user()?->getKey()],
         ));
 
-        return UserResource::make($user->load('roles', 'permissions', 'departments', 'mentor', 'staffTags'));
+        return UserResource::make($user->load('roles', 'permissions', 'departments', 'mentor', 'staffTags', 'achievements'));
     }
 }

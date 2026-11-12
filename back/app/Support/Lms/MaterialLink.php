@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Lms;
 
+use App\Models\Exam;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\Regulation;
@@ -23,7 +24,7 @@ use App\Models\Regulation;
 final readonly class MaterialLink
 {
     private function __construct(
-        /** Вид материала: `lesson`, `document`, `handbook`. */
+        /** Вид материала: `lesson`, `document`, `handbook`, `exam`. */
         public string $kind,
         public string $title,
         /** Откуда материал: курс у урока, документ у версии. У прочих пусто. */
@@ -41,6 +42,7 @@ final readonly class MaterialLink
             $owner instanceof Lesson => self::forLesson($owner),
             $owner instanceof MaterialVersion => self::forVersion($owner),
             $owner instanceof Regulation => self::forMaterial($owner),
+            $owner instanceof Exam => self::forExam($owner),
             default => null,
         };
     }
@@ -126,6 +128,20 @@ final readonly class MaterialLink
             title: (string) $version->name,
             context: $owner->title,
             url: $owner->path().'/versions/'.$version->getKey(),
+        );
+    }
+
+    /**
+     * Экзамен стоит сам по себе — контекста у него нет: он и есть то, что
+     * сдают, а не часть курса или документа.
+     */
+    private static function forExam(Exam $exam): self
+    {
+        return new self(
+            kind: 'exam',
+            title: (string) $exam->title,
+            context: null,
+            url: '/exams/'.$exam->slug,
         );
     }
 }

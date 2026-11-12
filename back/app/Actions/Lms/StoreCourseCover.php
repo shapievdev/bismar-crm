@@ -6,6 +6,7 @@ namespace App\Actions\Lms;
 
 use App\Models\Course;
 use App\Support\Lms\StoredFiles;
+use App\Support\Media\WebpImage;
 use Illuminate\Http\UploadedFile;
 
 final readonly class StoreCourseCover
@@ -19,6 +20,10 @@ final readonly class StoreCourseCover
     public function handle(Course $course, UploadedFile $file): Course
     {
         $previous = $course->cover_path;
+
+        // Картинка едет в хранилище одним форматом: WebP, ужатый по
+        // длинной стороне. Файл, который не картинка, проходит как есть.
+        $file = WebpImage::from($file);
 
         $course->update([
             'cover_path' => $file->store("courses/{$course->getKey()}/cover", self::DISK),

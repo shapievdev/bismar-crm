@@ -18,6 +18,7 @@ use App\Http\Requests\Chat\StartConversationRequest;
 use App\Http\Resources\Chat\ConversationResource;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Support\Chat\GeneralChat;
 use App\Support\Chat\Unread;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -35,7 +36,10 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 final class ConversationController extends Controller
 {
-    public function __construct(private readonly Unread $unread) {}
+    public function __construct(
+        private readonly Unread $unread,
+        private readonly GeneralChat $general,
+    ) {}
 
     /**
      * Список переписок — свежие сверху, с последним сообщением и счётчиком.
@@ -44,6 +48,14 @@ final class ConversationController extends Controller
     {
         /** @var User $reader */
         $reader = $request->user();
+
+        /*
+         * Общий чат — у всех, и проверяется это здесь, при каждом открытии
+         * списка. Учётные записи появляются и мимо CreateUser — сидером,
+         * выгрузкой, руками в консоли, — и без этой строчки такой человек
+         * остался бы единственным в компании, кто его не видит.
+         */
+        $this->general->include($reader);
 
         $conversations = Conversation::query()
             ->of($reader)
@@ -137,6 +149,11 @@ final class ConversationController extends Controller
         $scope = $request->scope();
 
         if ($scope === DeletionScope::Everyone) {
+            // Проверкой прав тут не обойтись: администратора пропускает
+            // Gate::before, а стереть общий чат компании нельзя никому.
+            abort_if($conversation->isGeneral(), 422, 'Общий чат компании не удаляют.');
+            abort_if($conversation->isSystem(), 422, 'Ленту уведомлений не удаляют — её убирают у себя.');
+
             Gate::authorize('deleteForEveryone', $conversation);
 
             $delete->handle($conversation);
@@ -163,6 +180,11 @@ final class ConversationController extends Controller
     /** Выход из группы: сообщения остаются, новых человек больше не получает. */
     public function leave(Request $request, Conversation $conversation, ManageParticipants $participants): JsonResponse
     {
+        // Как и с удалением: политика сказала бы «нельзя», но администратора
+        // она не спрашивает, а общий чат не покидают и администраторы.
+        abort_if($conversation->isGeneral(), 422, 'Из общего чата не выходят: в нём вся компания.');
+        abort_if($conversation->isSystem(), 422, 'Из уведомлений не выходят — их убирают у себя.');
+
         Gate::authorize('leave', $conversation);
 
         /** @var User $actor */

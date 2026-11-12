@@ -90,6 +90,12 @@ class Quiz extends Model
             // право на курсы.
             $owner instanceof MaterialVersion => $this->mayEditVersion($owner, $user),
             $owner instanceof Lesson => $user->can(Permission::UpdateCourses->value),
+            // Экзамен и его ключ — тем, кто ведёт экзамены.
+            $owner instanceof Exam => $user->can(Permission::ManageExams->value),
+            // Тест адаптации — тем, кто её ведёт: и трафарет в шаблоне, и
+            // настоящий тест в личном маршруте.
+            $owner instanceof OnboardingStage,
+            $owner instanceof OnboardingJourneyStage => $user->can(Permission::ManageOnboarding->value),
             // Владельца не нашли — значит материал удалён вместе с ним; ключ в
             // таком случае не показывает никто.
             default => false,

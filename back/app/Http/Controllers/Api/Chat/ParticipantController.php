@@ -16,6 +16,10 @@ use Illuminate\Validation\Rule;
 
 /**
  * Состав группы.
+ *
+ * Общий чат сюда не пускают вовсе: его состав — вся компания, и ведёт его
+ * приложение (App\Support\Chat\GeneralChat). Отказ стоит перед проверкой
+ * прав, потому что администратора та не спрашивает.
  */
 final class ParticipantController extends Controller
 {
@@ -24,6 +28,8 @@ final class ParticipantController extends Controller
         Conversation $conversation,
         ManageParticipants $participants,
     ): AnonymousResourceCollection {
+        abort_if($conversation->isGeneral(), 422, 'В общий чат входят все — звать в него некого.');
+
         Gate::authorize('manage', $conversation);
 
         /** @var User $actor */
@@ -46,6 +52,8 @@ final class ParticipantController extends Controller
         User $user,
         ManageParticipants $participants,
     ): AnonymousResourceCollection {
+        abort_if($conversation->isGeneral(), 422, 'Из общего чата никого не убирают.');
+
         Gate::authorize('manage', $conversation);
 
         /** @var User $actor */

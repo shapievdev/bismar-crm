@@ -68,11 +68,6 @@ final class CourseResource extends JsonResource
              * показывают вовсе, спрашивать базу незачем.
              */
             'is_favourite' => (bool) ($this->is_favourite ?? false),
-
-            // Дошла ли до курса очередь плана обучения. Проставляет каталог:
-            // на странице самого курса поля нет вовсе — туда закрытый курс не
-            // пускает EnsureLearningPlanOrder, и отвечать «заперт» некому.
-            'is_locked' => (bool) ($this->locked_by_plan ?? false),
             /*
              * Круг согласования — последний, какой был (2026-09-30).
              *

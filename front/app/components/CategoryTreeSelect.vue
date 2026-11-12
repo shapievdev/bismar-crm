@@ -52,7 +52,11 @@ const options = computed(() => {
       const isLeaf = children.length === 0
 
       if (!props.leavesOnly) {
-        flat.push({ value: node.id, label: `${'‒ '.repeat(depth)}${node.name}` })
+        flat.push({
+          value: node.id,
+          label: `${'‒ '.repeat(depth)}${node.name}`,
+          hint: trail.length ? trail.join(' → ') : undefined,
+        })
       }
       // Выбранную сейчас категорию оставляем в списке, даже если она с
       // вложенными: так привязывали до этого правила, и без неё поле молчало бы
@@ -82,5 +86,7 @@ const options = computed(() => {
     v-model="model"
     :options="options"
     :placeholder="allowNone ? 'Без категории' : 'Выберите категорию'"
+    searchable
+    search-placeholder="Найти категорию…"
   />
 </template>

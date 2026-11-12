@@ -12,10 +12,9 @@ use Illuminate\Support\Collection;
 /**
  * Что опрос показывает тому, кто ведёт материал.
  *
- * Сводка, а не выгрузка ответов по одному: опрос спрашивают у всей компании, и
- * читать его построчно — работа, которую никто не сделает. По выбору — сколько
- * за что, по шкале — распределение и среднее, по письменному — сами ответы: их
- * как раз читают, в них и лежит то, ради чего опрос заводили.
+ * Общая сводка и ответы каждого сотрудника для неанонимных опросов.
+ * По выбору — количество и доли, по шкале — распределение и среднее,
+ * по письменным вопросам — полные ответы.
  *
  * Анонимность соблюдается тем, что соблюдать её здесь нечем: в строке ответа у
  * анонимного опроса человека нет вовсе (см. SurveyResponse), и подставить его
@@ -55,8 +54,35 @@ final readonly class SurveySummary
             'answered' => $survey->completions()->count(),
 
             'questions' => $survey->questions
-                ->map(fn (SurveyQuestion $question): array => $this->question($question, $responses))
+                ->map(fn (SurveyQuestion $question): array => $this->question($question, $responses, $survey->is_anonymous))
                 ->all(),
+            'responses' => $survey->is_anonymous ? [] : $responses
+                ->map(fn (SurveyResponse $response): array => [
+                    'id' => $response->getKey(),
+                    'person_id' => $response->user?->getKey(),
+                    'person' => $response->user?->name,
+                    'submitted_at' => $response->submitted_at?->toIso8601String(),
+                    'answers' => $survey->questions->map(fn (SurveyQuestion $question): array => $this->individualAnswer($question, $response))->all(),
+                ])->all(),
+        ];
+    }
+
+    /** Варианты расшифровываются только внутри своего вопроса. */
+    private function individualAnswer(SurveyQuestion $question, SurveyResponse $response): array
+    {
+        $answer = $response->answerTo((int) $question->getKey());
+        $options = $question->options->keyBy('id');
+
+        return [
+            'question_id' => $question->getKey(),
+            'question' => $question->text,
+            'type' => $question->type->value,
+            'options' => $question->type->isChoice() ? collect($answer['options'] ?? [])
+                ->map(fn ($id): array => ['id' => (int) $id,
+                    'text' => $options->get((int) $id)?->text ?? 'Вариант удалён'])->all() : [],
+            'other' => $question->type->isChoice() ? ($answer['other'] ?? null) : null,
+            'scale' => $question->type->isScale() ? ($answer['scale'] ?? null) : null,
+            'text' => ! $question->type->isChoice() && ! $question->type->isScale() ? ($answer['text'] ?? null) : null,
         ];
     }
 
@@ -64,7 +90,7 @@ final readonly class SurveySummary
      * @param  Collection<int, SurveyResponse>  $responses
      * @return array<string, mixed>
      */
-    private function question(SurveyQuestion $question, Collection $responses): array
+    private function question(SurveyQuestion $question, Collection $responses, bool $anonymous): array
     {
         $answers = $responses
             ->map(fn (SurveyResponse $response): array => [
@@ -72,7 +98,7 @@ final readonly class SurveySummary
                 // Кто ответил — или null у анонимного опроса и у того, чью
                 // запись удалили. Экран различать эти два случая не должен:
                 // ответ есть, человека нет.
-                'person' => $response->user?->name,
+                'person' => $anonymous ? null : $response->user?->name,
             ])
             // Пропущенный вопрос в сводке не участвует: «не ответил» — это не
             // ответ, и считать его наравне с прочими значило бы занижать доли.

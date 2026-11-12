@@ -9,6 +9,7 @@ use App\Enums\CourseStatus;
 use App\Enums\MaterialKind;
 use App\Enums\QuizKind;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -159,18 +160,6 @@ final class LearningReport
             join regulations r on r.id = a.regulation_id and r.deleted_at is null
             SQL);
 
-        $plans = DB::selectOne(sprintf(<<<'SQL'
-            select
-                count(*) as steps,
-                count(distinct user_id) as people,
-                count(*) filter (where done) as done
-            from (
-                select i.user_id, %s as done
-                from learning_plan_items i
-                join users u on u.id = i.user_id and u.dismissed_at is null
-            ) steps
-            SQL, $this->planStepDoneSql()));
-
         return [
             'staff' => $staff,
 
@@ -210,10 +199,6 @@ final class LearningReport
 
             'acknowledgements' => (int) $acknowledgements->total,
             'acknowledged_by' => (int) $acknowledgements->people,
-
-            'plan_people' => (int) $plans->people,
-            'plan_steps' => (int) $plans->steps,
-            'plan_done' => (int) $plans->done,
         ];
     }
 
@@ -450,7 +435,7 @@ final class LearningReport
      *
      * @return list<array<string, mixed>>
      */
-    public function surveys(): array
+    public function surveys(int $limit = self::TOP, int $offset = 0, string $search = ''): array
     {
         $rows = DB::select(sprintf(<<<'SQL'
             select
@@ -496,12 +481,13 @@ final class LearningReport
                 and vr.id = v.versionable_id and vr.deleted_at is null
             left join news n on s.surveyable_type = 'news' and n.id = s.surveyable_id
                 and n.deleted_at is null
+            where s.title collate "und-x-icu" ilike ?
             order by
                 s.is_required desc,
                 answered desc,
-                s.title collate "und-x-icu"
-            limit %d
-            SQL, self::TOP));
+                s.title collate "und-x-icu", s.id
+            limit %d offset %d
+            SQL, $limit, $offset), ['%'.$search.'%']);
 
         return array_map(static fn (object $row): array => [
             'id' => (int) $row->id,
@@ -540,10 +526,8 @@ final class LearningReport
     /**
      * Кто прошёл один опрос.
      *
-     * Только имя и день — и это не скупость выдачи, а устройство опроса: что
-     * человек ответил, отчёт не покажет никогда, даже у неанонимного. Ответы
-     * читают сводкой (App\Support\Lms\SurveySummary), где они и имеют смысл:
-     * распределение по вариантам, среднее по шкале, написанное списком.
+     * Только имя и день участия. Ответы по сотрудникам у неанонимного опроса
+     * возвращает App\Support\Lms\SurveySummary отдельно от этого списка.
      *
      * Список прохождений при этом не тайна и у анонимного опроса: «кто прошёл,
      * видно; что ответил — нет» — на этом и стоит вся его схема.
@@ -568,7 +552,7 @@ final class LearningReport
         return array_map(static fn (object $row): array => [
             'id' => (int) $row->id,
             'name' => trim(implode(' ', array_filter([$row->last_name, $row->first_name, $row->middle_name]))),
-            'answered_at' => $row->completed_at === null ? null : (string) $row->completed_at,
+            'answered_at' => $row->completed_at === null ? null : CarbonImmutable::parse($row->completed_at)->toIso8601String(),
         ], $rows);
     }
 
@@ -638,7 +622,6 @@ final class LearningReport
             'completed' => $this->completedEnrollments(),
             'progress' => $this->allEnrollments(),
             'learners' => $this->learners(),
-            'plan' => $this->planSteps(),
             'acknowledgements' => $this->acknowledgements(),
             'attestations' => $this->attestationsAwaiting(),
             default => $this->untouchedEnrollments(),
@@ -786,58 +769,6 @@ final class LearningReport
             'progress' => (int) $row->progress,
             'at' => $this->when($row->at),
         ]);
-    }
-
-    /**
-     * Шаги планов обучения — сначала непройденные.
-     *
-     * План работает запретом: пока шаг не закрыт, человеку закрыты все курсы,
-     * кроме текущего. Поэтому непройденный шаг здесь — не «медленно идёт», а
-     * запертый каталог, и стоит он первым.
-     *
-     * @return array{total: int, rows: list<array<string, mixed>>}
-     */
-    private function planSteps(): array
-    {
-        return $this->slice(sprintf(<<<'SQL'
-            select
-                count(*) over () as total,
-                %s,
-                i.position,
-                i.plannable_type,
-                i.created_at as at,
-                c.title as course_title,
-                c.slug as course_slug,
-                r.title as document_title,
-                r.slug as document_slug,
-                r.kind as document_kind,
-                %s as done
-            from learning_plan_items i
-            join users u on u.id = i.user_id and u.dismissed_at is null
-            left join courses c
-                on i.plannable_type = 'course' and c.id = i.plannable_id and c.deleted_at is null
-            left join regulations r
-                on i.plannable_type = 'regulation' and r.id = i.plannable_id and r.deleted_at is null
-            order by done, %s, i.position
-            limit %d
-            SQL, $this->nameSql(), $this->planStepDoneSql(), $this->nameOrderSql(), self::PEOPLE), [], function (object $row): array {
-            $isCourse = $row->plannable_type === 'course';
-
-            return [
-                ...$this->who($row),
-
-                // Материала может уже не быть: шаг остаётся, пока план не
-                // переписали, и молчать о нём хуже, чем назвать пропажу.
-                'title' => ($isCourse ? $row->course_title : $row->document_title) ?? 'материал удалён',
-                'path' => $isCourse
-                    ? ($row->course_slug === null ? null : '/lms/'.$row->course_slug)
-                    : $this->materialPath($row->document_kind, $row->document_slug),
-                'state' => $row->done ? 'пройден' : 'в очереди',
-                'tone' => $row->done ? 'success' : 'warning',
-                'progress' => null,
-                'at' => $this->when($row->at),
-            ];
-        });
     }
 
     /**
@@ -1006,36 +937,6 @@ final class LearningReport
     }
 
     /**
-     * Пройден ли шаг плана — одно выражение на сводку и на поимённый список.
-     *
-     * Врозь они разошлись бы на первой правке, и «пройдено 3 из 6» стояло бы
-     * над списком, где пройденных четыре.
-     *
-     * Это упрощённый брат App\Support\Lms\StepCompletion: тот отвечает за
-     * запрет и спрашивает у документа ещё и сданную проверку, здесь же считают
-     * отчёт, и лишний join на каждый шаг ради двух процентов разницы не окупает
-     * себя. Расходятся они в одну сторону — отчёт добрее запрета.
-     */
-    private function planStepDoneSql(): string
-    {
-        return <<<'SQL'
-            case i.plannable_type
-                when 'course' then exists (
-                    select 1 from enrollments e
-                    where e.user_id = i.user_id
-                      and e.course_id = i.plannable_id
-                      and e.completed_at is not null
-                )
-                when 'regulation' then exists (
-                    select 1 from regulation_acknowledgements a
-                    where a.user_id = i.user_id and a.regulation_id = i.plannable_id
-                )
-                else false
-            end
-            SQL;
-    }
-
-    /**
      * Записи на курсы с посчитанным прогрессом — общая заготовка для сводки и
      * для рейтинга курсов.
      *
@@ -1075,15 +976,12 @@ final class LearningReport
     }
 
     /**
-     * Круг допущенных к курсу: записанные плюс те, кому курс назначен планом.
+     * Круг допущенных к курсу: записанные на него.
      *
      * То же определение, что у поимённого отчёта внизу страницы курса
      * (App\Support\Lms\ProgressReport). Разойдись они — и на одной странице
      * стояло бы «семеро из девятнадцати», а на другой двадцать одна строка, и
      * верить перестали бы обеим.
-     *
-     * `union`, а не `union all`: назначенный планом и записавшийся — один
-     * человек, и считать его дважды значит завысить знаменатель.
      */
     private function courseCircleSql(): string
     {
@@ -1094,13 +992,6 @@ final class LearningReport
                     select e.course_id, e.user_id
                     from enrollments e
                     join users u on u.id = e.user_id and u.dismissed_at is null
-
-                    union
-
-                    select i.plannable_id as course_id, i.user_id
-                    from learning_plan_items i
-                    join users u on u.id = i.user_id and u.dismissed_at is null
-                    where i.plannable_type = 'course'
                 ) circle
                 group by course_id
             )
@@ -1108,10 +999,10 @@ final class LearningReport
     }
 
     /**
-     * Круг допущенных к документу: ознакомившиеся, назначенные планом и те, кто
-     * отправлял ответы на проверку.
+     * Круг допущенных к документу: ознакомившиеся и те, кто отправлял ответы
+     * на проверку.
      *
-     * Третьи — не лишние: не сдавший проверку не ознакомлен, но к документу он
+     * Вторые — не лишние: не сдавший проверку не ознакомлен, но к документу он
      * приходил, и не считать его значит потерять ровно того, с кем надо
      * разговаривать. Проверок у документа с версиями столько, сколько версий, —
      * поэтому смотрим и на её собственную, и на версионные.
@@ -1125,13 +1016,6 @@ final class LearningReport
                     select a.regulation_id, a.user_id
                     from regulation_acknowledgements a
                     join users u on u.id = a.user_id and u.dismissed_at is null
-
-                    union
-
-                    select i.plannable_id as regulation_id, i.user_id
-                    from learning_plan_items i
-                    join users u on u.id = i.user_id and u.dismissed_at is null
-                    where i.plannable_type = 'regulation'
 
                     union
 

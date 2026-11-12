@@ -59,6 +59,26 @@ export function useNavigation() {
   const pendingApprovals = useState('nav.pending-approvals', () => 0)
   const isApprover = useState('nav.is-approver', () => false)
 
+  /**
+   * Сколько экзаменов ждут сдачи и назначали ли вообще.
+   *
+   * Раздел держится на назначении, а не на числе ждущих, — по той же причине,
+   * что у аттестаций: сдал последний экзамен — и вкладка пропала бы вместе с
+   * дорогой к результатам.
+   */
+  const pendingExams = useState('nav.pending-exams', () => 0)
+  const hasExams = useState('nav.has-exams', () => false)
+  const { fetchPendingCount: fetchPendingExams } = useExamsApi()
+
+  /**
+   * Адаптация: раздел виден стажёру (и после финиша — результаты остаются) и
+   * ответственному со встречами-поручениями. Значок — ждущие подтверждения.
+   */
+  const hasOnboardingAssignments = useState('nav.has-onboarding-assignments', () => false)
+  const hasJourney = useState('nav.has-journey', () => false)
+  const pendingOnboarding = useState('nav.pending-onboarding', () => 0)
+  const { fetchBadge: fetchOnboardingBadge } = useOnboardingApi()
+
   async function refreshBadges(): Promise<void> {
     try {
       pendingNews.value = (await fetchPendingCount()).data.count
@@ -75,6 +95,27 @@ export function useNavigation() {
     }
     catch {
       pendingAttestations.value = 0
+    }
+
+    try {
+      const { pending, has_exams } = (await fetchPendingExams()).data
+
+      pendingExams.value = pending
+      hasExams.value = has_exams
+    }
+    catch {
+      pendingExams.value = 0
+    }
+
+    try {
+      const { has_journey, pending_meetings, has_assignments } = (await fetchOnboardingBadge()).data
+
+      hasJourney.value = has_journey
+      hasOnboardingAssignments.value = has_assignments
+      pendingOnboarding.value = pending_meetings
+    }
+    catch {
+      pendingOnboarding.value = 0
     }
 
     try {
@@ -117,6 +158,41 @@ export function useNavigation() {
       icon: 'library',
       visible: can('courses.view') || can('documents.view') || can('handbooks.view'),
       matches: (path: string) => path.startsWith('/lms'),
+    },
+    {
+      /*
+       * Адаптация — по назначению: стажёру с маршрутом, ответственному с
+       * поручениями и тому, кто адаптацию ведёт. Ведущий без своего маршрута
+       * попадает сразу в админку.
+       */
+      to: can('onboarding.manage') && !hasJourney.value
+        ? '/onboarding/manage'
+        : !hasJourney.value && can('achievements.manage')
+            ? '/onboarding/manage/achievements'
+            : !hasJourney.value && hasOnboardingAssignments.value ? '/onboarding/meetings' : '/onboarding',
+      label: 'Адаптация',
+      icon: 'onboarding',
+      // Каталог достижений живёт в этом же модуле, и его держателю раздел
+      // нужен, даже если маршрутов он не ведёт и своего не проходит.
+      visible: hasJourney.value
+        || pendingOnboarding.value > 0 || hasOnboardingAssignments.value
+        || can('onboarding.manage')
+        || can('achievements.manage'),
+      matches: (path: string) => path.startsWith('/onboarding'),
+      badge: pendingOnboarding.value,
+    },
+    {
+      /*
+       * Экзамены — по назначению, а не по праву: раздел виден тому, кому хоть
+       * раз назначали (включая уже сданное — результаты остаются), и тому, кто
+       * экзамены ведёт. Остальным вкладка обещала бы пустоту.
+       */
+      to: can('exams.manage') && !hasExams.value ? '/exams/manage' : '/exams',
+      label: 'Экзамены',
+      icon: 'exams',
+      visible: hasExams.value || can('exams.manage'),
+      matches: (path: string) => path.startsWith('/exams'),
+      badge: pendingExams.value,
     },
     {
       to: '/messenger',
@@ -185,6 +261,10 @@ export function useNavigation() {
     hasAttestations,
     pendingApprovals,
     isApprover,
+    pendingExams,
+    hasExams,
+    hasJourney,
+    pendingOnboarding,
     refreshBadges,
   }
 }

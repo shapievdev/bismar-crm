@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\MaterialKind;
 use App\Enums\Permission;
+use App\Http\Controllers\Api\AchievementController;
 use App\Http\Controllers\Api\Ai\ConsultantController;
 use App\Http\Controllers\Api\Ai\QuestionLogController;
 use App\Http\Controllers\Api\Ai\SettingsController;
@@ -35,6 +36,8 @@ use App\Http\Controllers\Api\Chat\MessageSearchController;
 use App\Http\Controllers\Api\Chat\ParticipantController;
 use App\Http\Controllers\Api\Chat\PinnedMessageController;
 use App\Http\Controllers\Api\Chat\ReactionController;
+use App\Http\Controllers\Api\Exams\ExamController;
+use App\Http\Controllers\Api\Exams\ManageExamController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
@@ -48,7 +51,6 @@ use App\Http\Controllers\Api\Lms\CourseExpertController;
 use App\Http\Controllers\Api\Lms\CourseStructureController;
 use App\Http\Controllers\Api\Lms\FavouriteController;
 use App\Http\Controllers\Api\Lms\LearningController;
-use App\Http\Controllers\Api\Lms\LearningPlanController;
 use App\Http\Controllers\Api\Lms\LessonAnswerController;
 use App\Http\Controllers\Api\Lms\LessonAttachmentController;
 use App\Http\Controllers\Api\Lms\LessonMaterialController;
@@ -71,6 +73,12 @@ use App\Http\Controllers\Api\News\NewsAcknowledgementController;
 use App\Http\Controllers\Api\News\NewsAttachmentController;
 use App\Http\Controllers\Api\News\NewsController;
 use App\Http\Controllers\Api\News\NewsQuizController;
+use App\Http\Controllers\Api\Onboarding\JourneyController as OnboardingJourneyController;
+use App\Http\Controllers\Api\Onboarding\ManageJourneyController as OnboardingManageJourneyController;
+use App\Http\Controllers\Api\Onboarding\ManageTemplateController as OnboardingManageTemplateController;
+use App\Http\Controllers\Api\Onboarding\MeetingController as OnboardingMeetingController;
+use App\Http\Controllers\Api\Onboarding\ReportController as OnboardingReportController;
+use App\Http\Controllers\Api\Onboarding\TaskController as OnboardingTaskController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\Push\BroadcastController;
@@ -87,7 +95,6 @@ use App\Http\Middleware\EnsureAdministrator;
 use App\Http\Middleware\EnsureAnyPermission;
 use App\Http\Middleware\EnsureCourseAccess;
 use App\Http\Middleware\EnsureEmployed;
-use App\Http\Middleware\EnsureLearningPlanOrder;
 use App\Http\Middleware\EnsureMaterialKind;
 use App\Support\Analytics\ProductReport;
 use App\Support\Analytics\SalesReport;
@@ -138,15 +145,13 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
 // что человек умеет делать, но не с каким курсом, — а приватный курс закрыт от
 // всех, кого в него не пускали, вплоть до администратора.
 //
-// EnsureLearningPlanOrder стоит следом и отвечает на другой вопрос: курс
-// человеку открыт, но дошла ли до него очередь плана обучения. Порядок важен:
-// про чужой приватный курс сначала говорят «не найдено», и только про свой —
-// «сначала пройдите план».
+// Запрета «по одному курсу за раз» здесь больше нет: план обучения уступил
+// место маршруту адаптации (2026-10-25), а тот запирает свои этапы, не трогая
+// базу знаний, — читать её стажёру можно и нужно.
 Route::middleware([
     'auth:sanctum',
     EnsureEmployed::class,
     EnsureCourseAccess::class,
-    EnsureLearningPlanOrder::class,
 ])->prefix('lms')->as('lms.')->group(function (): void {
     $view = 'can:'.Permission::ViewCourses->value;
     $create = 'can:'.Permission::CreateCourses->value;
@@ -439,23 +444,6 @@ Route::middleware([
     // to hide unpublished courses — a route-level check cannot express that.
     Route::get('my-courses', [LearningController::class, 'myEnrollments'])->middleware($view)->name('my-courses');
 
-    // Свой план обучения — дело самого сотрудника, отдельного права на него
-    // нет: назначенное ему он и так вправе открыть.
-    Route::get('my-plan', [LearningPlanController::class, 'mine'])->middleware($view)->name('my-plan');
-
-    // Чужой план ведёт тот, кому доверено обучение. Право на курсы к этому не
-    // сводится: собрать материал и решать, кто его пройдёт, — разные решения,
-    // потому и право своё.
-    Route::middleware('can:'.Permission::ManageEnrollments->value)->group(function (): void {
-        Route::get('plans/{user}', [LearningPlanController::class, 'show'])->name('plans.show');
-
-        // Что можно поставить шагом: весь список сразу, с категорией у каждой
-        // строки. Свой адрес, потому что справочник спрашивают один раз, а план
-        // сохраняют сколько угодно.
-        Route::get('plans/{user}/material', [LearningPlanController::class, 'material'])
-            ->name('plans.material');
-        Route::put('plans/{user}', [LearningPlanController::class, 'update'])->name('plans.update');
-    });
     Route::post('courses/{course}/enroll', [LearningController::class, 'enroll'])->middleware($view)->name('enroll');
     Route::get('lessons/{lesson}', [LearningController::class, 'showLesson'])->middleware($view)->name('lessons.show');
 
@@ -585,9 +573,6 @@ Route::middleware([
      * Права на маршруте нет намеренно и по той же причине, что у аттестаций:
      * доступ даёт не роль, а назначение — автор выбрал, кого попросить. Чужую
      * очередь так не открыть, отбор идёт по вошедшему (см. ApprovalController).
-     *
-     * Имя группы значимо: по нему очередь выведена из-под запрета плана обучения
-     * — см. EnsureLearningPlanOrder.
      */
     Route::prefix('approvals')->as('approvals.')->group(function () use ($update): void {
         Route::get('/', [ApprovalController::class, 'index'])->name('index');
@@ -839,6 +824,160 @@ Route::middleware([
 });
 
 /*
+ * Экзамены: проверка знаний сама по себе, назначенная людям, — а не тест при
+ * материале. Вопросы при экзамене — тот же Quiz, что у урока (см. миграцию
+ * let_an_employee_sit_an_exam), поэтому аттестационный экзамен попадает в ту же
+ * очередь проверяющего, что и работы при уроках (api/lms/attestations).
+ *
+ * Группа ведения стоит ПЕРЕД группой сдачи намеренно: `exams/manage` иначе
+ * совпал бы с `exams/{exam}` как экзамен по имени «manage».
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::ManageExams->value])
+    ->prefix('exams/manage')->as('exams.manage.')->group(function (): void {
+        Route::get('/', [ManageExamController::class, 'index'])->name('index');
+        Route::post('/', [ManageExamController::class, 'store'])->name('store');
+        Route::get('{exam}', [ManageExamController::class, 'show'])->name('show');
+        Route::put('{exam}', [ManageExamController::class, 'update'])->name('update');
+        Route::delete('{exam}', [ManageExamController::class, 'destroy'])->name('destroy');
+
+        // Публикация — отдельным адресом, а не полем правки: у неё свои
+        // проверки, и случайно выпустить экзамен, сохраняя название, нельзя.
+        Route::post('{exam}/status', [ManageExamController::class, 'status'])->name('status');
+
+        // Кого можно назначить — прежде `{exam}`, иначе это экзамен «people».
+        Route::get('people', [ManageExamController::class, 'people'])->name('people');
+
+        // Вопросы — тем же редактором, что у теста урока: присланное заменяет
+        // бывшее, вопросы со своим номером правятся на месте (см. SaveQuiz).
+        Route::put('{exam}/quiz', [ManageExamController::class, 'saveQuiz'])->name('quiz.save');
+        Route::delete('{exam}/quiz', [ManageExamController::class, 'destroyQuiz'])->name('quiz.destroy');
+
+        Route::get('{exam}/assignments', [ManageExamController::class, 'assignments'])->name('assignments.index');
+        Route::put('{exam}/assignments', [ManageExamController::class, 'assign'])->name('assignments.sync');
+
+        Route::get('{exam}/results', [ManageExamController::class, 'results'])->name('results');
+        Route::get('{exam}/attempts/{attempt}', [ManageExamController::class, 'attempt'])->name('attempts.show');
+    });
+
+/*
+ * Сдача. Права на маршрутах нет намеренно: доступ даёт назначение — отбор
+ * везде идёт по вошедшему, и чужой экзамен так не открыть (см. ExamController).
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('exams')->as('exams.')->group(function (): void {
+    Route::get('/', [ExamController::class, 'index'])->name('index');
+
+    // Для значка на рельсе. Прежде `{exam}` — иначе это был бы экзамен с
+    // именем «pending-count».
+    Route::get('pending-count', [ExamController::class, 'pendingCount'])->name('pending-count');
+
+    Route::get('{exam}', [ExamController::class, 'show'])->name('show');
+
+    // Вопросы приезжают отсюда, а не с шапкой: до «Начать» их не выдают,
+    // иначе таймер мерил бы скорость набора заранее прочитанного.
+    Route::post('{exam}/start', [ExamController::class, 'start'])->name('start');
+    Route::post('{exam}/submit', [ExamController::class, 'submit'])->name('submit');
+    Route::get('{exam}/attempts/{attempt}', [ExamController::class, 'attempt'])->name('attempts.show');
+});
+
+/*
+ * Адаптация стажёров: карта этапов по дням вместо плана обучения.
+ *
+ * Ведение — под одним правом `onboarding.manage`, по образцу экзаменов, и той
+ * же причиной группа ведения стоит ПЕРЕД группой стажёра: `onboarding/manage`
+ * не должен совпасть с чем-то стажёрским.
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::ManageOnboarding->value])
+    ->prefix('onboarding/manage')->as('onboarding.manage.')->group(function (): void {
+        // Шаблоны маршрутов и их этапы.
+        Route::get('templates', [OnboardingManageTemplateController::class, 'index'])->name('templates.index');
+        Route::post('templates', [OnboardingManageTemplateController::class, 'store'])->name('templates.store');
+
+        // Каталог материалов для этапа — прежде `{template}`: иначе это шаблон
+        // по имени «materials».
+        Route::get('materials', [OnboardingManageTemplateController::class, 'materials'])->name('materials');
+
+        Route::get('templates/{template}', [OnboardingManageTemplateController::class, 'show'])->name('templates.show');
+        Route::put('templates/{template}', [OnboardingManageTemplateController::class, 'update'])->name('templates.update');
+        Route::delete('templates/{template}', [OnboardingManageTemplateController::class, 'destroy'])->name('templates.destroy');
+
+        // «Версия» маршрута — копия кнопкой; публикация — отдельным адресом.
+        Route::post('templates/{template}/duplicate', [OnboardingManageTemplateController::class, 'duplicate'])->name('templates.duplicate');
+        Route::post('templates/{template}/status', [OnboardingManageTemplateController::class, 'status'])->name('templates.status');
+
+        Route::post('templates/{template}/stages', [OnboardingManageTemplateController::class, 'saveStage'])->name('stages.save');
+        Route::post('templates/{template}/stages/reorder', [OnboardingManageTemplateController::class, 'reorderStages'])->name('stages.reorder');
+        Route::delete('templates/{template}/stages/{stage}', [OnboardingManageTemplateController::class, 'deleteStage'])->name('stages.destroy');
+
+        // Тест этапа — тем же редактором, что у урока и экзамена (SaveQuiz).
+        Route::put('templates/{template}/stages/{stage}/quiz', [OnboardingManageTemplateController::class, 'saveQuiz'])->name('stages.quiz.save');
+        Route::delete('templates/{template}/stages/{stage}/quiz', [OnboardingManageTemplateController::class, 'destroyQuiz'])->name('stages.quiz.destroy');
+
+        /*
+         * Маршруты сотрудников. Назначений нет: маршрут у человека свой и
+         * один, поэтому адреса идут от сотрудника, а не от «журнала», — и
+         * пустую карту заводит само открытие.
+         */
+        Route::get('people', [OnboardingManageJourneyController::class, 'people'])->name('people');
+        Route::get('journeys', [OnboardingManageJourneyController::class, 'index'])->name('journeys.index');
+
+        Route::prefix('employees/{employee}')->as('employees.')->group(function (): void {
+            Route::get('/', [OnboardingManageJourneyController::class, 'show'])->name('show');
+            Route::put('settings', [OnboardingManageJourneyController::class, 'settings'])->name('settings');
+
+            // Наложить шаблон — и узнать до того, что из него человеку закрыто.
+            Route::get('templates/{template}/visibility', [OnboardingManageJourneyController::class, 'templateVisibility'])->name('templates.visibility');
+            Route::post('templates/{template}', [OnboardingManageJourneyController::class, 'applyTemplate'])->name('templates.apply');
+
+            // Этапы личного маршрута: завести, поправить, убрать, переставить.
+            Route::post('stages', [OnboardingManageJourneyController::class, 'saveStage'])->name('stages.save');
+            Route::post('stages/reorder', [OnboardingManageJourneyController::class, 'reorderStages'])->name('stages.reorder');
+            Route::delete('stages/{stage}', [OnboardingManageJourneyController::class, 'deleteStage'])->name('stages.destroy');
+            Route::put('stages/{stage}/quiz', [OnboardingManageJourneyController::class, 'saveStageQuiz'])->name('stages.quiz.save');
+            Route::delete('stages/{stage}/quiz', [OnboardingManageJourneyController::class, 'deleteStageQuiz'])->name('stages.quiz.destroy');
+
+            // Ход маршрута.
+            Route::post('pause', [OnboardingManageJourneyController::class, 'pause'])->name('pause');
+            Route::post('resume', [OnboardingManageJourneyController::class, 'resume'])->name('resume');
+            Route::put('stages/{stage}/opening', [OnboardingManageJourneyController::class, 'moveStage'])->name('stages.move');
+            Route::put('meetings/{meeting}', [OnboardingManageJourneyController::class, 'scheduleMeeting'])->name('meetings.schedule');
+            Route::post('meetings/{meeting}/confirm', [OnboardingManageJourneyController::class, 'confirmMeeting'])->name('meetings.confirm');
+            Route::post('tasks/{task}/confirm', [OnboardingManageJourneyController::class, 'confirmTask'])->name('tasks.confirm');
+            Route::post('stages/{stage}/grant-attempt', [OnboardingManageJourneyController::class, 'grantAttempt'])->name('grant-attempt');
+            Route::post('graduate', [OnboardingManageJourneyController::class, 'graduate'])->name('graduate');
+            Route::get('attempts/{attempt}', [OnboardingManageJourneyController::class, 'attempt'])->name('attempts.show');
+        });
+
+        Route::get('report', [OnboardingReportController::class, 'show'])->name('report');
+    });
+
+/*
+ * Стажёр и ответственные. Права на маршрутах нет намеренно: стажёра пускает
+ * назначенный журнал, ответственного за встречу — назначение на неё; отбор
+ * всюду идёт по вошедшему (см. JourneyController, ConfirmMeeting).
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('onboarding')->as('onboarding.')->group(function (): void {
+    Route::get('my', [OnboardingJourneyController::class, 'my'])->name('my');
+
+    // Для значка на рельсе: есть ли маршрут и ждут ли поручения.
+    Route::get('badge', [OnboardingJourneyController::class, 'badge'])->name('badge');
+    Route::post('tasks/{task}/submit', [OnboardingJourneyController::class, 'submitTask'])->name('tasks.submit');
+    // Вопросы — только открытого этапа: тест запертого дня не прочитать.
+    Route::get('stages/{stage}/quiz', [OnboardingJourneyController::class, 'quiz'])->name('quiz.show');
+    Route::post('stages/{stage}/quiz/submit', [OnboardingJourneyController::class, 'submitQuiz'])->name('quiz.submit');
+    Route::get('attempts/{attempt}', [OnboardingJourneyController::class, 'attempt'])->name('attempts.show');
+
+    // Встречи-поручения ответственного: список и подтверждение.
+    Route::get('assigned/stages', [OnboardingMeetingController::class, 'stages'])->name('assigned.stages');
+    Route::get('assigned/attempts/{attempt}', [OnboardingMeetingController::class, 'attempt'])->name('assigned.attempts');
+    Route::get('tasks/mine', [OnboardingTaskController::class, 'mine'])->name('tasks.mine');
+    Route::get('meetings/mine', [OnboardingMeetingController::class, 'mine'])->name('meetings.mine');
+    Route::post('meetings/{meeting}/confirm', [OnboardingMeetingController::class, 'confirm'])->name('meetings.confirm');
+
+    // Подтверждение задания наставником — тот же принцип назначения.
+    Route::post('tasks/{task}/confirm', [OnboardingTaskController::class, 'confirm'])->name('tasks.confirm');
+});
+
+/*
  * Новости. Читает всякий, кто вошёл: они живут на главной, и отдельного права
  * на просмотр нет — кому какая новость видна, решает NewsPolicy по адресатам.
  * Всё остальное — под `news.manage`.
@@ -901,6 +1040,10 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('profile')->a
     Route::put('/', [ProfileController::class, 'update'])->name('update');
     // Knowing the current password is what stands in for a permission here.
     Route::put('password', [ProfileController::class, 'updatePassword'])->name('password.update');
+    // Свои значки: профиль просит их сам, чтобы не возить в карточке
+    // вошедшего, которую спрашивают на каждой странице.
+    Route::get('achievements', [ProfileController::class, 'achievements'])->name('achievements');
+
     Route::post('avatar', [ProfileController::class, 'storeAvatar'])->name('avatar.store');
     Route::delete('avatar', [ProfileController::class, 'destroyAvatar'])->name('avatar.destroy');
 });
@@ -1100,6 +1243,36 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
 });
 
 /*
+ * Достижения — значки, которые шаги адаптации раздают сами.
+ *
+ * Каталог читает всякий, кто вошёл: значок стоит в профиле коллеги и в этапе
+ * маршрута, и без названий оба стали бы набором номеров. Правит его своё
+ * право — заводить значки и строить по ним маршруты делают разные люди.
+ *
+ * Выдачи и отзыва здесь нет: достижение зарабатывают закрытым шагом, а
+ * выдаёт его пересчёт маршрута (AwardStageAchievements).
+ */
+Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('achievements')->as('achievements.')->group(function (): void {
+    Route::get('/', [AchievementController::class, 'index'])->name('index');
+
+    Route::middleware('can:'.Permission::ManageAchievements->value)->group(function (): void {
+        Route::post('/', [AchievementController::class, 'store'])->name('store');
+
+        // Возвращение спрятанного — прежде `{achievement}`: привязка модели
+        // мягко удалённого не находит, и адрес должен идти своим путём.
+        Route::post('{achievement}/restore', [AchievementController::class, 'restore'])->name('restore');
+
+        Route::put('{achievement}', [AchievementController::class, 'update'])->name('update');
+        Route::delete('{achievement}', [AchievementController::class, 'destroy'])->name('destroy');
+
+        // Картинка — отдельным адресом, как аватарка: файл едет формой, а
+        // название с описанием обычным JSON.
+        Route::post('{achievement}/image', [AchievementController::class, 'storeImage'])->name('image.store');
+        Route::delete('{achievement}/image', [AchievementController::class, 'destroyImage'])->name('image.destroy');
+    });
+});
+
+/*
  * Аналитика обучения — своя, отдельно от продажной.
  *
  * Право другое, и намеренно: продажи смотрит тот, кому доверены деньги, а
@@ -1125,6 +1298,8 @@ Route::middleware([
 
     // Результаты одного опроса: сводка ответов и список прошедших. Тем же
     // правом и по той же причине, что и состав проверки.
+    Route::get('analytics/learning/surveys', [AnalyticsLearningController::class, 'surveys'])
+        ->name('analytics.learning.surveys');
     Route::get('analytics/learning/surveys/{survey}', [AnalyticsLearningController::class, 'surveyResults'])
         ->name('analytics.learning.survey');
 });

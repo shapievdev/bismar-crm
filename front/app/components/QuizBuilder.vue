@@ -5,6 +5,7 @@ import type { CoursePerson, QuestionTable, QuestionType, Quiz, QuizPayload } fro
 
 const props = defineProps<{
   quiz: Quiz | null
+  defaultMaxAttempts?: number
   errors: ValidationErrors
   isSubmitting: boolean
   /**
@@ -16,6 +17,11 @@ const props = defineProps<{
    * ознакомление, а не зачитывает урок.
    */
   fixedPassingScore?: number | null
+  /**
+   * Чем сдача оборачивается — словами места, где тест стоит. Урок говорит о
+   * зачёте урока, экзамен — о своём; редактор один, а последствия разные.
+   */
+  note?: string
 }>()
 
 const emit = defineEmits<{
@@ -104,7 +110,7 @@ function draftFrom(quiz: Quiz | null): QuizPayload {
       title: 'Проверка знаний',
       description: null,
       passing_score: props.fixedPassingScore ?? 70,
-      max_attempts: null,
+      max_attempts: props.defaultMaxAttempts ?? null,
       kind: 'standard',
       examiner_id: null,
       questions: [blankQuestion()],
@@ -322,7 +328,7 @@ function onKindChange() {
     </header>
 
     <p class="muted">
-      Урок с тестом нельзя отметить пройденным — его засчитывает только сдача.
+      {{ note ?? 'Урок с тестом нельзя отметить пройденным — его засчитывает только сдача.' }}
     </p>
 
     <p v-if="fixedPassingScore != null" class="rule">

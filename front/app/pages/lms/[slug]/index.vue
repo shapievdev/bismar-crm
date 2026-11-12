@@ -13,13 +13,7 @@ const { data, error, refresh } = await useAsyncData(
 )
 
 if (error.value) {
-  // Закрытый планом курс существует и человеку виден — ответить «не найдено»
-  // значит соврать про то, что он только что видел в каталоге.
-  const locked = planLockMessage(error.value)
-
-  throw locked === null
-    ? createError({ statusCode: 404, statusMessage: 'Курс не найден', fatal: true })
-    : createError({ statusCode: 403, statusMessage: locked, fatal: true })
+  throw createError({ statusCode: 404, statusMessage: 'Курс не найден', fatal: true })
 }
 
 const course = computed(() => data.value?.data)
@@ -159,6 +153,12 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
             :material-id="course.id"
             :model-value="course.is_favourite === true"
             with-label
+          />
+
+          <MaterialShare
+            :material="{ kind: 'course', id: course.id }"
+            :title="course.title"
+            :path="`/lms/${course.slug}`"
           />
 
           <NuxtLink v-if="can('courses.update')" :to="`/lms/${course.slug}/edit`" class="button-secondary">

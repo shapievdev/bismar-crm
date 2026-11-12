@@ -135,6 +135,7 @@ export interface SurveyQuestionSummary {
 }
 
 export interface SurveySummary {
+  responses: SurveyIndividualResponse[]
   is_anonymous: boolean
   is_required: boolean
   closes_at: string | null
@@ -142,4 +143,20 @@ export interface SurveySummary {
   /** Сколько человек прошли опрос. Считается по отметкам, а не по ответам. */
   answered: number
   questions: SurveyQuestionSummary[]
+}
+
+export interface SurveyIndividualResponse {
+  id: number
+  person_id: number | null
+  person: string | null
+  submitted_at: string | null
+  answers: {
+    question_id: number
+    question: string
+    type: SurveyQuestionType
+    options: { id: number, text: string }[]
+    other: string | null
+    scale: number | null
+    text: string | null
+  }[]
 }

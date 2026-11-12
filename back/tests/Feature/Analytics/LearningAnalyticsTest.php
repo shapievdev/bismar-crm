@@ -9,7 +9,6 @@ use App\Enums\Permission;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Enrollment;
-use App\Models\LearningPlanItem;
 use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
@@ -457,41 +456,6 @@ final class LearningAnalyticsTest extends TestCase
     }
 
     /**
-     * Круг допущенных — записанные плюс те, кому курс назначен планом.
-     *
-     * Ради этого числа отчёт и переписывали: «прошли семеро» ничего не значит,
-     * пока не сказано, из скольких, — а назначенный планом допущен, даже если
-     * записи у него ещё нет.
-     */
-    public function test_the_circle_counts_those_the_course_is_planned_for(): void
-    {
-        $course = Course::factory()->published()->create();
-        $enrolled = $this->learner();
-        $planned = $this->learner();
-
-        Enrollment::factory()->create(['course_id' => $course->id, 'user_id' => $enrolled->id]);
-
-        LearningPlanItem::query()->create([
-            'user_id' => $planned->id,
-            'plannable_type' => $course->getMorphClass(),
-            'plannable_id' => $course->id,
-            'position' => 1,
-        ]);
-
-        $card = collect(
-            $this->actingAs($this->trainer())
-                ->getJson(route('analytics.learning'))
-                ->assertOk()
-                ->json('data.courses'),
-        )->firstWhere('id', $course->id);
-
-        // Записан один, а допущены двое: второму курс назначен планом.
-        $this->assertSame(1, $card['enrolled']);
-        $this->assertSame(2, $card['audience']);
-        $this->assertSame(0, $card['completed']);
-    }
-
-    /**
      * Назначено и начато — разные числа.
      *
      * Запись, к которой не приступали, это не «медленно идёт», а «не открывали
@@ -701,58 +665,6 @@ final class LearningAnalyticsTest extends TestCase
     }
 
     /**
-     * Список и цифра над ним считают одно и то же.
-     *
-     * Разойдись они — и над списком из четырёх строк стояло бы «пройдено три»,
-     * после чего верить перестали бы обоим.
-     */
-    public function test_the_plan_list_agrees_with_the_number_above_it(): void
-    {
-        $course = Course::factory()->published()->create();
-        $document = Regulation::factory()->published()->create(['title' => 'Приёмка товара']);
-
-        $person = $this->learner();
-
-        Enrollment::factory()->create([
-            'course_id' => $course->id,
-            'user_id' => $person->id,
-            'completed_at' => now(),
-        ]);
-
-        foreach ([[$course, 1], [$document, 2]] as [$material, $position]) {
-            LearningPlanItem::query()->create([
-                'user_id' => $person->id,
-                'plannable_type' => $material->getMorphClass(),
-                'plannable_id' => $material->id,
-                'position' => $position,
-            ]);
-        }
-
-        $summary = $this->actingAs($this->trainer())
-            ->getJson(route('analytics.learning'))
-            ->assertOk()
-            ->json('data.summary');
-
-        $this->assertSame(2, $summary['plan_steps']);
-        $this->assertSame(1, $summary['plan_done']);
-
-        $people = $this->actingAs($this->trainer())
-            ->getJson(route('analytics.learning.people', ['slice' => 'plan']))
-            ->assertOk()
-            ->assertJsonPath('data.total', 2)
-            ->json('data.people');
-
-        // Непройденное идёт первым: план работает запретом, и пока шаг открыт,
-        // человеку закрыт весь остальной каталог.
-        $this->assertSame('Приёмка товара', $people[0]['title']);
-        $this->assertSame('в очереди', $people[0]['state']);
-        $this->assertSame($document->path(), $people[0]['path']);
-
-        $this->assertSame('пройден', $people[1]['state']);
-        $this->assertSame('/lms/'.$course->slug, $people[1]['path']);
-    }
-
-    /**
      * Ознакомление ведёт в свой раздел: справочник — не документ.
      */
     public function test_an_acknowledgement_leads_to_its_own_section(): void
@@ -797,13 +709,6 @@ final class LearningAnalyticsTest extends TestCase
             'completed_at' => now(),
         ]);
 
-        LearningPlanItem::query()->create([
-            'user_id' => $person->id,
-            'plannable_type' => $course->getMorphClass(),
-            'plannable_id' => $course->id,
-            'position' => 1,
-        ]);
-
         Regulation::factory()->published()->create()->acknowledgements()->create([
             'user_id' => $person->id,
             'acknowledged_at' => now(),
@@ -819,7 +724,7 @@ final class LearningAnalyticsTest extends TestCase
             'review_status' => AttestationStatus::Pending,
         ]);
 
-        $slices = ['not-started', 'completed', 'progress', 'learners', 'plan', 'acknowledgements', 'attestations'];
+        $slices = ['not-started', 'completed', 'progress', 'learners', 'acknowledgements', 'attestations'];
 
         foreach ($slices as $slice) {
             $response = $this->actingAs($this->trainer())

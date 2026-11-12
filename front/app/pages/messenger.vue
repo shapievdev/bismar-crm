@@ -3,6 +3,7 @@ import type { MenuAction } from '~/components/chat/BubbleMenu.vue'
 import type {
   ChatMessage,
   Conversation,
+  MaterialAboutKind,
   MaterialRef,
   MessageAbout,
   MessageAttachment,
@@ -177,13 +178,15 @@ const material = ref<MessageAbout | null>(null)
 const materialRef = ref<MaterialRef | null>(null)
 const materialFor = ref<number | null>(null)
 
-const KINDS: MessageAbout['kind'][] = ['course', 'lesson', 'document', 'handbook']
+// Только материалы базы знаний: достижение — пятый вид карточки, но приходит
+// он из уведомлений, а не из адреса, по которому пишут автору.
+const KINDS: MaterialAboutKind[] = ['course', 'lesson', 'document', 'handbook']
 
 function materialFrom(value: unknown): MaterialRef | null {
   const [kind, id] = String(value ?? '').split(':')
 
-  return KINDS.includes(kind as MessageAbout['kind']) && Number(id) > 0
-    ? { kind: kind as MessageAbout['kind'], id: Number(id) }
+  return KINDS.includes(kind as MaterialAboutKind) && Number(id) > 0
+    ? { kind: kind as MaterialAboutKind, id: Number(id) }
     : null
 }
 
@@ -583,6 +586,26 @@ const chatMenuActions = computed<MenuAction[]>(() => {
     { key: 'mute', label: conversation.is_muted ? 'Включить уведомления' : 'Без уведомлений' },
   ]
 
+  /*
+   * Общему чату — только закрепление и звук. Из него не выходят, его не
+   * удаляют ни у себя, ни у всех: он один на компанию, и «убрал у себя»
+   * означало бы пропустить объявление, не заметив этого.
+   */
+  if (conversation.is_general) {
+    return actions
+  }
+
+  /*
+   * Уведомлениям — ещё и «убрать у себя»: прочитанные тем и кончаются. Но не
+   * выход и не удаление у всех: лента заведена приложением и вернётся с
+   * первым же новым уведомлением.
+   */
+  if (conversation.is_system) {
+    actions.push({ key: 'clear', label: 'Убрать у себя', danger: true })
+
+    return actions
+  }
+
   if (conversation.is_group) {
     actions.push({ key: 'leave', label: 'Выйти из группы' })
   }
@@ -853,7 +876,7 @@ async function writeToMentioned(personId: number): Promise<void> {
         />
 
         <ChatCrew
-          v-if="managing && active.is_group"
+          v-if="managing && active.is_group && !active.is_general"
           :conversation="active"
           :me="me"
           :online-ids="messenger.online.value"
@@ -918,7 +941,15 @@ async function writeToMentioned(personId: number): Promise<void> {
           </Transition>
         </div>
 
+        <!-- В ленте уведомлений поля ввода нет: отвечать приложению некому.
+             Пустое место внизу читалось бы как сбой, поэтому на его месте
+             стоит строка, объясняющая, что это за переписка. -->
+        <p v-if="active.is_system" class="silent">
+          Здесь приложение сообщает вам о важном. Отвечать не нужно.
+        </p>
+
         <ChatComposer
+          v-else
           :conversation-id="active.id"
           :people="participants"
           :me="me"
@@ -989,6 +1020,15 @@ async function writeToMentioned(personId: number): Promise<void> {
 </template>
 
 <style scoped>
+.silent {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-faint);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
 /*
  * Две панели: список и лента. Высота считается от экрана, потому что лента
  * прокручивается сама — страница при этом стоит на месте, иначе поле ввода

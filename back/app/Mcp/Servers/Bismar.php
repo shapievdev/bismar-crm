@@ -14,9 +14,6 @@ use App\Mcp\Tools\Analytics\SalesReportTool;
 use App\Mcp\Tools\Analytics\StaffReportTool;
 use App\Mcp\Tools\Knowledge\ReadKnowledge;
 use App\Mcp\Tools\Knowledge\SearchKnowledge;
-use App\Mcp\Tools\Learning\PlannableMaterials;
-use App\Mcp\Tools\Learning\SetLearningPlan;
-use App\Mcp\Tools\Learning\ShowLearningPlan;
 use App\Mcp\Tools\News\ListNews;
 use App\Mcp\Tools\News\PublishNews;
 use App\Mcp\Tools\Sales\ListSellers;
@@ -58,8 +55,8 @@ use Laravel\Mcp\Server\Attributes\Version;
 #[Version('1.0.0')]
 #[Instructions(<<<'TEXT'
     Это внутренняя платформа компании BISMAR (crm.bismar.pro): база знаний
-    (курсы, документы, справочники), учёт сотрудников, новости, планы обучения,
-    торговая аналитика из ClickHouse и планы продаж по отделам.
+    (курсы, документы, справочники), учёт сотрудников, новости, торговая
+    аналитика из ClickHouse и планы продаж по отделам.
 
     Все действия выполняются от имени сотрудника, который подключил коннектор, и
     ограничены его правами. Начни с инструмента `whoami`, чтобы узнать, кто это
@@ -100,11 +97,6 @@ final class Bismar extends Server
         /* База знаний: найти и прочитать. */
         SearchKnowledge::class,
         ReadKnowledge::class,
-
-        /* Планы обучения: читает доверенный обучению, правит администратор. */
-        ShowLearningPlan::class,
-        PlannableMaterials::class,
-        SetLearningPlan::class,
 
         /* Новости компании. */
         ListNews::class,

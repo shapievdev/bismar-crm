@@ -31,18 +31,31 @@ final readonly class GradeQuizAttempt
      *
      * @param  array<int, list<int>|list<list<string>>|string>  $answers  Номер вопроса =>
      *                                                                    выбранные варианты, написанный ответ или строки таблицы.
+     * @param  int|null  $attemptLimit  Предел попыток вместо правила теста: этап
+     *                                  адаптации добавляет стажёру попытки сверх
+     *                                  общего предела (extra_attempts), и знает об
+     *                                  этом только он.
      *
      * @throws ConflictException
      */
-    public function handle(Quiz $quiz, User $learner, array $answers, ?Enrollment $enrollment): QuizAttempt
-    {
+    public function handle(
+        Quiz $quiz,
+        User $learner,
+        array $answers,
+        ?Enrollment $enrollment,
+        ?int $attemptLimit = null,
+    ): QuizAttempt {
         $quiz->loadMissing('questions.options');
 
         if ($quiz->questions->isEmpty()) {
             throw new ConflictException('В тесте пока нет вопросов.');
         }
 
-        if (! $quiz->hasAttemptsLeft($learner)) {
+        $hasAttemptsLeft = $attemptLimit === null
+            ? $quiz->hasAttemptsLeft($learner)
+            : $quiz->attempts()->where('user_id', $learner->getKey())->count() < $attemptLimit;
+
+        if (! $hasAttemptsLeft) {
             throw new ConflictException('Попытки закончились.');
         }
 

@@ -6,6 +6,7 @@ namespace Database\Factories;
 
 use App\Enums\QuestionType;
 use App\Enums\QuizKind;
+use App\Models\Exam;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\Quiz;
@@ -74,6 +75,15 @@ final class QuizFactory extends Factory
     public function attestation(): self
     {
         return $this->state(['kind' => QuizKind::Attestation]);
+    }
+
+    /** Вопросы экзамена, а не теста при материале. */
+    public function forExam(Exam $exam): self
+    {
+        return $this->state([
+            'quizzable_type' => $exam->getMorphClass(),
+            'quizzable_id' => $exam->getKey(),
+        ]);
     }
 
     /**

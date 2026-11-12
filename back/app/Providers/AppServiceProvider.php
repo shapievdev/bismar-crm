@@ -7,11 +7,20 @@ namespace App\Providers;
 use Anthropic\Client;
 use App\Models\Course;
 use App\Models\CourseModule;
+use App\Models\Exam;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\News;
+use App\Models\OnboardingJourney;
+use App\Models\OnboardingJourneyMeeting;
+use App\Models\OnboardingJourneyStage;
+use App\Models\OnboardingJourneyStageLink;
+use App\Models\OnboardingJourneyTask;
+use App\Models\OnboardingStage;
+use App\Models\OnboardingTemplate;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Observers\OnboardingObserver;
 use App\Support\Ai\Embedder;
 use App\Support\Ai\ModelSettings;
 use App\Support\Lms\MaterialVersions;
@@ -59,6 +68,9 @@ class AppServiceProvider extends ServiceProvider
         $this->registerMorphMap();
         $this->registerAdministratorBypass();
         $this->configureOAuth();
+        foreach ([OnboardingJourney::class, OnboardingJourneyStage::class, OnboardingJourneyMeeting::class, OnboardingJourneyTask::class, OnboardingTemplate::class, OnboardingStage::class] as $model) {
+            $model::observe(OnboardingObserver::class);
+        }
     }
 
     /**
@@ -115,6 +127,30 @@ class AppServiceProvider extends ServiceProvider
             // полиморфен и висит при всех четырёх материалах сразу, а без имени
             // в карте в `surveyable_type` легло бы полное имя класса.
             'news' => News::class,
+
+            // Экзамен — пятый владелец теста (2026-10-25): вопросы при нём —
+            // тот же Quiz, что у урока, и в `quizzable_type` стоит это имя.
+            'exam' => Exam::class,
+
+            /*
+             * Адаптация приносит сразу двух владельцев теста (2026-10-25).
+             * Этап шаблона держит трафарет вопросов, этап личного маршрута —
+             * настоящий тест, по которому и считаются попытки: содержимое у
+             * каждого своё, иначе правка одному меняла бы всем.
+             */
+            'onboarding_journey' => OnboardingJourney::class,
+            'onboarding_stage' => OnboardingStage::class,
+            'onboarding_journey_stage' => OnboardingJourneyStage::class,
+
+            /*
+             * Шаги маршрута попали в карту вместе с достижениями (2026-10-27):
+             * в `source_type` выданного значка стоит строка, которая его
+             * выдала, и в профиле она читается как «material», а не как
+             * `App\Models\OnboardingJourneyStageLink`.
+             */
+            'onboarding_journey_stage_link' => OnboardingJourneyStageLink::class,
+            'onboarding_journey_meeting' => OnboardingJourneyMeeting::class,
+            'onboarding_journey_task' => OnboardingJourneyTask::class,
         ]);
     }
 

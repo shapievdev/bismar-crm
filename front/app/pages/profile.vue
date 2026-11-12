@@ -8,7 +8,24 @@ definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Профиль' })
 
 const { user, updateProfile, changePassword, uploadAvatar, removeAvatar } = useAuth()
+const { fetchMyAchievements } = useAchievementsApi()
 const { preference, palette, setTheme, setPalette, options, palettes } = useTheme()
+
+/**
+ * Заработанные значки — отдельным запросом, а не полем вошедшего: карточку
+ * вошедшего приложение спрашивает на каждой странице, и возить в ней
+ * достижения ради одного экрана незачем.
+ *
+ * Неудача запроса не ломает профиль: полка просто не показывается — править
+ * имя и пароль она не мешает.
+ */
+const { data: achievementsData } = await useAsyncData(
+  'profile.achievements',
+  () => fetchMyAchievements(),
+  { default: () => ({ data: [] }) },
+)
+
+const achievements = computed(() => achievementsData.value?.data ?? [])
 
 /*
  * Уведомления — настройка этого устройства, а не учётной записи: подписка
@@ -413,6 +430,19 @@ const groups = computed(() => [
     </header>
 
     <!--
+      Достижения стоят сразу под шапкой, прежде настроек: это про человека, а
+      не про то, что он может поменять, — и место им рядом с именем, а не в
+      ряду форм.
+    -->
+    <section class="achievements card card--raised">
+      <h2 class="achievements__caption">
+        Достижения
+      </h2>
+
+      <AchievementsShelf :achievements="achievements" own />
+    </section>
+
+    <!--
       Дальше страница — список разделов, а не стопка развёрнутых форм. С него
       видно, что здесь вообще можно поменять, и не приходится прокручивать
       чужую форму, чтобы добраться до своей; сама правка открывается окном
@@ -754,6 +784,20 @@ const groups = computed(() => [
 </template>
 
 <style scoped>
+.achievements {
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.5rem;
+}
+
+.achievements__caption {
+  margin: 0 0 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+}
+
 /* ---------- Шапка ---------- */
 
 .hero {

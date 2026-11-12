@@ -383,6 +383,11 @@ async function toggleReaders() {
           :model-value="regulation.is_favourite === true"
           with-label
         />
+        <MaterialShare
+          :material="{ kind: copy.kind, id: regulation.id }"
+          :title="regulation.title"
+          :path="`/lms/${copy.section}/${regulation.slug}`"
+        />
       </div>
 
       <!--

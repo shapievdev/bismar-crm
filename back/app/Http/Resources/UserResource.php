@@ -6,6 +6,7 @@ namespace App\Http\Resources;
 
 use App\Enums\DepartmentRole;
 use App\Enums\Permission;
+use App\Models\Achievement;
 use App\Models\Department;
 use App\Models\StaffTag;
 use App\Models\User;
@@ -99,6 +100,19 @@ final class UserResource extends JsonResource
                     'id' => $tag->getKey(),
                     'name' => $tag->name,
                 ])->all()),
+
+            /*
+             * Заработанные значки — свежие сверху.
+             *
+             * Приходят только загруженными: их показывают карточка сотрудника
+             * и свой профиль, а списку людей и выбору собеседника они не
+             * нужны. Спрятанные из каталога приходят вместе со всеми —
+             * достижение убирают, чтобы больше не выдавать, а не чтобы
+             * отобрать (см. User::achievements).
+             */
+            'achievements' => $this->whenLoaded('achievements', fn (): array => $this->achievements
+                ->map(static fn (Achievement $achievement): array => AchievementResource::awarded($achievement))
+                ->all()),
 
             'mentor' => $this->whenLoaded('mentor', fn (): ?array => $this->mentor === null ? null : [
                 'id' => $this->mentor->getKey(),

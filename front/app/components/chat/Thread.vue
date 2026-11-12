@@ -305,8 +305,16 @@ function isSeen(message: ThreadMessage): boolean {
             <span>Непрочитанные</span>
           </p>
 
-          <!-- Системная отметка: кто кого добавил, кто вышел, что закрепили. -->
-          <p v-if="message.kind === 'system'" :key="`system-${message.id}`" class="system">
+          <!-- Уведомление: системная отметка, за которой стоит содержимое —
+               заработанный значок. Узкой серой пилюлей его не показать. -->
+          <ChatNotice
+            v-if="message.kind === 'system' && message.about"
+            :key="`notice-${message.id}`"
+            :message="message"
+          />
+
+          <!-- Обычная системная отметка: кто кого добавил, кто вышел. -->
+          <p v-else-if="message.kind === 'system'" :key="`system-${message.id}`" class="system">
             {{ message.body }}
           </p>
 

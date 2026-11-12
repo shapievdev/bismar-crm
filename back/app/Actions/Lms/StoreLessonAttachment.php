@@ -7,6 +7,7 @@ namespace App\Actions\Lms;
 use App\Models\Lesson;
 use App\Models\LessonAttachment;
 use App\Models\MaterialVersion;
+use App\Support\Media\WebpImage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +31,10 @@ final readonly class StoreLessonAttachment
         ?string $description = null,
         ?MaterialVersion $version = null,
     ): LessonAttachment {
+        // Картинка едет в хранилище одним форматом: WebP, ужатый по
+        // длинной стороне. Файл, который не картинка, проходит как есть.
+        $file = WebpImage::from($file);
+
         // Laravel generates the stored filename, so a hostile client cannot
         // choose the object key; the original name is kept only for display.
         $path = $file->store("lessons/{$lesson->getKey()}", self::DISK);

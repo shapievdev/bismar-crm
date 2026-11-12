@@ -56,7 +56,6 @@ const SLICES = {
   'attestations': { title: 'Работы, ждущие проверки', what: 'Проверка', when: 'Отправлена' },
   'not-started': { title: 'Записи, к которым не приступали', what: 'Курс', when: 'Записан' },
   'completed': { title: 'Пройденные курсы', what: 'Курс', when: 'Пройден' },
-  'plan': { title: 'Шаги планов обучения', what: 'Материал', when: 'Назначен' },
   'learners': { title: 'Ученики', what: 'Курсы', when: 'Последний шаг' },
   'progress': { title: 'Все записи на курсы', what: 'Курс', when: 'Последний шаг' },
   'acknowledgements': { title: 'Ознакомления', what: 'Материал', when: 'Отмечено' },
@@ -392,16 +391,6 @@ function failedIn(quiz: LearningQuizRow): number {
         :hint="`${formatNumber(summary.completed)} из ${formatNumber(summary.enrollments)} записей`"
         @open="openSlice('completed')"
       />
-      <AnalyticsStatTile
-        label="План обучения пройден"
-        :value="share(summary.plan_done, summary.plan_steps)"
-        format="percent"
-        :span="3"
-        expandable
-        :hint="`${formatNumber(summary.plan_done)} из ${formatNumber(summary.plan_steps)} шагов у ${formatNumber(summary.plan_people)} человек`"
-        @open="openSlice('plan')"
-      />
-
       <AnalyticsStatTile
         label="Учеников"
         :value="summary.learners"

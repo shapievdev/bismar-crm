@@ -27,6 +27,25 @@ use Illuminate\Http\Request;
  */
 final class LearningController extends Controller
 {
+    /** Полный каталог результатов, отдельно от первых строк общей аналитики. */
+    public function surveys(Request $request, LearningReport $report): JsonResponse
+    {
+        $input = $request->validate([
+            'page' => ['sometimes', 'integer', 'min:1', 'max:1000000'],
+            'search' => ['nullable', 'string', 'max:200'],
+        ]);
+        $page = (int) ($input['page'] ?? 1);
+        $search = trim($input['search'] ?? '');
+        $perPage = 20;
+        $total = Survey::query()->whereRaw('title collate "und-x-icu" ilike ?', ['%'.$search.'%'])->count();
+
+        return response()->json([
+            'data' => $report->surveys($perPage, ($page - 1) * $perPage, $search),
+            'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($total / $perPage)),
+                'per_page' => $perPage, 'total' => $total],
+        ]);
+    }
+
     public function __invoke(LearningReport $report): JsonResponse
     {
         return response()->json([

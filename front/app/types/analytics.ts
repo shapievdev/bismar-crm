@@ -98,10 +98,6 @@ export interface LearningSummary {
   acknowledgements: number
   acknowledged_by: number
 
-  /* План обучения. */
-  plan_people: number
-  plan_steps: number
-  plan_done: number
 }
 
 /**

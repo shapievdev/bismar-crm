@@ -118,7 +118,7 @@ final class UserController extends Controller
      */
     public function show(User $user): UserResource
     {
-        return UserResource::make($user->load('roles', 'permissions', 'departments', 'mentor', 'staffTags'));
+        return UserResource::make($user->load('roles', 'permissions', 'departments', 'mentor', 'staffTags', 'achievements'));
     }
 
     /**

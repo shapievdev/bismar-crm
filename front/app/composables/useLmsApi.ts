@@ -14,14 +14,11 @@ import type {
   CourseProgress,
   Enrollment,
   LearnerProgress,
-  LearningPlanItem,
   MaterialAccess,
   MaterialProgress,
   MaterialVersion,
   MaterialVersionPayload,
   MaterialVersionSummary,
-  PlannableItem,
-  PlannableKind,
   LessonAnswer,
   LessonAnswerPayload,
   LessonAttachment,
@@ -114,40 +111,6 @@ export function useLmsApi() {
 
     myCourses: (): Promise<ResourceResponse<Enrollment[]>> =>
       $api<ResourceResponse<Enrollment[]>>('/api/lms/my-courses'),
-
-    /** Свой план обучения: что назначили пройти и в каком порядке. */
-    myPlan: (): Promise<ResourceResponse<LearningPlanItem[]>> =>
-      $api<ResourceResponse<LearningPlanItem[]>>('/api/lms/my-plan'),
-
-    /** План сотрудника — глазами того, кто его составляет. */
-    fetchPlan: (userId: number): Promise<ResourceResponse<LearningPlanItem[]>> =>
-      $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`),
-
-    /**
-     * Что можно поставить шагом этому сотруднику — весь список сразу.
-     *
-     * Целиком, а не поиском: курсов и документов десятки, и дальше экран
-     * сужает список сам — по виду и по категории, — не спрашивая сервер на
-     * каждое движение.
-     */
-    fetchPlanMaterial: (userId: number): Promise<ResourceResponse<PlannableItem[]>> =>
-      $api<ResourceResponse<PlannableItem[]>>(`/api/lms/plans/${userId}/material`),
-
-    /**
-     * Задаёт план целиком, и порядок присланного и есть порядок шагов —
-     * так же, как список допущенных к курсу.
-     *
-     * Шаг приходит парой «вид и номер»: номер сам по себе ничего не значит,
-     * курс №3 и документ №3 — разные вещи.
-     */
-    savePlan: (
-      userId: number,
-      items: { type: PlannableKind, id: number }[],
-    ): Promise<ResourceResponse<LearningPlanItem[]>> =>
-      $api<ResourceResponse<LearningPlanItem[]>>(`/api/lms/plans/${userId}`, {
-        method: 'PUT',
-        body: { items },
-      }).catch(toValidationError),
 
     fetchLesson: (id: number | string): Promise<ResourceResponse<LessonSummary>> =>
       $api<ResourceResponse<LessonSummary>>(`/api/lms/lessons/${id}`),

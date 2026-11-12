@@ -8,8 +8,11 @@ use App\Enums\AttestationStatus;
 use App\Enums\QuestionType;
 use App\Enums\QuizKind;
 use App\Jobs\SendPush;
+use App\Models\Exam;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
+use App\Models\OnboardingJourneyStage;
+use App\Models\OnboardingStage;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizOption;
@@ -47,12 +50,13 @@ final readonly class SaveQuiz
      *     title: string,
      *     description?: ?string,
      *     max_attempts?: ?int,
+     *     passing_score?: ?int,
      *     kind?: string,
      *     examiner_id?: ?int,
      *     questions: array<int, array{id?: ?int, text: string, type: string, points: int, expected_answer?: ?string, table?: ?array<string, mixed>, options?: array<int, array{id?: ?int, text: string, is_correct: bool}>}>
      * } $attributes
      */
-    public function handle(Lesson|Regulation|MaterialVersion $owner, array $attributes): Quiz
+    public function handle(Lesson|Regulation|MaterialVersion|Exam|OnboardingStage|OnboardingJourneyStage $owner, array $attributes): Quiz
     {
         $existing = Quiz::query()
             ->where('quizzable_type', $owner->getMorphClass())
@@ -73,10 +77,19 @@ final readonly class SaveQuiz
                 [
                     'title' => $attributes['title'],
                     'description' => $attributes['description'] ?? null,
-                    // Планку ставит правило, а не присланное: урок зачитывается
-                    // при всех верных ответах, и подделать это запросом нельзя.
-                    'passing_score' => Quiz::PASSING_SCORE,
-                    'max_attempts' => $attributes['max_attempts'] ?? null,
+                    // Планку материала ставит правило, а не присланное: урок
+                    // зачитывается при всех верных ответах, и подделать это
+                    // запросом нельзя. Экзамену и тесту этапа адаптации планку
+                    // выбирает автор: сто на сорока вопросах — не проверка
+                    // знаний, а лотерея опечаток.
+                    'passing_score' => $owner instanceof Exam
+                        || $owner instanceof OnboardingStage
+                        || $owner instanceof OnboardingJourneyStage
+                        ? $attributes['passing_score'] ?? Quiz::PASSING_SCORE
+                        : Quiz::PASSING_SCORE,
+                    'max_attempts' => array_key_exists('max_attempts', $attributes)
+                        ? $attributes['max_attempts']
+                        : (($owner instanceof OnboardingStage || $owner instanceof OnboardingJourneyStage) ? 2 : null),
 
                     // Кто проверяет работы. Согласованность вида с вопросами и
                     // с проверяющим разобрана на входе — см. SaveQuizRequest.

@@ -6,6 +6,7 @@ namespace App\Actions\User;
 
 use App\Models\User;
 use App\Support\Lms\StoredFiles;
+use App\Support\Media\WebpImage;
 use Illuminate\Http\UploadedFile;
 
 final readonly class StoreAvatar
@@ -19,6 +20,10 @@ final readonly class StoreAvatar
     public function handle(User $user, UploadedFile $file): User
     {
         $previous = $user->avatar_path;
+
+        // Картинка едет в хранилище одним форматом: WebP, ужатый по
+        // длинной стороне. Файл, который не картинка, проходит как есть.
+        $file = WebpImage::from($file);
 
         // Laravel names the stored object, so a hostile client cannot choose
         // the key or overwrite somebody else's file.

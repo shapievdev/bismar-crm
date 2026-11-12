@@ -82,7 +82,7 @@ function when(value: string | null): string {
           :aria-expanded="openedId === past.id"
           @click="open(past.id)"
         >
-          <span :class="past.passed ? 'pass' : 'fail'">{{ past.passed ? 'сдано' : 'не сдано' }}</span>
+          <span :class="past.passed ? 'pass' : 'fail'">{{ past.review_status === 'pending' ? 'на проверке' : past.passed ? 'сдано' : 'не сдано' }}</span>
           <span>{{ past.score }}%</span>
           <span class="faint">{{ when(past.completed_at) }}</span>
           <span class="faint history__toggle">

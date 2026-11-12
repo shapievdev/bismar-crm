@@ -17,9 +17,6 @@ const props = withDefaults(defineProps<{
 const { fetchCourses, myCourses, fetchCategories } = useLmsApi()
 const { can } = useAuth()
 
-// Нажатие на закрытый планом курс отвечает окном, а не молчанием: карточка
-// выглядит как все, и тишина читается как поломка.
-const { explain: explainLock } = usePlanLock()
 const route = useRoute()
 const router = useRouter()
 
@@ -405,7 +402,6 @@ const tabs: { id: Tab, label: string, visible: boolean }[] = [
           v-for="course in visibleCourses"
           :key="course.slug"
           :course="course"
-          @locked="explainLock('Курс')"
         />
       </div>
     </template>

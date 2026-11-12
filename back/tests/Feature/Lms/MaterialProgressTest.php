@@ -8,7 +8,6 @@ use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\Enrollment;
 use App\Models\Group;
-use App\Models\LearningPlanItem;
 use App\Models\Lesson;
 use App\Models\MaterialVersion;
 use App\Models\Quiz;
@@ -52,7 +51,8 @@ final class MaterialProgressTest extends TestCase
             $enrollment->completions()->create(['lesson_id' => $lesson->id, 'completed_at' => now()]);
         }
 
-        $this->plan($assigned, 'course', (int) $course->id);
+        // Записан, но не приступал: в отчёте он есть, и это главный адресат.
+        Enrollment::factory()->create(['course_id' => $course->id, 'user_id' => $assigned->id]);
 
         $response = $this->actingAs($this->administrator())
             ->getJson(route('lms.courses.progress', $course))
@@ -72,13 +72,10 @@ final class MaterialProgressTest extends TestCase
         $this->assertSame(50, $people[$started->id]['progress']);
         $this->assertSame(2, $people[$started->id]['lessons_done']);
         $this->assertSame('in_progress', $people[$started->id]['status']);
-        $this->assertFalse($people[$started->id]['in_plan']);
 
-        // Назначенный планом стоит в списке, хотя курс ещё не открывал: иначе
-        // курс выглядел бы пройденным целиком — некому проваливать.
+        // Не приступавший стоит в списке: иначе курс выглядел бы пройденным
+        // целиком — некому проваливать.
         $this->assertSame('not_started', $people[$assigned->id]['status']);
-        $this->assertTrue($people[$assigned->id]['in_plan']);
-        $this->assertFalse($people[$assigned->id]['is_enrolled']);
     }
 
     /** Вперёд идут те, у кого дело не сдвинулось: ради них отчёт и открывают. */
@@ -97,7 +94,7 @@ final class MaterialProgressTest extends TestCase
         ]);
         $finished->completions()->create(['lesson_id' => $lessons->first()->id, 'completed_at' => now()]);
 
-        $this->plan($waiting, 'course', (int) $course->id);
+        Enrollment::factory()->create(['course_id' => $course->id, 'user_id' => $waiting->id]);
 
         $people = $this->actingAs($this->administrator())
             ->getJson(route('lms.courses.progress', $course))
@@ -231,7 +228,6 @@ final class MaterialProgressTest extends TestCase
 
         $read = $this->learner();
         $tried = $this->learner();
-        $assigned = $this->learner();
 
         $document->acknowledgements()->create(['user_id' => $read->id, 'acknowledged_at' => now()]);
         $this->attempt($quiz, $read, 100, true);
@@ -240,13 +236,11 @@ final class MaterialProgressTest extends TestCase
         // именно с ним — молчать о таком значит терять единственного адресата.
         $this->attempt($quiz, $tried, 0, false);
 
-        $this->plan($assigned, 'regulation', (int) $document->id);
-
         $response = $this->actingAs($this->administrator())
             ->getJson(route('lms.documents.progress', $document))
             ->assertOk();
 
-        $this->assertSame(3, $response->json('data.summary.people'));
+        $this->assertSame(2, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.done'));
         $this->assertSame(2, $response->json('data.summary.attempted'));
 
@@ -255,8 +249,6 @@ final class MaterialProgressTest extends TestCase
         $this->assertTrue($people[$read->id]['is_done']);
         $this->assertSame(100, $people[$read->id]['quiz']['best_score']);
         $this->assertFalse($people[$tried->id]['is_done']);
-        $this->assertTrue($people[$assigned->id]['in_plan']);
-        $this->assertSame(0, $people[$assigned->id]['quiz']['attempts']);
     }
 
     /**
@@ -402,16 +394,6 @@ final class MaterialProgressTest extends TestCase
         $lessons = Lesson::factory()->count($count)->create(['module_id' => $module->id]);
 
         return [$course, $lessons];
-    }
-
-    private function plan(User $learner, string $type, int $id): void
-    {
-        LearningPlanItem::query()->create([
-            'user_id' => $learner->id,
-            'plannable_type' => $type,
-            'plannable_id' => $id,
-            'position' => 1,
-        ]);
     }
 
     private function attempt(Quiz $quiz, User $learner, int $score, bool $passed, mixed $at = null): void

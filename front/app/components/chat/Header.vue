@@ -81,6 +81,9 @@ const typingLabel = (typing: ChatPerson[]): string => {
         <span v-if="typingLabel(typing)" key="typing" class="head__status head__status--live">
           {{ typingLabel(typing) }}
         </span>
+        <span v-else-if="conversation.is_system" key="system" class="faint head__status">
+          Системные уведомления
+        </span>
         <span v-else-if="conversation.is_group" key="crew" class="faint head__status">
           {{ conversation.participants_count }} участников
         </span>
@@ -96,8 +99,10 @@ const typingLabel = (typing: ChatPerson[]): string => {
       </svg>
     </button>
 
+    <!-- В общем чате состав не ведут: он вся компания, и список на сотни
+         человек ничего не добавляет к цифре в заголовке. -->
     <button
-      v-if="conversation.is_group"
+      v-if="conversation.is_group && !conversation.is_general && !conversation.is_system"
       type="button"
       class="head__tool"
       :aria-pressed="managing"

@@ -7,6 +7,7 @@ namespace App\Actions\Lms;
 use App\Models\MaterialVersion;
 use App\Models\Regulation;
 use App\Models\RegulationAttachment;
+use App\Support\Media\WebpImage;
 use Illuminate\Http\UploadedFile;
 
 /**
@@ -30,6 +31,10 @@ final readonly class StoreRegulationAttachment
         ?string $description = null,
         ?MaterialVersion $version = null,
     ): RegulationAttachment {
+        // Картинка едет в хранилище одним форматом: WebP, ужатый по
+        // длинной стороне. Файл, который не картинка, проходит как есть.
+        $file = WebpImage::from($file);
+
         // Имя объекту даёт Laravel: враждебный клиент не выбирает ключ и не
         // перезапишет чужой файл.
         $path = $file->store("regulations/{$regulation->getKey()}", self::DISK);

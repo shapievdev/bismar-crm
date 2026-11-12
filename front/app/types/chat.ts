@@ -60,17 +60,28 @@ export interface QuotedMessage {
  * Названия и адрес лежат снимком со дня отправки: материал переименуют или
  * выбросят, а разговор должен остаться читаемым.
  */
+/** Материал, с которого пишут: четыре вида, и все из базы знаний. */
+export type MaterialAboutKind = 'course' | 'lesson' | 'document' | 'handbook'
+
 export interface MessageAbout {
-  kind: 'course' | 'lesson' | 'document' | 'handbook'
-  /** «Курс», «Урок», «Документ», «Справочник». */
+  /** Пятый вид — достижение: он приходит не от человека, а из уведомлений. */
+  kind: MaterialAboutKind | 'achievement'
+  /** «Курс», «Урок», «Документ», «Справочник», «Достижение». */
   kind_label: string
   title: string
-  /** Курс, внутри которого лежит урок. У остальных пусто. */
+  /** Курс, внутри которого лежит урок; у достижения — за что оно дано. */
   context: string | null
   url: string | null
   reason: 'missing' | 'incorrect' | null
   /** «Ответа не хватило» или «Здесь написано неверно». */
   reason_label: string | null
+  /**
+   * Картинка значка — только у достижения.
+   *
+   * Собирается при чтении, а не хранится в снимке: ссылки в хранилище
+   * подписанные и живут час, а уведомление остаётся в ленте навсегда.
+   */
+  image_url?: string | null
 }
 
 /**
@@ -108,7 +119,7 @@ export interface MessageReaction {
  * адресе, иначе карточкой над репликой можно было бы объявить что угодно.
  */
 export interface MaterialRef {
-  kind: MessageAbout['kind']
+  kind: MaterialAboutKind
   id: number
 }
 
@@ -184,6 +195,19 @@ export interface Conversation {
   id: number
   kind: ConversationKind
   is_group: boolean
+  /**
+   * Общий чат компании: он у всех и его не ведут.
+   *
+   * Экран смотрит на этот признак, а не на название: «Общий чат» можно
+   * переименовать, а вид записи — нет.
+   */
+  is_general: boolean
+  /**
+   * Лента уведомлений: в ней пишет приложение, а не люди.
+   *
+   * Экран по ней прячет поле ввода — отвечать здесь некому.
+   */
+  is_system: boolean
   /** У личной переписки — имя собеседника, у групповой — название. */
   title: string
   companion: ChatPerson | null

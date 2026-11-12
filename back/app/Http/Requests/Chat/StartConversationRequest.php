@@ -19,7 +19,11 @@ final class StartConversationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'kind' => ['required', Rule::enum(ConversationKind::class)],
+            // Ни общий чат, ни ленту уведомлений отсюда не заводят: первый
+            // один на компанию (App\Support\Chat\GeneralChat), вторую заводит
+            // первое же уведомление (App\Support\Chat\Notifications).
+            'kind' => ['required', Rule::enum(ConversationKind::class)
+                ->only([ConversationKind::Direct, ConversationKind::Group])],
 
             // Личная — ровно с одним собеседником.
             //

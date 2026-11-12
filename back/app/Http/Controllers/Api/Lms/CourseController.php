@@ -24,9 +24,7 @@ use App\Models\Enrollment;
 use App\Models\User;
 use App\Support\Lms\CatalogSearch;
 use App\Support\Lms\Favourites;
-use App\Support\Lms\LearningPlan;
 use App\Support\Lms\ProgressCalculator;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -80,8 +78,6 @@ final class CourseController extends Controller
             ->orderByDesc('updated_at')
             ->paginate(15)
             ->withQueryString();
-
-        $this->markPlanLocks($courses->getCollection(), $user);
 
         // Звезда на карточке — одним запросом на всю страницу каталога.
         Favourites::of($user)->mark($courses->getCollection());
@@ -210,26 +206,6 @@ final class CourseController extends Controller
         );
 
         return response()->json(['data' => $statuses]);
-    }
-
-    /**
-     * Отмечает курсы, до которых у сотрудника не дошла очередь плана обучения.
-     *
-     * Из каталога они не пропадают намеренно: курс есть, он виден, и человек
-     * должен понимать, что откроют его после плана, а не никогда. Пропади он из
-     * списка — это читалось бы как «такого курса нет», и вопрос ушёл бы не к
-     * тому, кто ведёт обучение, а к тому, кто чинит поиск.
-     *
-     * @param  EloquentCollection<int, Course>  $courses
-     */
-    private function markPlanLocks(EloquentCollection $courses, User $user): void
-    {
-        $plan = LearningPlan::restrains($user) ? LearningPlan::of($user) : null;
-
-        $courses->each(fn (Course $course) => $course->setAttribute(
-            'locked_by_plan',
-            $plan !== null && ! $plan->allows($course),
-        ));
     }
 
     /**
