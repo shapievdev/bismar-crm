@@ -218,11 +218,9 @@ async function persistQuiz(payload: QuizPayload) {
  * что он думает. Обязательный держит отметку об ознакомлении так же, как
  * проверка; необязательный не держит ничего.
  *
- * Проходят его один раз — поэтому здесь же, в редакторе, лежит и сводка ответов:
- * переспросить людей нельзя, и читать сказанное приходится тому, кто материал
- * ведёт.
+ * Здесь настраивают вопросы; ответы читают в аналитике самого материала.
  */
-const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+const { saveSurvey, deleteSurvey } = useSurveyApi()
 
 const surveyOwner = computed<SurveyOwner>(() => ({
   kind: 'material',
@@ -790,18 +788,9 @@ function moveQuestion(document: RegulationLink, delta: number) {
       @remove="dropSurvey"
     />
 
-    <!-- Сводка опроса — здесь же: ответы читает тот, кто материал ведёт, и
-         переспросить людей второй раз нельзя. -->
-    <section v-if="regulation.survey" class="card editor-panel survey-summary">
-      <h2 class="editor-panel__title">
-        Что ответили
-      </h2>
-
-      <SurveySummaryPanel
-        :key="regulation.survey.id"
-        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
-      />
-    </section>
+    <p v-if="regulation.survey" class="faint">
+      Ответы сотрудников доступны на странице материала: «Аналитика → Результаты опроса».
+    </p>
 
     <!-- Разбор проверки живёт не здесь, а на странице материала, рядом с
          остальной статистикой прохождения (решение пользователя 2026-09-12):

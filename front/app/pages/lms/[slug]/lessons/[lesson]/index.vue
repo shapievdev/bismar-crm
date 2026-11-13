@@ -323,7 +323,7 @@ async function markDone() {
  * «Отметить пройденным», ни зачёт по сданному тесту. Поэтому после отправки урок
  * перечитывается — он мог зачесться ровно сейчас.
  */
-const { submitSurvey } = useSurveyApi()
+const { submitSurvey, fetchSurveySummary } = useSurveyApi()
 
 const survey = computed(() => body.value?.survey ?? null)
 /*
@@ -538,7 +538,7 @@ function formatSize(bytes: number): string {
                такая же статистика прохождения, и место у неё одно. -->
           <ProgressMaterialStats
             v-if="isAdmin"
-            :key="`progress-${lesson.id}`"
+            :key="`progress-${lesson.id}-${selectedVersion?.id ?? 'base'}`"
             :load="async () => (await fetchLessonProgress(lessonId)).data"
             title="Как проходят урок"
             summary-label="Прошли урок"
@@ -546,6 +546,7 @@ function formatSize(bytes: number): string {
             pending-label="Не пройден"
             :load-quiz="lesson.quiz ? async () => (await fetchQuizStatistics(lessonId)).data : null"
             :load-quiz-review="async id => (await fetchLessonAttempt(lessonId, id)).data.review ?? null"
+            :load-survey="survey ? async () => (await fetchSurveySummary(surveyOwner)).data : null"
           />
         </div>
       </header>

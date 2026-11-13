@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MaterialProgress, MaterialProgressPerson, QuizReview, QuizStatistics } from '~/types/lms'
+import type { SurveySummary } from '~/types/survey'
 
 /**
  * Как проходят урок или документ — кнопкой в шапке, а не двумя полотнами внизу
@@ -10,9 +11,8 @@ import type { MaterialProgress, MaterialProgressPerson, QuizReview, QuizStatisti
  * всякого администратора, открывшего урок, и читать урок приходилось поверх
  * чужой статистики (решение пользователя 2026-09-20).
  *
- * Теперь это одно окно на две вкладки: «Люди» и «Разбор теста». Вкладка вторая
- * появляется, только если проверка у материала есть, — у документа без теста
- * окно остаётся простым списком.
+ * В одном окне — люди, разбор теста и результаты опроса. Дополнительные
+ * вкладки появляются, только если соответствующие тест или опрос есть.
  *
  * Одно окно на урок и на документ: прогресс у обоих — одно событие (урок
  * закрыт, документ прочитан), и разница только в том, как его назвать. Слова
@@ -34,6 +34,7 @@ const props = defineProps<{
   /** Разбор теста второй вкладкой. Пусто — у материала нет проверки. */
   loadQuiz?: (() => Promise<QuizStatistics>) | null
   loadQuizReview?: ((attemptId: number) => Promise<QuizReview | null>) | null
+  loadSurvey?: (() => Promise<SurveySummary>) | null
 }>()
 
 const isOpen = ref(false)
@@ -78,6 +79,7 @@ function close() {
   selected.value = null
   tab.value = 'people'
   wasQuizOpened.value = false
+  wasSurveyOpened.value = false
 }
 
 const people = computed(() => report.value?.people ?? [])
@@ -88,7 +90,7 @@ const hasQuiz = computed(() => people.value.some(person => person.quiz !== null)
 
 /* ---------- Вкладки ---------- */
 
-const tab = ref<'people' | 'quiz'>('people')
+const tab = ref<'people' | 'quiz' | 'survey'>('people')
 
 /**
  * Разбор теста, однажды открытый, остаётся собранным.
@@ -98,10 +100,14 @@ const tab = ref<'people' | 'quiz'>('people')
  * заводит, а дальше вкладки просто прячут её и показывают.
  */
 const wasQuizOpened = ref(false)
+const wasSurveyOpened = ref(false)
 
 watch(tab, (value) => {
   if (value === 'quiz') {
     wasQuizOpened.value = true
+  }
+  if (value === 'survey') {
+    wasSurveyOpened.value = true
   }
 })
 
@@ -153,9 +159,8 @@ function day(value: string | null): string {
       :title="title"
       @close="close"
     >
-      <!-- Вкладки — только когда их две: у документа без проверки вторая
-           показывала бы пустоту, а строка вкладок обещала бы больше, чем есть. -->
-      <nav v-if="loadQuiz" class="tabs" aria-label="Что показывать">
+      <!-- У материала без теста и опроса остаётся один список людей. -->
+      <nav v-if="loadQuiz || loadSurvey" class="tabs" aria-label="Что показывать">
         <button
           type="button"
           class="tabs__item"
@@ -166,6 +171,7 @@ function day(value: string | null): string {
           Люди
         </button>
         <button
+          v-if="loadQuiz"
           type="button"
           class="tabs__item"
           :class="{ 'tabs__item--current': tab === 'quiz' }"
@@ -173,6 +179,16 @@ function day(value: string | null): string {
           @click="tab = 'quiz'"
         >
           Разбор теста
+        </button>
+        <button
+          v-if="loadSurvey"
+          type="button"
+          class="tabs__item"
+          :class="{ 'tabs__item--current': tab === 'survey' }"
+          :aria-pressed="tab === 'survey'"
+          @click="tab = 'survey'"
+        >
+          Результаты опроса
         </button>
       </nav>
 
@@ -287,6 +303,11 @@ function day(value: string | null): string {
         v-show="tab === 'quiz'"
         :load="loadQuiz"
         :load-review="loadQuizReview ?? (async () => null)"
+      />
+      <SurveySummaryPanel
+        v-if="loadSurvey && wasSurveyOpened"
+        v-show="tab === 'survey'"
+        :load="loadSurvey"
       />
     </AppSheet>
   </div>

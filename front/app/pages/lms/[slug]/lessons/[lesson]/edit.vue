@@ -280,7 +280,7 @@ async function askForSuggestions(transcriptId?: number) {
  * Сводка ответов — здесь же, в редакторе: опрос проходят один раз, переспросить
  * нельзя, и читать сказанное приходится тому, кто урок ведёт.
  */
-const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+const { saveSurvey, deleteSurvey } = useSurveyApi()
 
 const surveyOwner = computed<SurveyOwner>(() => ({ kind: 'lesson', id: lessonId.value }))
 
@@ -541,17 +541,9 @@ async function removeQuiz() {
       @remove="removeSurvey"
     />
 
-    <!-- Сводка опроса — здесь же: ответы читает тот, кто урок ведёт. -->
-    <section v-if="lesson.survey" class="survey-summary card">
-      <h2 class="survey-summary__title">
-        Что ответили об уроке
-      </h2>
-
-      <SurveySummaryPanel
-        :key="lesson.survey.id"
-        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
-      />
-    </section>
+    <p v-if="lesson.survey" class="faint">
+      Ответы сотрудников доступны на странице материала: «Аналитика → Результаты опроса».
+    </p>
 
     <section v-if="!lesson.survey" class="add-quiz">
       <button type="button" class="button-plain" @click="showSurveyBuilder = true">
@@ -583,16 +575,6 @@ async function removeQuiz() {
 </template>
 
 <style scoped>
-.survey-summary {
-  margin-top: 1.25rem;
-  padding: 1.1rem;
-}
-
-.survey-summary__title {
-  margin: 0 0 0.75rem;
-  font-size: 1.05rem;
-}
-
 .page-header {
   display: flex;
   align-items: baseline;

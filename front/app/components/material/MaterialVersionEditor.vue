@@ -256,7 +256,7 @@ async function persistQuiz(payload: QuizPayload) {
  * стоит своё. Обязательный держит отметку об ознакомлении — ту же одну на
  * человека, на которой версия остаётся пометкой.
  */
-const { saveSurvey, deleteSurvey, fetchSurveySummary } = useSurveyApi()
+const { saveSurvey, deleteSurvey } = useSurveyApi()
 
 const surveyOwner = computed(() => api.surveyOwner(versionId.value))
 
@@ -542,16 +542,9 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
       @remove="dropSurvey"
     />
 
-    <section v-if="version.survey" class="card editor-panel">
-      <h2 class="editor-panel__title">
-        Что ответили о версии
-      </h2>
-
-      <SurveySummaryPanel
-        :key="version.survey.id"
-        :load="async () => (await fetchSurveySummary(surveyOwner)).data"
-      />
-    </section>
+    <p v-if="version.survey" class="faint">
+      Ответы сотрудников доступны на странице материала: «Аналитика → Результаты опроса».
+    </p>
 
     <div class="actions">
       <button type="button" class="button-primary" :disabled="isSaving" @click="save">

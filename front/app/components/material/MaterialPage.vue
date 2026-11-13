@@ -252,7 +252,7 @@ async function sendAnswers(answers: Record<number, number[] | string | string[][
  * кнопку «ознакомлен», ни сдачу проверки как ознакомление. Поэтому после
  * отправки материал перечитывается — отметка могла наступить ровно сейчас.
  */
-const { submitSurvey } = useSurveyApi()
+const { submitSurvey, fetchSurveySummary } = useSurveyApi()
 
 const survey = computed(() => body.value?.survey ?? null)
 
@@ -444,7 +444,7 @@ async function toggleReaders() {
              открыт он только администратору. -->
         <ProgressMaterialStats
           v-if="isAdmin"
-          :key="`progress-${regulation.id}`"
+          :key="`progress-${regulation.id}-${selected?.id ?? 'base'}`"
           :load="async () => (await fetchProgress(slug)).data"
           title="Кто ознакомился"
           summary-label="Ознакомились"
@@ -452,6 +452,7 @@ async function toggleReaders() {
           pending-label="Не ознакомлен"
           :load-quiz="quiz ? async () => (await fetchQuizStatistics(slug)).data : null"
           :load-quiz-review="async id => (await fetchQuizAttempt(slug, id)).data.review ?? null"
+          :load-survey="survey ? async () => (await fetchSurveySummary(surveyOwner)).data : null"
         />
       </div>
     </header>
