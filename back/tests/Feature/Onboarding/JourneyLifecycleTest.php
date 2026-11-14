@@ -64,31 +64,6 @@ final class JourneyLifecycleTest extends TestCase
             ->assertJsonCount(2, 'data.stages');
     }
 
-    public function test_graduation_is_marked_once_per_item(): void
-    {
-        $this->travelTo(Carbon::parse('2026-11-02 10:00'));
-
-        $trainee = $this->trainee();
-        [$journey] = $this->journeyFor($trainee, stages: 1);
-
-        // Информационный этап закрылся — журнал завершён.
-        $this->actingAs($trainee)->getJson(route('onboarding.my'))->assertOk();
-        $this->assertSame('completed', $journey->refresh()->status->value);
-
-        foreach (['access', 'tshirt', 'barcode'] as $what) {
-            $this->actingAs($this->hr())
-                ->postJson(route('onboarding.manage.employees.graduate', $trainee), ['what' => $what])
-                ->assertOk();
-        }
-
-        $this->assertTrue($journey->refresh()->isFullyEquipped());
-
-        // Повторная отметка — конфликт, выдача уже случилась.
-        $this->actingAs($this->hr())
-            ->postJson(route('onboarding.manage.employees.graduate', $trainee), ['what' => 'tshirt'])
-            ->assertConflict();
-    }
-
     public function test_a_finished_journey_still_shows_its_map(): void
     {
         $this->travelTo(Carbon::parse('2026-11-02 10:00'));

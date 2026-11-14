@@ -16,7 +16,6 @@ use App\Models\OnboardingStageMeeting;
 use App\Models\OnboardingTemplate;
 use App\Models\User;
 use App\Support\Onboarding\JourneySchedule;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\Push\PushMessage;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -77,11 +76,7 @@ final readonly class ApplyTemplate
                     'day_mode' => $template->day_mode,
                     'duration_days' => $template->duration_days,
                     'settings' => $template->settings,
-                    'requires_graduation' => (bool) $template->requires_graduation,
-                    'kit_items' => ProfessionalKit::receipts($journey) === []
-                        ? ProfessionalKit::definitions($template->kit_items)
-                        : ProfessionalKit::definitions($journey->kit_items),
-                    'graduation_achievement_id' => $template->graduation_achievement_id,
+                    'requires_graduation' => false,
                     'store' => $template->store,
                     'allow_ahead' => $template->allow_ahead,
                     'meeting_reminder_minutes' => $template->meeting_reminder_minutes,
@@ -196,6 +191,7 @@ final readonly class ApplyTemplate
                 'stage_task_id' => $task->getKey(),
                 'text' => $task->text,
                 'confirm_by' => $task->confirm_by,
+                'responsible_ids' => $task->responsible_ids ?? [],
                 'is_required' => $task->is_required,
                 'achievement_id' => $task->achievement_id,
             ]);

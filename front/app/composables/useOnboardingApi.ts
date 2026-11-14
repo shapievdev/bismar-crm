@@ -134,8 +134,8 @@ export function useOnboardingApi() {
       $api<{ data: JourneySummary[] }>('/api/onboarding/manage/journeys', { query: { search } }),
 
     /** Кого можно найти — поиском по работающим. */
-    searchPeople: (search: string): Promise<{ data: { id: number, name: string }[] }> =>
-      $api<{ data: { id: number, name: string }[] }>('/api/onboarding/manage/people', { query: { search } }),
+    searchPeople: (search: string, selected: number[] = []): Promise<{ data: { id: number, name: string }[] }> =>
+      $api<{ data: { id: number, name: string }[] }>('/api/onboarding/manage/people', { query: { search, 'selected[]': selected } }),
 
     /** Маршрут сотрудника. Пустая карта заводится самим открытием. */
     fetchEmployeeJourney: (employeeId: number): Promise<{ data: Journey }> =>
@@ -224,12 +224,6 @@ export function useOnboardingApi() {
     grantAttempt: (employeeId: number, stageId: number): Promise<{ data: Journey }> =>
       $api<{ data: Journey }>(`/api/onboarding/manage/employees/${employeeId}/stages/${stageId}/grant-attempt`, { method: 'POST' })
         .catch(toValidationError),
-
-    graduate: (employeeId: number, what: string): Promise<{ data: Journey }> =>
-      $api<{ data: Journey }>(`/api/onboarding/manage/employees/${employeeId}/graduate`, {
-        method: 'POST',
-        body: { what },
-      }).catch(toValidationError),
 
     /* ---------- Отчёт ---------- */
 

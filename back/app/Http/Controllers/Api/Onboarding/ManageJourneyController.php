@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\Onboarding;
 
 use App\Actions\Lms\SaveQuiz;
 use App\Actions\Onboarding\ApplyTemplate;
-use App\Actions\Onboarding\ConfirmGraduation;
 use App\Actions\Onboarding\ConfirmMeeting;
 use App\Actions\Onboarding\ConfirmTask;
 use App\Actions\Onboarding\DeleteJourneyStage;
@@ -39,7 +38,6 @@ use App\Support\Lms\QuizReview;
 use App\Support\Onboarding\HiddenMaterials;
 use App\Support\Onboarding\JourneyPresenter;
 use App\Support\Onboarding\JourneySchedule;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\Onboarding\RouteSettings;
 use App\Support\Staff\EmployedPeople;
 use Illuminate\Http\JsonResponse;
@@ -106,7 +104,6 @@ final class ManageJourneyController extends Controller
                     'percent' => $total === 0 ? 0 : (int) round($completed / $total * 100),
                 ],
                 'completed_at' => $journey?->completed_at,
-                'fully_equipped' => $journey?->isFullyEquipped() ?? false,
             ];
         });
 
@@ -130,9 +127,10 @@ final class ManageJourneyController extends Controller
     {
         $attributes = $request->validate([
             ...RouteSettings::rules(),
-            ...ProfessionalKit::rules(),
+            'kit_items' => ['prohibited'],
+            'kit_receipts' => ['prohibited'],
             'allow_ahead' => ['sometimes', 'boolean'],
-            'requires_graduation' => ['sometimes', 'boolean'],
+            'requires_graduation' => ['prohibited'],
             'meeting_reminder_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
         ]);
         $journey = $this->open->handle($employee);
@@ -305,23 +303,6 @@ final class ManageJourneyController extends Controller
         return $this->presented($journey);
     }
 
-    /** Выпуск: допуск, футболка, штрих-код — по одной отметке за запрос. */
-    public function graduate(Request $request, User $employee, ConfirmGraduation $confirm): JsonResponse
-    {
-        $journey = $this->open->handle($employee);
-
-        $validated = $request->validate([
-            'what' => ['required', 'string', 'regex:/^[a-zA-Z0-9_-]{1,64}$/'],
-        ]);
-
-        /** @var User $actor */
-        $actor = $request->user();
-
-        $confirm->handle($journey, (string) $validated['what'], $actor);
-
-        return $this->presented($journey->refresh());
-    }
-
     /** Чужая попытка — ведущему: разбор с открытым ключом. */
     public function attempt(User $employee, QuizAttempt $attempt, QuizReview $review): QuizAttemptResource
     {
@@ -340,7 +321,13 @@ final class ManageJourneyController extends Controller
      */
     public function people(Request $request, EmployedPeople $people): AnonymousResourceCollection
     {
-        return CoursePersonResource::collection($people->suggest($request->query('search')));
+        $validated = $request->validate([
+            'selected' => ['sometimes', 'array', 'max:30'],
+            'selected.*' => ['integer', 'distinct'],
+        ]);
+        $selected = User::whereIn('id', $validated['selected'] ?? [])->employed()->get();
+
+        return CoursePersonResource::collection($selected->merge($people->suggest($request->query('search')))->unique('id')->values());
     }
 
     private function presented(OnboardingJourney $journey): JsonResponse

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Requests\Onboarding;
 
 use App\Enums\DayMode;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\Onboarding\RouteSettings;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -19,11 +18,12 @@ final class SaveTemplateRequest extends FormRequest
     {
         return [
             ...RouteSettings::rules(),
-            ...ProfessionalKit::rules(),
+            'kit_items' => ['prohibited'],
+            'kit_receipts' => ['prohibited'],
             'job_title' => ['nullable', 'string', 'max:255'],
             'store' => ['nullable', 'string', 'max:255'],
-            'requires_graduation' => ['sometimes', 'boolean'],
-            'graduation_achievement_id' => ['nullable', 'integer', 'exists:achievements,id'],
+            'requires_graduation' => ['prohibited'],
+            'graduation_achievement_id' => ['prohibited'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
 

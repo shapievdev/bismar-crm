@@ -55,6 +55,12 @@ final class SaveStageRequest extends FormRequest
             'tasks' => ['sometimes', 'array'],
             'tasks.*.id' => ['nullable', 'integer'],
             'tasks.*.text' => ['required', 'string', 'max:1000'],
+            'tasks.*.responsible_ids' => ['sometimes', 'array', 'max:30', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (is_array($value) && count($value) !== count(array_unique($value, SORT_REGULAR))) {
+                    $fail('В списке ответственных не должно быть повторов.');
+                }
+            }],
+            'tasks.*.responsible_ids.*' => ['integer', Rule::exists('users', 'id')->whereNull('dismissed_at')->whereNull('deleted_at')],
             'tasks.*.confirm_by' => ['required', Rule::enum(TaskConfirmer::class)],
             'tasks.*.is_required' => ['sometimes', 'boolean'],
 

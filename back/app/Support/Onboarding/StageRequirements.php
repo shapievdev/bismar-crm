@@ -176,6 +176,8 @@ final readonly class StageRequirements
                 'meta' => [
                     'id' => (int) $task->getKey(),
                     'confirm_by' => $task->confirm_by->value,
+                    'responsible_ids' => $task->responsible_ids ?? [],
+                    'responsibles' => User::whereIn('id', $task->responsible_ids ?? [])->get()->map(fn ($person) => ['id' => $person->id, 'name' => $person->name])->all(),
                     'submitted_at' => $task->submitted_at,
                     'awaiting_confirmation' => $task->submitted_at !== null && ! $task->isDone(),
                     'achievement' => AchievementResource::badge($task->achievement),

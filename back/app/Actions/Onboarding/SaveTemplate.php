@@ -7,7 +7,6 @@ namespace App\Actions\Onboarding;
 use App\Enums\OnboardingTemplateStatus;
 use App\Models\OnboardingTemplate;
 use App\Models\User;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\SlugGenerator;
 
 /**
@@ -39,19 +38,12 @@ final readonly class SaveTemplate
             'created_by' => $actor->getKey(),
         ]);
 
-        $required = $attributes['requires_graduation'] ?? ($template->exists ? $template->requires_graduation : true);
-        $kit = ProfessionalKit::validated(
-            $attributes['kit_items'] ?? ProfessionalKit::definitions($template->kit_items), (bool) $required,
-        );
-
         $template->fill([
-            'kit_items' => $kit,
             'title' => $attributes['title'],
             'job_title' => $attributes['job_title'] ?? null,
             'store' => $attributes['store'] ?? null,
-            'requires_graduation' => $attributes['requires_graduation'] ?? ($template->exists ? $template->requires_graduation : true),
+            'requires_graduation' => false,
             'settings' => $attributes['settings'] ?? $template->settings,
-            'graduation_achievement_id' => $attributes['graduation_achievement_id'] ?? null,
             'description' => $attributes['description'] ?? null,
             'duration_days' => $attributes['duration_days'] ?? 7,
             'day_mode' => $attributes['day_mode'] ?? $template->day_mode?->value ?? 'calendar',

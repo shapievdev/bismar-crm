@@ -38,8 +38,12 @@ const journey = computed<Journey | null>(() => data.value?.data ?? null)
 useHead({ title: () => journey.value ? `Маршрут — ${journey.value.employee.name}` : 'Маршрут' })
 
 const actionError = ref<string | null>(null)
-const routeRules = ref({ settings: onboardingSettings(), kit_items: [] as import('~/types/onboarding').KitDefinition[], allow_ahead: false, requires_graduation: false, meeting_reminder_minutes: null as number | null })
-watch(journey, value => { if (value) routeRules.value = { settings: JSON.parse(JSON.stringify(value.settings)), kit_items: JSON.parse(JSON.stringify(value.kit_items)), allow_ahead: value.allow_ahead, requires_graduation: value.requires_graduation, meeting_reminder_minutes: value.meeting_reminder_minutes } }, { immediate: true })
+const stageSection = ref('main')
+const rulesOpen = ref(false)
+const isSavingRules = ref(false)
+const applyOpen = ref(false)
+const routeRules = ref({ settings: onboardingSettings(), allow_ahead: false, meeting_reminder_minutes: null as number | null })
+watch(journey, value => { if (value) routeRules.value = { settings: JSON.parse(JSON.stringify(value.settings)), allow_ahead: value.allow_ahead, meeting_reminder_minutes: value.meeting_reminder_minutes } }, { immediate: true })
 
 /** Каждое действие присылает маршрут целиком — положим его на место. */
 async function run(action: () => Promise<{ data: Journey }>) {
@@ -54,6 +58,15 @@ async function run(action: () => Promise<{ data: Journey }>) {
   }
 }
 
+async function saveRules() {
+  isSavingRules.value = true
+  try {
+    await run(() => api.updateJourneySettings(employeeId.value, routeRules.value))
+    if (!actionError.value) rulesOpen.value = false
+  }
+  finally { isSavingRules.value = false }
+}
+
 /* ---------- Выбранный этап ---------- */
 
 const selectedId = ref<number | null>(Number(route.query.stage) || null)
@@ -66,6 +79,14 @@ const selectedStage = computed(() => {
     ?? stages[0]
     ?? null
 })
+
+const detailElement = ref<HTMLElement | null>(null)
+function selectStage(id: number) {
+  selectedId.value = id
+  if (window.matchMedia('(max-width: 959px)').matches) {
+    nextTick(() => detailElement.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+}
 
 /* ---------- Наложение шаблона ---------- */
 
@@ -122,6 +143,7 @@ async function applyTemplate() {
   if (actionError.value === null) {
     templateSlug.value = ''
     hiddenMaterials.value = []
+    applyOpen.value = false
   }
 }
 
@@ -150,12 +172,14 @@ interface StageDraft {
     with_name: string
     achievement_id: number | null
   }[]
-  tasks: { id: number | null, text: string, confirm_by: string, is_required: boolean, achievement_id: number | null }[]
+  tasks: { id: number | null, text: string, responsible_ids: number[], confirm_by: string, is_required: boolean, achievement_id: number | null }[]
 }
 
 const stageDraft = ref<StageDraft | null>(null)
 const stageErrors = ref<ValidationErrors>({})
 const isSavingStage = ref(false)
+
+watch(stageDraft, () => { stageSection.value = 'main' })
 
 function blankStage(): StageDraft {
   const nextDay = Math.max(0, ...(journey.value?.stages ?? []).map(stage => stage.day_offset ?? 0)) + 1
@@ -208,6 +232,7 @@ function editStage(stage: JourneyStage) {
       id: Number(item.meta.id),
       text: item.title,
       confirm_by: String(item.meta.confirm_by ?? 'self'),
+      responsible_ids: [...(item.meta.responsible_ids ?? [])],
       is_required: item.is_required,
       achievement_id: item.meta.achievement?.id ?? null,
     })),
@@ -307,6 +332,7 @@ async function saveStage() {
       id: task.id,
       text: task.text,
       confirm_by: task.confirm_by,
+      responsible_ids: task.confirm_by === 'responsible' ? [...task.responsible_ids] : [],
       is_required: task.is_required,
       achievement_id: task.achievement_id,
     })),
@@ -319,6 +345,8 @@ async function saveStage() {
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       stageErrors.value = caught.errors
+      const firstError = Object.keys(caught.errors)[0] ?? ''
+      stageSection.value = firstError.startsWith('links') ? 'materials' : firstError.startsWith('tasks') ? 'tasks' : firstError.startsWith('meetings') ? 'meetings' : 'main'
     }
     else {
       actionError.value = 'Не удалось сохранить этап.'
@@ -499,10 +527,14 @@ function day(value: string | null): string {
       </p>
 
       <!-- Наложить шаблон: дописывает свои этапы в конец. -->
-      <div class="card apply">
-        <h2 class="apply__title">
-          Заполнить из шаблона
-        </h2>
+      <div class="overview-actions journey-toolbar">
+        <button type="button" class="button-secondary" @click="applyOpen = true">Добавить этапы из шаблона</button>
+        <button type="button" class="button-ghost" @click="rulesOpen = true">Настройки маршрута</button>
+      </div>
+      <AppSheet :open="applyOpen" title="Добавить этапы из шаблона" wide @close="!isApplying && (applyOpen = false)">
+      <div class="editor-section">
+        <p v-if="actionError" class="alert alert--danger" role="alert">{{ actionError }}</p>
+        <p class="faint">Этапы выбранной программы добавятся в личный маршрут сотрудника.</p>
 
         <div v-if="hiddenMaterials.length" class="alert alert--warning" role="alert">
           <p class="hidden__lead">
@@ -546,14 +578,16 @@ function day(value: string | null): string {
           </button>
         </div>
       </div>
+      </AppSheet>
 
       <div class="layout">
         <div class="layout__map">
           <OnboardingJourneyMap
+            title="Маршрут адаптации"
             v-if="journey.stages.length"
             :stages="journey.stages"
             :selected-id="selectedStage?.id ?? null"
-            @select="id => selectedId = id"
+            @select="selectStage"
           />
           <p v-else class="faint">
             Этапов пока нет.
@@ -564,13 +598,124 @@ function day(value: string | null): string {
           </button>
         </div>
 
-        <div class="detail">
+        <div ref="detailElement" class="detail">
           <!-- Форма этапа: заведение и правка. -->
-          <form v-if="stageDraft" class="card panel" @submit.prevent="saveStage">
-            <h2 class="panel__title">
-              {{ stageDraft.id === null ? 'Новый этап' : 'Правка этапа' }}
-            </h2>
 
+
+          <template v-if="selectedStage">
+            <OnboardingStageCard :stage="selectedStage" :interactive="false" :load-review="async id => (await api.fetchEmployeeAttempt(employeeId, id)).data.review ?? null" />
+
+            <!-- Рычаги ведущего при выбранном этапе. -->
+            <div class="card levers">
+              <h3 class="levers__title">
+                Управление этапом
+              </h3>
+
+              <div class="levers__row">
+                <button type="button" class="button-secondary" @click="editStage(selectedStage)">
+                  Править этап
+                </button>
+                <button
+                  v-if="selectedStage.status === 'locked' && selectedStage.opens_at"
+                  type="button"
+                  class="button-secondary"
+                  @click="openNow(selectedStage)"
+                >
+                  Открыть досрочно
+                </button>
+                <button
+                  v-if="!selectedStage.completed_at"
+                  type="button"
+                  class="button-secondary"
+                  @click="move(selectedStage)"
+                >
+                  {{ selectedStage.opens_at ? 'Перенести открытие' : 'Назначить дату' }}
+                </button>
+                <button
+                  v-if="selectedStage.status === 'quiz_failed'"
+                  type="button"
+                  class="button-primary"
+                  @click="run(() => api.grantAttempt(employeeId, selectedStage!.id))"
+                >
+                  Дать ещё попытку
+                </button>
+                <button
+                  v-if="!selectedStage.completed_at"
+                  type="button"
+                  class="button-ghost danger"
+                  @click="removeStage(selectedStage)"
+                >
+                  Убрать этап
+                </button>
+              </div>
+
+              <ul class="levers__list" role="list">
+                <template v-for="item in selectedStage.items" :key="item.key">
+                  <li v-if="item.kind === 'meeting' && !item.done" class="levers__item">
+                    <span class="levers__what">
+                      <OnboardingItemIcon kind="meeting" class="levers__icon" />
+                      {{ item.title }}
+                    </span>
+                    <button type="button" class="button-ghost" @click="schedule(item)">
+                      {{ item.meta.scheduled_at ? 'Перенести' : 'Назначить время' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="button-secondary"
+                      @click="run(() => api.confirmJourneyMeeting(employeeId, item.meta.id!))"
+                    >
+                      Подтвердить
+                    </button>
+                  </li>
+                  <li v-else-if="item.kind === 'task' && !item.done" class="levers__item">
+                    <span class="levers__what">
+                      <OnboardingItemIcon kind="task" class="levers__icon" />
+                      {{ item.title }}
+                    </span>
+                    <span v-if="item.meta.awaiting_confirmation" class="badge badge--warning">сотрудник отметил</span>
+                    <button
+                      type="button"
+                      class="button-secondary"
+                      @click="run(() => api.confirmJourneyTask(employeeId, item.meta.id!))"
+                    >
+                      Подтвердить
+                    </button>
+                  </li>
+                </template>
+              </ul>
+
+              <!-- Тест этапа: у каждого сотрудника свой. -->
+              <div class="levers__row">
+                <button
+                  type="button"
+                  class="button-ghost"
+                  @click="quizStageId = quizStageId === selectedStage.id ? null : selectedStage.id"
+                >
+                  {{ selectedStage.quiz ? 'Редактировать тест' : 'Добавить тест' }}
+                </button>
+              </div>
+
+
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <AppSheet :open="rulesOpen" title="Настройки личного маршрута" @close="!isSavingRules && (rulesOpen = false)">
+      <form class="editor-form" @submit.prevent="saveRules">
+        <p v-if="actionError" class="alert alert--danger" role="alert">{{ actionError }}</p>
+        <label class="choice"><input v-model="routeRules.allow_ahead" type="checkbox">Разрешить переход вперёд</label>
+        <label class="field"><span class="field-label">Напомнить перед встречей, минут</span><input v-model.number="routeRules.meeting_reminder_minutes" type="number" min="1" max="1440" class="input"></label>
+        <OnboardingSettings v-model="routeRules.settings" />
+        <button class="button-primary" type="submit" :disabled="isSavingRules">{{ isSavingRules ? 'Сохраняем…' : 'Сохранить правила' }}</button>
+      </form>
+      </AppSheet>
+      <AppSheet :open="stageDraft !== null" :title="stageDraft?.id == null ? 'Новый этап' : 'Редактирование этапа'" wide @close="!isSavingStage && (stageDraft = null)">
+          <form v-if="stageDraft" class="editor-form" @submit.prevent="saveStage" @invalid.capture="stageSection = 'main'">
+            <OnboardingEditorTabs v-model="stageSection" :counts="{ materials: stageDraft.links.length, tasks: stageDraft.tasks.length, meetings: stageDraft.meetings.length }" />
+            <p v-if="actionError" class="alert alert--danger" role="alert">{{ actionError }}</p>
+            <p v-if="Object.keys(stageErrors).length" class="alert alert--danger" role="alert">{{ Object.values(stageErrors).flat().join(' ') }}</p>
+            <div v-show="stageSection === 'main'" class="editor-section">
             <div class="field-pair">
               <div class="field">
                 <label class="field-label" for="s-title">Название</label>
@@ -586,9 +731,8 @@ function day(value: string | null): string {
             </div>
 
             <div class="field">
-              <label class="choice"><input v-model="stageDraft.is_final_exam" type="checkbox">Итоговый экзамен маршрута</label>
               <label class="field-label">Завершить до<input v-model="stageDraft.due_at" type="date" class="input"></label>
-              <OnboardingResponsibles v-model="stageDraft.responsible_ids" />
+              <details class="editor-disclosure"><summary>Ответственные за этап · {{ stageDraft.responsible_ids.length }}</summary><OnboardingResponsibles v-model="stageDraft.responsible_ids" /></details>
               <label class="field-label" for="s-desc">Описание</label>
               <textarea id="s-desc" v-model.trim="stageDraft.description" class="input" rows="2" maxlength="2000" />
             </div>
@@ -598,6 +742,7 @@ function day(value: string | null): string {
               своим содержимым, и поменять значок одному не значит поменять
               его шаблону и всем остальным.
             -->
+            <details v-if="achievements.length" class="editor-disclosure"><summary>Достижения за этап и тест</summary>
             <div v-if="achievements.length" class="field-pair">
               <AchievementsSelect
                 id="s-award"
@@ -611,8 +756,10 @@ function day(value: string | null): string {
                 :achievements="achievements"
                 label="Достижение за тест этапа"
               />
-            </div>
+            </div>            </details>
 
+            </div>
+            <div v-show="stageSection === 'materials'" class="editor-section">
             <div class="field">
               <label class="field-label" for="s-material">Материалы</label>
               <UiSelect id="s-material" v-model="materialToAdd" :options="materialOptions" placeholder="Добавить материал" searchable />
@@ -641,6 +788,8 @@ function day(value: string | null): string {
               </ul>
             </div>
 
+            </div>
+            <div v-show="stageSection === 'meetings'" class="editor-section">
             <div class="field">
               <span class="field-label">Встречи</span>
 
@@ -748,6 +897,8 @@ function day(value: string | null): string {
               </button>
             </div>
 
+            </div>
+            <div v-show="stageSection === 'tasks'" class="editor-section">
             <div class="field">
               <span class="field-label">Задания</span>
 
@@ -758,6 +909,12 @@ function day(value: string | null): string {
                     <input v-model="task.confirm_by" type="checkbox" true-value="responsible" false-value="self">
                     подтверждает ответственный
                   </label>
+                  <details v-if="task.confirm_by === 'responsible'" class="editor-disclosure task-responsibles">
+                    <summary>Ответственные · {{ task.responsible_ids.length || 'по этапу' }}</summary>
+                  <OnboardingResponsibles v-model="task.responsible_ids"
+                    class="task-responsibles" label="Ответственные за задание"
+                    hint="Подтвердить может любой выбранный сотрудник. Если список пуст — ответственные этапа. Наставник и администратор также могут подтвердить." />
+                  </details>
                   <AchievementsSelect
                     v-if="achievements.length"
                     v-model="task.achievement_id"
@@ -773,13 +930,14 @@ function day(value: string | null): string {
               <button
                 type="button"
                 class="add-row"
-                @click="stageDraft.tasks.push({ id: null, text: '', confirm_by: 'self', is_required: true, achievement_id: null })"
+                @click="stageDraft.tasks.push({ id: null, text: '', responsible_ids: [], confirm_by: 'self', is_required: true, achievement_id: null })"
               >
                 + Добавить задание
               </button>
             </div>
 
-            <div class="panel__actions">
+            </div>
+            <div class="panel__actions editor-footer">
               <button type="submit" class="button-primary" :disabled="isSavingStage">
                 {{ isSavingStage ? 'Сохраняем…' : 'Сохранить этап' }}
               </button>
@@ -788,102 +946,11 @@ function day(value: string | null): string {
               </button>
             </div>
           </form>
-
-          <template v-else-if="selectedStage">
-            <OnboardingStageCard :stage="selectedStage" :interactive="false" :load-review="async id => (await api.fetchEmployeeAttempt(employeeId, id)).data.review ?? null" />
-
-            <!-- Рычаги ведущего при выбранном этапе. -->
-            <div class="card levers">
-              <h3 class="levers__title">
-                Управление этапом
-              </h3>
-
-              <div class="levers__row">
-                <button type="button" class="button-secondary" @click="editStage(selectedStage)">
-                  Править этап
-                </button>
-                <button
-                  v-if="selectedStage.status === 'locked' && selectedStage.opens_at"
-                  type="button"
-                  class="button-secondary"
-                  @click="openNow(selectedStage)"
-                >
-                  Открыть досрочно
-                </button>
-                <button
-                  v-if="!selectedStage.completed_at"
-                  type="button"
-                  class="button-secondary"
-                  @click="move(selectedStage)"
-                >
-                  {{ selectedStage.opens_at ? 'Перенести открытие' : 'Назначить дату' }}
-                </button>
-                <button
-                  v-if="selectedStage.status === 'quiz_failed'"
-                  type="button"
-                  class="button-primary"
-                  @click="run(() => api.grantAttempt(employeeId, selectedStage!.id))"
-                >
-                  Дать ещё попытку
-                </button>
-                <button
-                  v-if="!selectedStage.completed_at"
-                  type="button"
-                  class="button-ghost danger"
-                  @click="removeStage(selectedStage)"
-                >
-                  Убрать этап
-                </button>
-              </div>
-
-              <ul class="levers__list" role="list">
-                <template v-for="item in selectedStage.items" :key="item.key">
-                  <li v-if="item.kind === 'meeting' && !item.done" class="levers__item">
-                    <span class="levers__what">
-                      <OnboardingItemIcon kind="meeting" class="levers__icon" />
-                      {{ item.title }}
-                    </span>
-                    <button type="button" class="button-ghost" @click="schedule(item)">
-                      {{ item.meta.scheduled_at ? 'Перенести' : 'Назначить время' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="button-secondary"
-                      @click="run(() => api.confirmJourneyMeeting(employeeId, item.meta.id!))"
-                    >
-                      Подтвердить
-                    </button>
-                  </li>
-                  <li v-else-if="item.kind === 'task' && !item.done" class="levers__item">
-                    <span class="levers__what">
-                      <OnboardingItemIcon kind="task" class="levers__icon" />
-                      {{ item.title }}
-                    </span>
-                    <span v-if="item.meta.awaiting_confirmation" class="badge badge--warning">сотрудник отметил</span>
-                    <button
-                      type="button"
-                      class="button-secondary"
-                      @click="run(() => api.confirmJourneyTask(employeeId, item.meta.id!))"
-                    >
-                      Подтвердить
-                    </button>
-                  </li>
-                </template>
-              </ul>
-
-              <!-- Тест этапа: у каждого сотрудника свой. -->
-              <div class="levers__row">
-                <button
-                  type="button"
-                  class="button-ghost"
-                  @click="quizStageId = quizStageId === selectedStage.id ? null : selectedStage.id"
-                >
-                  {{ quizStageId === selectedStage.id ? 'Свернуть тест' : 'Тест этапа' }}
-                </button>
-              </div>
-
+      </AppSheet>
+      <AppSheet :open="quizStageId !== null" title="Тест этапа" wide @close="!isSavingQuiz && (quizStageId = null)">
+        <p v-if="actionError" class="alert alert--danger" role="alert">{{ actionError }}</p>
               <QuizBuilder
-                v-if="quizStageId === selectedStage.id"
+                v-if="selectedStage && quizStageId === selectedStage.id"
                 :quiz="selectedStage.quiz ?? null"
                 :default-max-attempts="2"
                 :errors="quizErrors"
@@ -892,46 +959,30 @@ function day(value: string | null): string {
                 @save="payload => saveQuiz(selectedStage!.id, payload)"
                 @remove="removeQuiz(selectedStage!.id)"
               />
-            </div>
-          </template>
-        </div>
-      </div>
-
-      <!-- Выпуск. -->
-      <form class="card graduation" @submit.prevent="run(() => api.updateJourneySettings(employeeId, routeRules))">
-        <h2>Правила личного маршрута</h2>
-        <label class="choice"><input v-model="routeRules.allow_ahead" type="checkbox">Разрешить переход вперёд</label>
-        <label class="choice"><input v-model="routeRules.requires_graduation" type="checkbox">Обязательные пункты набора нужны для завершения</label>
-        <label class="field"><span class="field-label">Напомнить перед встречей, минут</span><input v-model.number="routeRules.meeting_reminder_minutes" type="number" min="1" max="1440" class="input"></label>
-        <OnboardingKitEditor v-model="routeRules.kit_items" :locked-ids="journey.graduation.items.filter(item => item.confirmed_at).map(item => item.id)" />
-        <OnboardingSettings v-model="routeRules.settings" />
-        <button class="button-primary" type="submit">Сохранить правила</button>
-      </form>
-      <section v-if="journey.stages.length" class="card graduation">
-        <h3 class="levers__title">
-          Выпуск
-        </h3>
-        <p v-if="!journey.graduation.items.length" class="faint">Набор не задан.</p>
-        <div class="graduation__row">
-          <template v-for="mark in journey.graduation.items" :key="mark.id">
-            <span v-if="mark.confirmed_at" class="badge badge--success">{{ mark.label }} — {{ day(mark.confirmed_at) }}<template v-if="mark.confirmed_by_name"> · {{ mark.confirmed_by_name }}</template></span>
-            <button
-              v-else
-              type="button"
-              class="button-secondary"
-              @click="run(() => api.graduate(employeeId, mark.id))"
-            >
-              {{ mark.label }}: подтвердить<template v-if="!mark.is_required"> (необязательно)</template>
-            </button>
-          </template>
-        </div>
-      </section>
+      </AppSheet>
       <OnboardingHistory :entries="journey.history" />
     </template>
   </section>
 </template>
 
 <style scoped>
+.journey-toolbar { margin-bottom: 1rem; }
+.editor-form, .editor-section { display: grid; gap: 1rem; min-width: 0; }
+.editor-disclosure { padding: .85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.editor-disclosure > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.editor-disclosure[open] > summary { margin-bottom: 1rem; }
+.editor-footer { position: sticky; bottom: -1.4rem; background: var(--color-surface-raised); padding: 1rem 0; border-top: 1px solid var(--color-border); z-index: 2; }
+.route-overview { padding: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.route-overview__description { margin: 0 0 .6rem; max-width: 52rem; overflow-wrap: anywhere; }
+.route-overview__meta { display: flex; gap: .5rem 1rem; flex-wrap: wrap; color: var(--color-text-muted); font-size: .82rem; }
+.overview-actions, .stage-row-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.stage-row-actions { padding: .6rem .85rem; border-top: 1px solid var(--color-border); }
+.more-actions { position: relative; }
+.more-actions > summary { cursor: pointer; padding: .5rem .75rem; font-size: .85rem; }
+.more-actions > div { position: absolute; right: 0; z-index: 3; display: grid; min-width: 12rem; padding: .5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
+@media (max-width: 600px) { .stage-row-actions { gap: .25rem; } .stage-row-actions button { font-size: .78rem; } .editor-footer { bottom: -1rem; } }
+
+.task-responsibles { flex: 1 0 100%; min-width: 0; }
 .head {
   margin-bottom: 1.25rem;
 }
@@ -1006,7 +1057,7 @@ function day(value: string | null): string {
   gap: 0.25rem;
 }
 
-/* Карте нужна ширина: она разложена змейкой, а не столбиком. */
+/* Одна карта для сотрудника и администратора; выбранный этап рядом. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(24rem, 1fr);
@@ -1026,6 +1077,11 @@ function day(value: string | null): string {
 }
 
 .detail {
+  position: sticky;
+  top: 100px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -1345,20 +1401,21 @@ function day(value: string | null): string {
   background: var(--color-surface);
 }
 
-.graduation {
+.route-rules {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   padding: 1.1rem 1.25rem;
 }
 
-.graduation__row {
+.route-rules__row {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
 }
 
-@media (max-width: 48rem) {
+@media (max-width: 959px) {
+  .detail { position: static; max-height: none; overflow: visible; scroll-margin-top: 90px; }
   .layout {
     grid-template-columns: 1fr;
   }

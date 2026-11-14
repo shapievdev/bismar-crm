@@ -45,8 +45,6 @@ final readonly class JourneyPresenter
         return [
             'id' => (int) $journey->getKey(),
             'settings' => RouteSettings::of($journey->settings),
-            'kit_items' => ProfessionalKit::definitions($journey->kit_items),
-            'requires_graduation' => $journey->requires_graduation,
             'day_mode' => $journey->day_mode->value,
             'meeting_reminder_minutes' => $journey->meeting_reminder_minutes,
             'store' => $journey->store,
@@ -69,14 +67,6 @@ final readonly class JourneyPresenter
                 'completed' => $completed,
                 'total' => $total,
                 'percent' => $total === 0 ? 0 : (int) round($completed / $total * 100),
-            ],
-
-            'graduation' => [
-                'items' => ProfessionalKit::presented($journey),
-                'access_confirmed_at' => $journey->access_confirmed_at,
-                'tshirt_issued_at' => $journey->tshirt_issued_at,
-                'barcode_issued_at' => $journey->barcode_issued_at,
-                'fully_equipped' => $journey->isFullyEquipped(),
             ],
 
             'completed_at' => $journey->completed_at,

@@ -4,13 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Onboarding;
 
-use App\Actions\Achievements\AwardAchievement;
 use App\Enums\JourneyStatus;
 use App\Enums\StageStatus;
 use App\Jobs\SendPush;
-use App\Models\Achievement;
 use App\Models\OnboardingJourney;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\Onboarding\RouteSettings;
 use App\Support\Onboarding\StageRequirements;
 use App\Support\Push\PushMessage;
@@ -82,14 +79,7 @@ final readonly class RefreshJourneyProgress
         $allCompleted = $journey->stages->isNotEmpty()
             && $journey->stages->every(fn ($stage): bool => $stage->isCompleted());
 
-        if ($allCompleted && $journey->isFullyEquipped() && $journey->graduation_achievement_id !== null && Achievement::whereKey($journey->graduation_achievement_id)->exists()) {
-            app(AwardAchievement::class)->handle(
-                $journey->user, $journey->graduation_achievement_id,
-                'Профессиональный набор собран', $journey, Date::parse(collect(ProfessionalKit::receipts($journey))->pluck('confirmed_at')->filter()->max() ?? Date::now()),
-            );
-        }
-
-        if ($allCompleted && (! $journey->requires_graduation || $journey->isFullyEquipped()) && $journey->completed_at === null && $journey->status === JourneyStatus::Active) {
+        if ($allCompleted && $journey->completed_at === null && $journey->status === JourneyStatus::Active) {
             $journey->fill([
                 'status' => JourneyStatus::Completed,
                 'completed_at' => Date::now(),

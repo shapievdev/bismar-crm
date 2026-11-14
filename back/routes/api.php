@@ -943,7 +943,6 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::Man
             Route::post('meetings/{meeting}/confirm', [OnboardingManageJourneyController::class, 'confirmMeeting'])->name('meetings.confirm');
             Route::post('tasks/{task}/confirm', [OnboardingManageJourneyController::class, 'confirmTask'])->name('tasks.confirm');
             Route::post('stages/{stage}/grant-attempt', [OnboardingManageJourneyController::class, 'grantAttempt'])->name('grant-attempt');
-            Route::post('graduate', [OnboardingManageJourneyController::class, 'graduate'])->name('graduate');
             Route::get('attempts/{attempt}', [OnboardingManageJourneyController::class, 'attempt'])->name('attempts.show');
         });
 

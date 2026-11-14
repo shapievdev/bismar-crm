@@ -257,6 +257,7 @@ function quizButtonLabel(item: StageItem): string {
             <span class="rows__name">{{ item.title }}</span>
             <span class="rows__sub">
               {{ item.meta.confirm_by === 'self' ? 'Отмечаете сами' : 'Подтверждает ответственный' }}
+              <template v-if="item.meta.confirm_by === 'responsible' && item.meta.responsibles?.length">: {{ item.meta.responsibles.map(person => person.name).join(', ') }}</template>
             </span>
           </span>
 

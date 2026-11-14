@@ -5,7 +5,7 @@ import type { Journey } from '~/types/onboarding'
 
 /**
  * Маршрут адаптации глазами сотрудника: приветствие, прогресс, карта,
- * карточка этапа и набор, который собирается к выпуску.
+ * карточка этапа и достижения.
  *
  * Все цифры приезжают с сервера готовыми; после каждого действия сервер
  * присылает журнал заново — экран никогда не считает прогресс сам.
@@ -15,15 +15,29 @@ useHead({ title: 'Моя адаптация' })
 
 const api = useOnboardingApi()
 const route = useRoute()
-const { user } = useAuth()
+const { user, can } = useAuth()
+const previewEmployeeId = computed(() => {
+  const id = Number(route.query.preview)
+  return can('onboarding.manage') && Number.isSafeInteger(id) && id > 0 ? id : null
+})
+const isPreview = computed(() => previewEmployeeId.value !== null)
+const isMobile = ref(false)
+const detailOpen = ref(false)
+onMounted(() => {
+  const query = window.matchMedia('(max-width: 959px)')
+  const update = () => { isMobile.value = query.matches; if (!query.matches) detailOpen.value = false }
+  update()
+  query.addEventListener('change', update)
+  onBeforeUnmount(() => query.removeEventListener('change', update))
+})
 
-const { data, pending, error, refresh } = await useAsyncData('onboarding.my', () => api.fetchMy())
+const { data, pending, error, refresh } = await useAsyncData(() => `onboarding.design.${previewEmployeeId.value ?? 'my'}`, () => previewEmployeeId.value ? api.fetchEmployeeJourney(previewEmployeeId.value) : api.fetchMy())
 
 const journey = computed<Journey | null>(() => data.value?.data ?? null)
 
 /** Имя без отчества: обращение, а не строка из кадров. */
 const firstName = computed(() => {
-  const full = user.value?.name ?? journey.value?.employee.name ?? ''
+  const full = journey.value?.employee.name ?? user.value?.name ?? ''
 
   return full.split(/\s+/)[1] ?? full.split(/\s+/)[0] ?? ''
 })
@@ -71,10 +85,11 @@ const encouragement = computed(() => {
 
 /* ---------- Действия ---------- */
 
-const submittingTaskId = ref<number | null>(Number(route.query.stage) || null)
+const submittingTaskId = ref<number | null>(null)
 const actionError = ref<string | null>(null)
 
 async function submitTask(taskId: number) {
+  if (isPreview.value) return
   submittingTaskId.value = taskId
   actionError.value = null
 
@@ -97,6 +112,7 @@ const quizResult = ref<QuizAttempt | null>(null)
 const isSubmittingQuiz = ref(false)
 
 async function openQuiz() {
+  if (isPreview.value) return
   if (!selectedStage.value) {
     return
   }
@@ -114,6 +130,7 @@ async function openQuiz() {
 }
 
 async function submitQuiz(answers: Record<number, number[] | string | string[][]>) {
+  if (isPreview.value) return
   if (!selectedStage.value) {
     return
   }
@@ -139,13 +156,26 @@ function closeQuiz() {
   quizResult.value = null
 }
 
+
+function selectStage(id: number) {
+  selectedId.value = id
+  closeQuiz()
+  if (isMobile.value) detailOpen.value = true
+}
+
+async function loadReview(id: number) {
+  return (await (previewEmployeeId.value
+    ? api.fetchEmployeeAttempt(previewEmployeeId.value, id)
+    : api.fetchAttempt(id))).data.review ?? null
+}
+
 function day(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''
 }
 </script>
 
 <template>
-  <section>
+  <section class="journey-play">
     <UiEmptyState
       v-if="error"
       title="Маршрута пока нет"
@@ -157,25 +187,28 @@ function day(value: string | null): string {
     </div>
 
     <template v-else-if="journey">
-      <!-- Приветствие: зачем всё это и где человек сейчас. -->
+      <div v-if="isPreview" class="preview-note"><span>Просмотр маршрута · {{ journey.employee.name }}</span><span>Предпросмотр без выполнения заданий</span></div>
+      <!-- Приветствие -->
       <header class="hero">
         <div class="hero__body">
-          <span class="hero__eyebrow">Адаптация</span>
+          <span class="hero__eyebrow">Твоя новая глава · BISMAR</span>
           <h1 class="hero__title">
-            {{ firstName ? `${firstName}, это ваш путь` : 'Ваш путь' }}
+            {{ firstName ? `${firstName}, всё получится!` : 'Всё получится!' }}
           </h1>
-          <p class="hero__lead">
+          <p class="hero__lead">Осваивай новое, собирай достижения<br>и становись увереннее с каждым шагом.</p>
+          <p class="hero__duration">
             <template v-if="journey.total_days">
               {{ journey.total_days }}
               {{ journey.total_days === 1 ? 'день' : (journey.total_days < 5 ? 'дня' : 'дней') }} —
-              и вы станете частью команды.
+              и ты станешь частью команды.
             </template>
             <template v-else>
-              Шаг за шагом — и вы станете частью команды.
+              Шаг за шагом — и ты станешь частью команды.
             </template>
           </p>
         </div>
 
+        <OnboardingGuide class="hero__guide" />
         <div class="hero__now">
           <span class="hero__day">
             <template v-if="journey.status === 'active' && journey.current_day">
@@ -213,7 +246,7 @@ function day(value: string | null): string {
           </span>
 
           <div class="tile__body">
-            <span class="tile__label">{{ journey.next_action ? 'Ближайшая цель' : 'Как идут дела' }}</span>
+            <span class="tile__label">{{ journey.next_action ? 'Твоя следующая цель' : 'Как идут дела' }}</span>
             <span class="tile__goal">{{ journey.next_action?.label ?? encouragement }}</span>
             <span v-if="journey.next_action" class="faint small">{{ encouragement }}</span>
           </div>
@@ -225,7 +258,7 @@ function day(value: string | null): string {
           >
             Перейти
           </NuxtLink>
-          <button v-else-if="journey.next_action?.journey_stage_id" type="button" class="button-primary tile__go" @click="selectedId = journey.next_action.journey_stage_id; closeQuiz()">К этапу</button>
+          <button v-else-if="journey.next_action?.journey_stage_id" type="button" class="button-primary tile__go" @click="selectStage(journey.next_action.journey_stage_id)">К этапу</button>
         </div>
       </div>
 
@@ -238,54 +271,27 @@ function day(value: string | null): string {
           class="layout__map"
           :stages="journey.stages"
           :selected-id="selectedStage?.id ?? null"
-          @select="id => { selectedId = id; closeQuiz() }"
+          @select="selectStage"
         />
 
-        <div class="layout__detail">
-          <!-- Тест поверх карточки: открыт — отвечаем, закрыт — карточка. -->
-          <template v-if="quiz && selectedStage">
-            <QuizRunner
-              :quiz="quiz"
-              :is-submitting="isSubmittingQuiz"
-              :result="quizResult ? { score: quizResult.score, passed: quizResult.passed, review: quizResult.review } : null"
-              rule=""
-              :passed-note="journey.settings.passed_message"
-              :failed-note="journey.settings.failed_message"
-              @submit="submitQuiz"
-              @retry="closeQuiz(); openQuiz()"
-            />
-            <button type="button" class="button-ghost" @click="closeQuiz">
-              ← К этапу
-            </button>
-          </template>
-
-          <OnboardingStageCard
-            v-else-if="selectedStage"
-            :stage="selectedStage"
-            :next="nextStage"
-            :load-review="async id => (await api.fetchAttempt(id)).data.review ?? null"
-            :interactive="journey.status === 'active'"
-            :submitting-task-id="submittingTaskId"
-            @submit-task="submitTask"
-            @open-quiz="openQuiz"
-          />
+        <div v-if="!isMobile" class="layout__detail">
+          <div class="detail-caption"><span>ТВОЯ МИССИЯ</span><span>✦</span></div>
+          <OnboardingStageSession :stage="selectedStage" :next="nextStage" :quiz="quiz" :result="quizResult" :load-review="loadReview"
+            :submitting-quiz="isSubmittingQuiz" :submitting-task-id="submittingTaskId"
+            :interactive="journey.status === 'active' && !isPreview" :passed-message="journey.settings.passed_message" :failed-message="journey.settings.failed_message"
+            @submit-task="submitTask" @open-quiz="openQuiz" @close-quiz="closeQuiz" @submit-quiz="submitQuiz" @retry="closeQuiz(); openQuiz()" />
         </div>
       </div>
 
-      <section v-if="journey.stages.length && journey.graduation.items.length" class="card equipment">
-        <h2>Ваш профессиональный набор</h2>
-        <p v-if="journey.progress.percent === 100 && journey.status !== 'completed' && journey.requires_graduation" class="faint">Обучение пройдено. Осталось получить обязательные пункты набора.</p>
-        <ul class="equipment__items">
-          <li v-for="item in journey.graduation.items" :key="item.id" :class="{ 'equipment__done': item.confirmed_at }">
-            <OnboardingKitIcon :icon="item.icon" class="equipment__icon" />
-            <strong>{{ item.label }}</strong>
-            <span>{{ item.confirmed_at ? `Получено ${day(item.confirmed_at)}` : 'Впереди' }}</span>
-            <span v-if="!item.is_required" class="small">Необязательно</span>
-          </li>
-        </ul>
-      </section>
+      <AppSheet :open="isMobile && detailOpen" title="Твоя миссия" @close="detailOpen = false">
+        <p v-if="actionError" class="alert alert--danger" role="alert">{{ actionError }}</p>
+        <OnboardingStageSession :stage="selectedStage" :next="nextStage" :quiz="quiz" :result="quizResult" :load-review="loadReview"
+            :submitting-quiz="isSubmittingQuiz" :submitting-task-id="submittingTaskId"
+            :interactive="journey.status === 'active' && !isPreview" :passed-message="journey.settings.passed_message" :failed-message="journey.settings.failed_message"
+            @submit-task="submitTask" @open-quiz="openQuiz" @close-quiz="closeQuiz" @submit-quiz="submitQuiz" @retry="closeQuiz(); openQuiz()" />
+      </AppSheet>
       <section class="card equipment">
-        <h2>Ваши достижения</h2>
+        <div class="section-heading"><div><span class="section-eyebrow">Каждый шаг имеет значение</span><h2>Твои маленькие победы</h2></div><span class="section-stamp">✦ {{ journey.achievements.length }}</span></div>
         <AchievementsShelf :achievements="journey.achievements" own />
       </section>
       <OnboardingHistory :entries="journey.history" />
@@ -312,195 +318,66 @@ function day(value: string | null): string {
 </template>
 
 <style scoped>
-.equipment { padding: 1.25rem; margin-bottom: 1.25rem; }
-.equipment__icon { width: 30px; height: 30px; }
-.equipment h2 { font-size: 1rem; margin-top: 0; }
-.equipment__items { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; list-style: none; padding: 0; }
-.equipment__items li { display: grid; gap: .5rem; padding: 1rem; background: var(--color-surface-sunken); border-radius: var(--radius); color: var(--color-text-muted); }
-.equipment__items li.equipment__done { background: var(--color-success-soft); color: var(--color-success); }
-/*
- * Шапка — единственное цветное пятно на экране: дальше идут белые карточки,
- * и акцент в них работает только на действиях.
- */
-.hero {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  padding: 1.75rem 1.75rem 1.6rem;
-  margin-bottom: 1.25rem;
-  border-radius: var(--radius-lg);
-  background: var(--color-highlight);
-  color: var(--color-highlight-text);
-}
-
-.hero__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 0;
-}
-
-.hero__eyebrow {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.7;
-}
-
-.hero__title {
-  margin: 0;
-  font-size: clamp(1.6rem, 3.5vw, 2.1rem);
-  line-height: 1.1;
-}
-
-.hero__lead {
-  margin: 0;
-  opacity: 0.85;
-}
-
-.hero__now {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.15rem;
-}
-
-.hero__day {
-  padding: 0.35rem 0.9rem;
-  border-radius: var(--radius-pill);
-  background: rgba(var(--color-highlight-text-rgb), 0.14);
-  font-weight: 600;
-}
-
-.hero__since {
-  font-size: 0.8rem;
-  opacity: 0.7;
-}
-
-/* ---------- Прогресс и цель ---------- */
-
-.top {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 1.25rem;
-}
-
-.tile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.1rem 1.25rem;
-}
-
-.tile__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: var(--radius);
-}
-
-.tile__icon svg {
-  width: 1.4rem;
-  height: 1.4rem;
-}
-
-.tile__icon--trophy {
-  background: var(--color-success-soft);
-  color: var(--color-success);
-}
-
-.tile__icon--star {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
-.tile__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.tile__label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-faint);
-}
-
-.tile__goal {
-  font-weight: 600;
-}
-
-.tile__percent {
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.tile__go {
-  flex: none;
-  text-decoration: none;
-}
-
-.small {
-  font-size: 0.82rem;
-}
-
-/* ---------- Карта и карточка ---------- */
-
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(22rem, 1fr);
-  gap: 1.25rem;
-  align-items: start;
-  margin-bottom: 1.25rem;
-}
-
-/* Карточка этапа держится в поле зрения, пока листают карту. */
-.layout__detail {
-  position: sticky;
-  top: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-/* ---------- Финал ---------- */
-
-.congrats {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.25rem;
-}
-
-.congrats__mark {
-  flex: none;
-}
-
-.congrats__title {
-  margin: 0;
-  font-size: 1rem;
-}
-
-@media (max-width: 60rem) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .layout__detail {
-    position: static;
-  }
+.journey-play { max-width:1200px; margin:0 auto; --play-radius:26px; }
+.preview-note { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:16px; padding:12px 16px; border:1px dashed var(--color-border-strong); border-radius:14px; font-size:11px; color:var(--color-text-muted); }
+.hero { position:relative; isolation:isolate; min-height:230px; padding:32px; margin-bottom:22px; border-radius:30px; background:var(--color-highlight); color:var(--color-highlight-text); overflow:hidden; }
+.hero::after { content:''; position:absolute; z-index:-1; width:300px;height:300px;border:50px solid currentColor; border-radius:50%; opacity:.035; right:-40px;top:-80px; }
+.hero__body { max-width:68%; }
+.hero__eyebrow { font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; opacity:.65; }
+.hero__title { margin:13px 0 10px; font-size:clamp(28px,3vw,40px); font-weight:750; letter-spacing:-.035em; line-height:1.1; }
+.hero__lead { font-size:15px; line-height:1.6; margin:0; opacity:.85; }
+.hero__duration { margin:16px 0 0; font-size:11px; opacity:.65; }
+.hero__guide { position:absolute; width:170px; height:185px; right:105px; bottom:8px; transform:rotate(5deg); }
+.hero__now { position:absolute; top:26px;right:26px; display:grid;gap:5px;text-align:right; }
+.hero__day { font-size:11px; font-weight:700; border:1px solid currentColor; border-radius:10px; padding:7px 12px; }
+.hero__since { font-size:10px; opacity:.6; }
+.top { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr); gap:20px; margin-bottom:24px; }
+.tile { display:flex; align-items:center; gap:16px; padding:20px; border:2px solid var(--color-border); border-radius:22px; box-shadow:0 4px 0 var(--color-border); }
+.tile__icon { width:42px;height:42px;border-radius:14px;display:grid;place-items:center;flex:none;background:var(--control-surface); }
+.tile__icon svg { width:23px;height:23px; }
+.tile__icon--trophy { background:var(--color-success-soft);color:var(--color-success); }
+.tile__icon--star { color:var(--color-text); background:var(--color-accent-soft); }
+.tile__body { display:flex;flex-direction:column;gap:7px; min-width:0;flex:1; }
+.tile__label { font-size:9px; letter-spacing:.09em;text-transform:uppercase;color:var(--color-text-muted);font-weight:700; }
+.tile__goal { font-size:13px;line-height:1.4;font-weight:650; }
+.tile__percent { font-size:27px;font-weight:750;letter-spacing:-.04em; }
+.tile__go { background:var(--color-highlight);color:var(--color-highlight-text);font-size:12px;font-weight:750;padding:12px 18px;border-radius:14px;box-shadow:0 4px 0 var(--color-highlight-strong);flex:none;text-decoration:none; }
+.small { font-size:10px;line-height:1.5; }
+.layout { display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:26px;align-items:start;margin-bottom:28px; }
+.layout__detail { position:sticky;top:100px; min-width:0; }
+.detail-caption { display:flex;justify-content:space-between;padding:0 6px 13px;font-size:10px;font-weight:750;letter-spacing:.11em;color:var(--color-text-muted); }
+.detail-caption span:last-child { color:var(--color-highlight-strong);font-size:16px; }
+.equipment { border:2px solid var(--color-border); border-radius:26px;padding:24px;margin-bottom:24px;box-shadow:0 4px 0 var(--color-border); }
+.section-heading { display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px; }
+.section-eyebrow { color:var(--color-text-muted);font-size:10px; }
+.equipment h2 { font-size:21px;margin:6px 0 0;letter-spacing:-.02em;font-weight:700; }
+.section-stamp { padding:10px 13px;border-radius:14px;border:2px solid var(--color-border);font-weight:700;white-space:nowrap; }
+.congrats { display:flex;align-items:center;gap:20px;padding:30px;border:2px solid var(--color-success);border-radius:26px;background:var(--color-success-soft);margin-bottom:24px; }
+.congrats__mark { color:var(--color-success);width:64px;height:64px; }
+.congrats__mark svg { width:44px;height:44px; }
+.congrats__title { margin:0 0 8px;font-size:26px;font-weight:750; }
+@media(min-width:1400px) { .layout { grid-template-columns:minmax(0,1fr) 410px; } }
+@media(max-width:959px) { .layout { grid-template-columns:minmax(0,1fr); } .layout__detail { display:none; } .top { grid-template-columns:minmax(0,1fr);gap:14px; } .hero__guide { right:65px;width:145px; } .hero__body { max-width:70%; } }
+@media(max-width:600px) {
+ .hero { padding:24px 20px 22px; min-height:250px;border-radius:24px; }
+ .hero__body { max-width:100%; }
+ .hero__eyebrow { font-size:9px; }
+ .hero__title { max-width:75%;font-size:28px;margin:18px 0 12px; }
+ .hero__lead { font-size:12px;max-width:75%;line-height:1.6; }
+ .hero__duration { font-size:10px;max-width:70%;line-height:1.5; }
+ .hero__guide { width:100px;height:112px;right:3px;bottom:8px; }
+ .hero__now { top:18px;right:16px; }
+ .hero__day { font-size:9px;padding:6px 8px; }
+ .hero__since { display:none; }
+ .tile { padding:16px;gap:12px; }
+ .tile__icon { width:34px;height:34px; }
+ .tile__percent { font-size:24px; }
+ .tile__go { padding:11px 13px;font-size:11px; }
+ .tile__goal { font-size:12px; }
+ .equipment { padding:20px 16px;border-radius:24px; }
+ .equipment h2 { font-size:18px; }
+ .section-eyebrow { font-size:9px; }
+ .congrats { padding:20px;gap:12px; }
+ .congrats__title { font-size:21px; }
 }
 </style>

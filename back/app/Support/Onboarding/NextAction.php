@@ -66,16 +66,6 @@ final readonly class NextAction
             }
         }
 
-        // Все этапы закрыты, а маршрут ещё не выпущен: дело за выпуском.
-        if ($journey->requires_graduation && $journey->stages->every(fn ($stage) => $stage->isCompleted()) && ! $journey->isFullyEquipped()) {
-            return [
-                'kind' => 'graduation',
-                'label' => 'Осталось получить: '.collect(ProfessionalKit::presented($journey))->filter(fn ($item) => $item['is_required'] && $item['confirmed_at'] === null)->pluck('label')->implode(', '),
-                'url' => null,
-                'journey_stage_id' => null,
-            ];
-        }
-
         return null;
     }
 }

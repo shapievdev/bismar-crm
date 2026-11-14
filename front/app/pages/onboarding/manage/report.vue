@@ -131,10 +131,6 @@ function formatOrDash(value: number | null, suffix = ''): string {
           <span class="tile__value">{{ formatOrDash(report.exam_average_attempts) }}</span>
           <span class="tile__label">Попыток на экзамен в среднем</span>
         </div>
-        <div class="card tile">
-          <span class="tile__value">{{ formatOrDash(report.average_days_to_access) }}</span>
-          <span class="tile__label">Дней до допуска</span>
-        </div>
       </div>
 
       <p class="faint">Всего попыток итогового экзамена: {{ report.exam_attempts }}</p>

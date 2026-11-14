@@ -8,9 +8,6 @@ import type { Quiz, QuizAttempt } from '~/types/lms'
  * правило «этап пройден» одно, и второго, на экране, быть не должно.
  */
 
-export type KitIcon = 'access' | 'shirt' | 'barcode' | 'badge' | 'key' | 'book' | 'tool' | 'device' | 'bag' | 'star'
-export interface KitDefinition { id: string, label: string, icon: KitIcon, kind: 'item' | 'admission', is_required: boolean }
-export interface KitItem extends KitDefinition { confirmed_at: string | null, confirmed_by: number | null, confirmed_by_name: string | null }
 
 export interface RouteSettings {
   notifications_enabled: boolean
@@ -47,6 +44,8 @@ export interface StageItem {
     place?: string | null
     scheduled_at?: string | null
     reschedules_count?: number
+    responsible_ids?: number[]
+    responsibles?: { id: number, name: string }[]
     confirm_by?: string
     submitted_at?: string | null
     awaiting_confirmation?: boolean
@@ -108,9 +107,7 @@ export interface NextAction {
 }
 
 export interface Journey {
-  kit_items: KitDefinition[]
   settings: RouteSettings
-  requires_graduation: boolean
   day_mode: DayMode
   store: string | null
   meeting_reminder_minutes: number | null
@@ -125,13 +122,6 @@ export interface Journey {
   employee: { id: number, name: string }
   allow_ahead: boolean
   progress: { completed: number, total: number, percent: number }
-  graduation: {
-    items: KitItem[]
-    access_confirmed_at: string | null
-    tshirt_issued_at: string | null
-    barcode_issued_at: string | null
-    fully_equipped: boolean
-  }
   completed_at: string | null
   next_action: NextAction | null
   stages: JourneyStage[]
@@ -179,6 +169,7 @@ export interface TemplateStageMeeting {
 export interface TemplateStageTask {
   id: number
   text: string
+  responsible_ids: number[]
   confirm_by: 'self' | 'responsible'
   is_required: boolean
   achievement_id: number | null
@@ -204,15 +195,12 @@ export interface TemplateStage {
 }
 
 export interface OnboardingTemplate {
-  kit_items: KitDefinition[]
   history?: RouteActivity[]
   version: number
   parent_id: number | null
   job_title: string | null
   store: string | null
   settings: RouteSettings
-  requires_graduation: boolean
-  graduation_achievement_id: number | null
   id: number
   title: string
   slug: string
@@ -250,7 +238,6 @@ export interface JourneySummary {
   current_day: number | null
   progress: { completed: number, total: number, percent: number }
   completed_at: string | null
-  fully_equipped: boolean
 }
 
 export interface OnboardingReportData {
@@ -259,7 +246,6 @@ export interface OnboardingReportData {
   in_progress: number
   completion_rate: number | null
   average_days: number | null
-  average_days_to_access: number | null
   exam_first_try_rate: number | null
   exam_average_attempts: number | null
   exam_attempts: number
@@ -287,7 +273,7 @@ export interface StagePayload {
     with_role?: string | null
     achievement_id?: number | null
   }[]
-  tasks: { id?: number | null, text: string, confirm_by: string, is_required?: boolean, achievement_id?: number | null }[]
+  tasks: { id?: number | null, text: string, responsible_ids?: number[], confirm_by: string, is_required?: boolean, achievement_id?: number | null }[]
 }
 
 /**
@@ -317,7 +303,7 @@ export interface JourneyStagePayload {
     with_user_id?: number | null
     achievement_id?: number | null
   }[]
-  tasks: { id?: number | null, text: string, confirm_by: string, is_required?: boolean, achievement_id?: number | null }[]
+  tasks: { id?: number | null, text: string, responsible_ids?: number[], confirm_by: string, is_required?: boolean, achievement_id?: number | null }[]
 }
 
 export type { Quiz, QuizAttempt }

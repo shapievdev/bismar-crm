@@ -240,6 +240,7 @@ final readonly class SaveJourneyStage
             $task->fill([
                 'text' => $data['text'],
                 'confirm_by' => $data['confirm_by'],
+                'responsible_ids' => ($data['confirm_by'] === 'responsible') ? array_map(intval(...), $data['responsible_ids'] ?? []) : [],
                 'is_required' => $data['is_required'] ?? true,
                 'achievement_id' => $data['achievement_id'] ?? null,
             ])->save();

@@ -3,7 +3,7 @@ import type { FetchError } from 'ofetch'
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { QuizPayload } from '~/types/lms'
 import type { Achievement } from '~/types/achievements'
-import type { PlannableRow, StagePayload, TemplateStage } from '~/types/onboarding'
+import type { OnboardingTemplate, PlannableRow, StagePayload, TemplateStage } from '~/types/onboarding'
 
 /**
  * Редактор шаблона: шапка с правилами, этапы по дням и их содержимое.
@@ -49,12 +49,15 @@ const achievements = computed<Achievement[]>(() => achievementsData.value?.data 
 useHead({ title: () => template.value?.title ?? 'Шаблон' })
 
 const generalError = ref<string | null>(null)
+const settingsOpen = ref(false)
+const quizStageId = ref<number | null>(null)
+const quizStage = computed(() => template.value?.stages?.find(stage => stage.id === quizStageId.value) ?? null)
+const stageSection = ref('main')
 
 /* ---------- Шапка ---------- */
 
 const form = reactive({
-  kit_items: [] as import('~/types/onboarding').KitDefinition[],
-  job_title: '', store: '', requires_graduation: true, graduation_achievement_id: null as number | null, settings: onboardingSettings(),
+  job_title: '', store: '', settings: onboardingSettings(),
   title: '',
   description: '',
   duration_days: 7,
@@ -63,16 +66,13 @@ const form = reactive({
   meeting_reminder_minutes: '' as string | number,
 })
 
-watch(template, (value) => {
+function resetHeader(value: OnboardingTemplate | null) {
   if (!value) {
     return
   }
 
-  form.kit_items = JSON.parse(JSON.stringify(value.kit_items))
   form.job_title = value.job_title ?? ''
   form.store = value.store ?? ''
-  form.requires_graduation = value.requires_graduation
-  form.graduation_achievement_id = value.graduation_achievement_id
   form.settings = JSON.parse(JSON.stringify(value.settings))
   form.title = value.title
   form.description = value.description ?? ''
@@ -80,7 +80,15 @@ watch(template, (value) => {
   form.day_mode = value.day_mode
   form.allow_ahead = value.allow_ahead
   form.meeting_reminder_minutes = value.meeting_reminder_minutes ?? ''
-}, { immediate: true })
+}
+watch(template, resetHeader, { immediate: true })
+watch(settingsOpen, open => {
+  if (open) {
+    resetHeader(template.value)
+    headerErrors.value = {}
+    generalError.value = null
+  }
+})
 
 const headerErrors = ref<ValidationErrors>({})
 const isSavingHeader = ref(false)
@@ -92,8 +100,7 @@ async function saveHeader() {
 
   try {
     await api.updateTemplate(slug.value, {
-      kit_items: form.kit_items,
-      job_title: form.job_title || null, store: form.store || null, requires_graduation: form.requires_graduation, settings: form.settings, graduation_achievement_id: form.graduation_achievement_id,
+      job_title: form.job_title || null, store: form.store || null, settings: form.settings,
       title: form.title,
       description: form.description || null,
       duration_days: Number(form.duration_days),
@@ -101,6 +108,7 @@ async function saveHeader() {
       allow_ahead: form.allow_ahead,
       meeting_reminder_minutes: form.meeting_reminder_minutes === '' ? null : Number(form.meeting_reminder_minutes),
     })
+    settingsOpen.value = false
     await refresh()
   }
   catch (caught) {
@@ -176,7 +184,7 @@ interface StageDraft {
   quiz_achievement_id: number | null
   links: { type: string, id: number, title: string, is_required: boolean, day_offset: string | number, achievement_id: number | null }[]
   meetings: { id: number | null, topic: string, format: string, place: string, with_user_id: number | null, with_name: string, with_role: string | null, achievement_id: number | null }[]
-  tasks: { id: number | null, text: string, confirm_by: string, is_required: boolean, achievement_id: number | null }[]
+  tasks: { id: number | null, text: string, responsible_ids: number[], confirm_by: string, is_required: boolean, achievement_id: number | null }[]
 }
 
 const stageDraft = ref<StageDraft | null>(null)
@@ -185,6 +193,8 @@ const isSavingStage = ref(false)
 
 /** Раскрытый этап: тест и кнопки живут внутри него. */
 const openStageId = ref<number | null>(null)
+
+watch(stageDraft, () => { stageSection.value = 'main' })
 
 function blankStage(): StageDraft {
   const nextDay = Math.max(0, ...(template.value?.stages ?? []).map(stage => stage.day_offset)) + 1
@@ -234,6 +244,7 @@ function editStage(stage: TemplateStage) {
       id: task.id,
       text: task.text,
       confirm_by: task.confirm_by,
+      responsible_ids: task.confirm_by === 'responsible' ? [...task.responsible_ids] : [],
       is_required: task.is_required,
       achievement_id: task.achievement_id,
     })),
@@ -314,6 +325,7 @@ async function saveStage() {
       id: task.id,
       text: task.text,
       confirm_by: task.confirm_by,
+      responsible_ids: task.confirm_by === 'responsible' ? [...task.responsible_ids] : [],
       is_required: task.is_required,
       achievement_id: task.achievement_id,
     })),
@@ -327,6 +339,8 @@ async function saveStage() {
   catch (caught) {
     if (caught instanceof ApiValidationError) {
       stageErrors.value = caught.errors
+      const firstError = Object.keys(caught.errors)[0] ?? ''
+      stageSection.value = firstError.startsWith('links') ? 'materials' : firstError.startsWith('tasks') ? 'tasks' : firstError.startsWith('meetings') ? 'meetings' : 'main'
     }
     else {
       generalError.value = 'Не удалось сохранить этап.'
@@ -362,6 +376,7 @@ async function saveQuiz(stageId: number, payload: QuizPayload) {
 
   try {
     await api.saveStageQuiz(slug.value, stageId, payload)
+    quizStageId.value = null
     await refresh()
   }
   catch (caught) {
@@ -388,6 +403,7 @@ async function removeQuiz(stageId: number) {
   }
 
   await api.deleteStageQuiz(slug.value, stageId)
+  quizStageId.value = null
   await refresh()
 }
 </script>
@@ -426,10 +442,27 @@ async function removeQuiz(stageId: number) {
 
       <div class="stack">
         <!-- Шапка: правила шаблона. -->
-        <form class="card panel" @submit.prevent="saveHeader">
-          <h2 class="panel__title">
-            О шаблоне
-          </h2>
+        <div class="card route-overview">
+          <div>
+            <p v-if="template.description" class="route-overview__description">{{ template.description }}</p>
+            <div class="route-overview__meta">
+              <span>Версия {{ template.version }}</span><span>{{ template.duration_days }} {{ template.day_mode === 'working' ? 'рабочих дней' : 'календарных дней' }}</span>
+              <span v-if="template.job_title">{{ template.job_title }}</span><span v-if="template.store">{{ template.store }}</span>
+            </div>
+          </div>
+          <div class="overview-actions">
+            <button type="button" class="button-secondary" @click="settingsOpen = true">Настройки маршрута</button>
+            <button v-if="template.status !== 'published'" type="button" class="button-primary" @click="changeStatus('published')">Опубликовать</button>
+            <details class="more-actions"><summary>Ещё</summary><div>
+              <button v-if="template.status === 'published'" type="button" class="button-ghost" @click="changeStatus('archived')">В архив</button>
+              <button type="button" class="button-ghost danger" @click="destroy">Удалить шаблон</button>
+            </div></details>
+          </div>
+        </div>
+        <AppSheet :open="settingsOpen" title="Настройки маршрута" wide @close="!isSavingHeader && (settingsOpen = false)">
+        <form class="editor-form" @submit.prevent="saveHeader">
+          <p v-if="Object.keys(headerErrors).length" class="alert alert--danger" role="alert">{{ Object.values(headerErrors).flat().join(' ') }}</p>
+          <p v-if="generalError" class="alert alert--danger" role="alert">{{ generalError }}</p>
 
           <div class="field">
             <label class="field-label" for="t-title">Название</label>
@@ -444,15 +477,13 @@ async function removeQuiz(stageId: number) {
             <textarea id="t-desc" v-model.trim="form.description" class="input" rows="2" maxlength="2000" />
           </div>
 
+          <details class="editor-disclosure"><summary>Расписание и правила</summary><div class="editor-section">
           <p class="faint">Версия {{ template.version }}<template v-if="template.parent_id"> · связана с предыдущей программой</template></p>
           <div class="field-pair">
             <label class="field"><span class="field-label">Должность</span><input v-model="form.job_title" class="input" maxlength="255"></label>
             <label class="field"><span class="field-label">Магазин</span><input v-model="form.store" class="input" maxlength="255"></label>
           </div>
-          <label class="choice"><input v-model="form.requires_graduation" type="checkbox">Завершать маршрут после получения обязательных пунктов набора</label>
-          <AchievementsSelect v-model="form.graduation_achievement_id" :achievements="achievements" label="Достижение за полный профессиональный набор" id="graduation-award" />
-          <OnboardingKitEditor v-model="form.kit_items" :errors="headerErrors" />
-          <OnboardingSettings v-model="form.settings" />
+
           <div class="field-pair">
             <div class="field">
               <label class="field-label" for="t-days">Длительность, дней</label>
@@ -481,26 +512,16 @@ async function removeQuiz(stageId: number) {
             <input id="t-remind" v-model="form.meeting_reminder_minutes" type="number" min="1" max="1440" class="input input--short">
           </div>
 
+          </div></details>
+          <OnboardingSettings v-model="form.settings" />
           <div class="panel__actions">
             <button type="submit" class="button-primary" :disabled="isSavingHeader">
               {{ isSavingHeader ? 'Сохраняем…' : 'Сохранить' }}
             </button>
-            <button
-              v-if="template.status !== 'published'"
-              type="button"
-              class="button-secondary"
-              @click="changeStatus('published')"
-            >
-              Опубликовать
-            </button>
-            <button v-else type="button" class="button-secondary" @click="changeStatus('archived')">
-              В архив
-            </button>
-            <button type="button" class="button-ghost danger" @click="destroy">
-              Удалить
-            </button>
+            <button type="button" class="button-secondary" @click="settingsOpen = false">Отмена</button>
           </div>
         </form>
+        </AppSheet>
 
         <!-- Этапы. -->
         <div class="card panel">
@@ -521,7 +542,7 @@ async function removeQuiz(stageId: number) {
             <li v-for="stage in template.stages" :key="stage.id" class="stages__row">
               <button
                 type="button"
-                class="stages__header"
+                class="stages__header" :aria-expanded="openStageId === stage.id"
                 @click="openStageId = openStageId === stage.id ? null : stage.id"
               >
                 <span class="stages__day">День {{ stage.day_offset }}</span>
@@ -532,6 +553,11 @@ async function removeQuiz(stageId: number) {
                 </span>
               </button>
 
+              <div class="stage-row-actions">
+                <button type="button" class="button-secondary" @click="editStage(stage)">Редактировать этап</button>
+                <button type="button" class="button-ghost" @click="quizErrors = {}; quizStageId = stage.id">{{ stage.quiz ? 'Редактировать тест' : 'Добавить тест' }}</button>
+                <button type="button" class="button-ghost danger" @click="removeStage(stage.id)">Удалить</button>
+              </div>
               <div v-if="openStageId === stage.id" class="stages__body">
                 <p v-if="stage.description" class="faint">
                   {{ stage.description }}
@@ -558,35 +584,21 @@ async function removeQuiz(stageId: number) {
                   </li>
                 </ul>
 
-                <div class="stages__actions">
-                  <button type="button" class="button-secondary" @click="editStage(stage)">
-                    Править этап
-                  </button>
-                  <button type="button" class="button-ghost danger" @click="removeStage(stage.id)">
-                    Убрать
-                  </button>
-                </div>
 
-                <!-- Тест этапа: редактор общий со всеми тестами платформы. -->
-                <QuizBuilder
-                  :quiz="stage.quiz"
-                  :default-max-attempts="2"
-                  :errors="quizErrors"
-                  :is-submitting="isSavingQuiz"
-                  note="Планку зачёта и попытки (по умолчанию 2) ставите вы; сдача закрывает требование «тест» этапа."
-                  @save="payload => saveQuiz(stage.id, payload)"
-                  @remove="removeQuiz(stage.id)"
-                />
               </div>
             </li>
           </ol>
 
           <!-- Форма этапа: добавление и правка. -->
-          <form v-if="stageDraft" class="stage-form" @submit.prevent="saveStage">
-            <h3 class="panel__title">
-              {{ stageDraft.id === null ? 'Новый этап' : 'Правка этапа' }}
-            </h3>
 
+        </div>
+      </div>
+      <AppSheet :open="stageDraft !== null" :title="stageDraft?.id == null ? 'Новый этап' : 'Редактирование этапа'" wide @close="!isSavingStage && (stageDraft = null)">
+          <form v-if="stageDraft" class="editor-form" @submit.prevent="saveStage" @invalid.capture="stageSection = 'main'">
+            <OnboardingEditorTabs v-model="stageSection" :counts="{ materials: stageDraft.links.length, tasks: stageDraft.tasks.length, meetings: stageDraft.meetings.length }" />
+            <p v-if="generalError" class="alert alert--danger" role="alert">{{ generalError }}</p>
+            <p v-if="Object.keys(stageErrors).length" class="alert alert--danger" role="alert">{{ Object.values(stageErrors).flat().join(' ') }}</p>
+            <div v-show="stageSection === 'main'" class="editor-section">
             <div class="field-pair">
               <div class="field">
                 <label class="field-label" for="s-title">Название</label>
@@ -602,8 +614,7 @@ async function removeQuiz(stageId: number) {
             </div>
 
             <div class="field">
-              <label class="choice"><input v-model="stageDraft.is_final_exam" type="checkbox">Итоговый экзамен маршрута</label>
-              <OnboardingResponsibles v-model="stageDraft.responsible_ids" />
+              <details class="editor-disclosure"><summary>Ответственные за этап · {{ stageDraft.responsible_ids.length }}</summary><OnboardingResponsibles v-model="stageDraft.responsible_ids" /></details>
               <label class="field-label" for="s-desc">Описание</label>
               <textarea id="s-desc" v-model.trim="stageDraft.description" class="input" rows="2" maxlength="2000" />
             </div>
@@ -613,6 +624,7 @@ async function removeQuiz(stageId: number) {
               разные поводы, и за них дают разное. Сотрудник получит значок
               сам, когда шаг закроется.
             -->
+            <details v-if="achievements.length" class="editor-disclosure"><summary>Достижения за этап и тест</summary>
             <div v-if="achievements.length" class="field-pair">
               <AchievementsSelect
                 id="s-award"
@@ -628,6 +640,9 @@ async function removeQuiz(stageId: number) {
               />
             </div>
 
+            </details>
+            </div>
+            <div v-show="stageSection === 'materials'" class="editor-section">
             <!-- Материалы. -->
             <div class="field">
               <label class="field-label" for="s-material">Материалы базы знаний</label>
@@ -662,6 +677,8 @@ async function removeQuiz(stageId: number) {
               </ul>
             </div>
 
+            </div>
+            <div v-show="stageSection === 'meetings'" class="editor-section">
             <!-- Встречи. -->
             <div class="field">
               <span class="field-label">Встречи</span>
@@ -777,6 +794,8 @@ async function removeQuiz(stageId: number) {
               </button>
             </div>
 
+            </div>
+            <div v-show="stageSection === 'tasks'" class="editor-section">
             <!-- Задания. -->
             <div class="field">
               <span class="field-label">Задания</span>
@@ -788,6 +807,12 @@ async function removeQuiz(stageId: number) {
                     <input v-model="task.confirm_by" type="checkbox" true-value="responsible" false-value="self">
                     подтверждает ответственный
                   </label>
+                  <details v-if="task.confirm_by === 'responsible'" class="editor-disclosure task-responsibles">
+                    <summary>Ответственные · {{ task.responsible_ids.length || 'по этапу' }}</summary>
+                  <OnboardingResponsibles v-model="task.responsible_ids"
+                    class="task-responsibles" label="Ответственные за задание"
+                    hint="Подтвердить может любой выбранный сотрудник. Если список пуст — ответственные этапа. Наставник и администратор также могут подтвердить." />
+                  </details>
                   <AchievementsSelect
                     v-if="achievements.length"
                     v-model="task.achievement_id"
@@ -803,13 +828,14 @@ async function removeQuiz(stageId: number) {
               <button
                 type="button"
                 class="add-row"
-                @click="stageDraft.tasks.push({ id: null, text: '', confirm_by: 'self', is_required: true, achievement_id: null })"
+                @click="stageDraft.tasks.push({ id: null, text: '', responsible_ids: [], confirm_by: 'self', is_required: true, achievement_id: null })"
               >
                 + Добавить задание
               </button>
             </div>
 
-            <div class="panel__actions">
+            </div>
+            <div class="panel__actions editor-footer">
               <button type="submit" class="button-primary" :disabled="isSavingStage">
                 {{ isSavingStage ? 'Сохраняем…' : 'Сохранить этап' }}
               </button>
@@ -818,14 +844,34 @@ async function removeQuiz(stageId: number) {
               </button>
             </div>
           </form>
-        </div>
-      </div>
+      </AppSheet>
+      <AppSheet :open="quizStageId !== null" :title="`Тест · ${quizStage?.title ?? ''}`" wide @close="!isSavingQuiz && (quizStageId = null)">
+        <p v-if="generalError" class="alert alert--danger" role="alert">{{ generalError }}</p>
+        <QuizBuilder v-if="quizStage" :key="quizStage.id" :quiz="quizStage.quiz" :default-max-attempts="2" :errors="quizErrors" :is-submitting="isSavingQuiz"
+          note="Настройте вопросы, проходной балл и количество попыток." @save="payload => saveQuiz(quizStage!.id, payload)" @remove="removeQuiz(quizStage!.id)" />
+      </AppSheet>
       <OnboardingHistory :entries="template.history ?? []" />
     </template>
   </section>
 </template>
 
 <style scoped>
+.editor-form, .editor-section { display: grid; gap: 1rem; min-width: 0; }
+.editor-disclosure { padding: .85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.editor-disclosure > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.editor-disclosure[open] > summary { margin-bottom: 1rem; }
+.editor-footer { position: sticky; bottom: -1.4rem; background: var(--color-surface-raised); padding: 1rem 0; border-top: 1px solid var(--color-border); z-index: 2; }
+.route-overview { padding: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.route-overview__description { margin: 0 0 .6rem; max-width: 52rem; overflow-wrap: anywhere; }
+.route-overview__meta { display: flex; gap: .5rem 1rem; flex-wrap: wrap; color: var(--color-text-muted); font-size: .82rem; }
+.overview-actions, .stage-row-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.stage-row-actions { padding: .6rem .85rem; border-top: 1px solid var(--color-border); }
+.more-actions { position: relative; }
+.more-actions > summary { cursor: pointer; padding: .5rem .75rem; font-size: .85rem; }
+.more-actions > div { position: absolute; right: 0; z-index: 3; display: grid; min-width: 12rem; padding: .5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
+@media (max-width: 600px) { .stage-row-actions { gap: .25rem; } .stage-row-actions button { font-size: .78rem; } .editor-footer { bottom: -1rem; } }
+
+.task-responsibles { flex: 1 0 100%; min-width: 0; }
 .head {
   margin-bottom: 1.5rem;
 }

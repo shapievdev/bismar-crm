@@ -14,7 +14,6 @@ use App\Actions\Lms\SyncCourseAccess;
 use App\Actions\Lms\SyncRegulationPeople;
 use App\Actions\Onboarding\ApplyTemplate;
 use App\Actions\Onboarding\ChangeTemplateStatus;
-use App\Actions\Onboarding\ConfirmGraduation;
 use App\Actions\Onboarding\ConfirmMeeting;
 use App\Actions\Onboarding\ConfirmTask;
 use App\Actions\Onboarding\DuplicateTemplate;
@@ -209,14 +208,14 @@ final class DemonstrateOnboarding extends Command
             $module->lessons()->create(['title' => $title, 'slug' => 'demo-lesson', 'content_json' => $this->text($paragraphs), 'position' => 1, 'duration_minutes' => 10, 'published_at' => now()]);
             $this->materials[$key] = $course;
         }
-        foreach (['first' => 'Первый шаг сделан!', 'company' => 'Знаю компанию', 'almost' => 'Осталось немного!', 'exam' => 'Экзамен сдан', 'equipped' => 'Экипирован и готов к работе!'] as $key => $title) {
+        foreach (['first' => 'Первый шаг сделан!', 'company' => 'Знаю компанию', 'almost' => 'Осталось немного!', 'exam' => 'Экзамен сдан'] as $key => $title) {
             $this->badges[$key] = Achievement::firstOrCreate(['title' => 'ДЕМО · '.$title], ['description' => 'За реальные действия в демонстрационном маршруте', 'created_by' => $this->users['hr']->id]);
         }
     }
 
     private function createProgram(): OnboardingTemplate
     {
-        $template = app(SaveTemplate::class)->handle(null, ['title' => 'ДЕМО · Продавец-консультант · 7 рабочих дней', 'description' => 'Демонстрация ТЗ: материалы, практика, встречи, экзамен, допуск и экипировка.', 'job_title' => 'Продавец-консультант', 'store' => 'ДЕМО · Учебный магазин', 'duration_days' => 7, 'day_mode' => 'working', 'allow_ahead' => false, 'meeting_reminder_minutes' => 30, 'requires_graduation' => true, 'graduation_achievement_id' => $this->badges['equipped']->id, 'settings' => RouteSettings::defaults()], $this->users['hr']);
+        $template = app(SaveTemplate::class)->handle(null, ['title' => 'ДЕМО · Продавец-консультант · 7 рабочих дней', 'description' => 'Демонстрация ТЗ: материалы, практика, встречи, экзамен и завершение обучения.', 'job_title' => 'Продавец-консультант', 'store' => 'ДЕМО · Учебный магазин', 'duration_days' => 7, 'day_mode' => 'working', 'allow_ahead' => false, 'meeting_reminder_minutes' => 30, 'settings' => RouteSettings::defaults()], $this->users['hr']);
         $titles = ['Компания и команда', 'Сервис и торговый зал', 'Обучение с менеджером', 'Встреча по адаптации', 'Товар и запрос покупателя', 'Самостоятельная практика', 'Итоговый экзамен'];
         $tasks = ['Назвать наставника и ответственных за обучение', 'Провести приветствие и выяснить потребность покупателя', 'Разобрать учебную ситуацию с менеджером', 'Согласовать личную цель на следующую неделю', 'Уточнить запрос и найти сведения в справочнике', 'Провести учебную консультацию под наблюдением наставника', 'Повторить материалы перед итоговым тестом'];
         foreach ($titles as $index => $title) {
@@ -314,7 +313,6 @@ final class DemonstrateOnboarding extends Command
         $employee = $this->users['graduate'];
         $dates = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-09', '2026-11-10'];
         $this->snapshot('Назначение: первый этап доступен, остальные закрыты', $journey);
-        $this->blocked('Допуск до завершения обучения запрещён', fn () => app(ConfirmGraduation::class)->handle($journey, 'access', $this->users['hr']));
         foreach ($journey->stages()->get() as $index => $stage) {
             $day = $index + 1;
             $this->at($dates[$index].' 09:00');
@@ -352,13 +350,7 @@ final class DemonstrateOnboarding extends Command
             $this->at($dates[$index].' 17:00');
             $this->snapshot('День '.$day.' выполнен', $journey);
         }
-        $this->snapshot('Обучение 100%, выпуск ещё не подтверждён', $journey);
-        $this->as($this->users['hr']);
-        $this->blocked('Футболка до допуска запрещена', fn () => app(ConfirmGraduation::class)->handle($journey, 'tshirt', $this->users['hr']));
-        foreach (['access' => 'Допуск подтверждён', 'tshirt' => 'Футболка выдана', 'barcode' => 'Штрихкод выдан: маршрут завершён'] as $what => $label) {
-            $journey = app(ConfirmGraduation::class)->handle($journey->fresh(), $what, $this->users['hr']);
-            $this->snapshot($label, $journey);
-        }
+        $this->snapshot('Обучение 100%: маршрут завершён', $journey);
         $this->evidence['graduate_final'] = app(JourneyPresenter::class)->present($journey->fresh());
         $before = Queue::pushed(SendPush::class)->count();
         $this->notify($journey, 'После завершения: уведомлений нет');

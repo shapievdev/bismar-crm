@@ -103,7 +103,7 @@ final readonly class AwardStageAchievements
      * Значок за этап целиком — по его собственному completed_at.
      *
      * Не по `isSettled()` состояния: закрыть этап досрочно может и ведущий
-     * адаптацию (MoveStageOpening, ConfirmGraduation), и такой этап тоже
+     * адаптацию (MoveStageOpening), и такой этап тоже
      * пройден. Единственный признак — проставленная дата.
      */
     private function awardStage(OnboardingJourneyStage $stage, User $trainee): void

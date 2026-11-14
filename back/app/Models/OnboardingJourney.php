@@ -6,7 +6,6 @@ namespace App\Models;
 
 use App\Enums\DayMode;
 use App\Enums\JourneyStatus;
-use App\Support\Onboarding\ProfessionalKit;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -110,8 +109,4 @@ class OnboardingJourney extends Model
     }
 
     /** Подтверждены ли обязательные пункты личного набора. */
-    public function isFullyEquipped(): bool
-    {
-        return ProfessionalKit::isComplete($this);
-    }
 }

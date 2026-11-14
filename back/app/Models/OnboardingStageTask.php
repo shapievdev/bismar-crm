@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Задание этапа шаблона: что сделать и кто закрывает — сам стажёр или
  * ответственный подтверждением.
  */
-#[Fillable(['stage_id', 'position', 'text', 'confirm_by', 'is_required', 'achievement_id'])]
+#[Fillable(['stage_id', 'position', 'text', 'responsible_ids', 'confirm_by', 'is_required', 'achievement_id'])]
 class OnboardingStageTask extends Model
 {
     use AwardsAchievement;
@@ -26,6 +26,7 @@ class OnboardingStageTask extends Model
     {
         return [
             'position' => 'integer',
+            'responsible_ids' => 'array',
             'confirm_by' => TaskConfirmer::class,
             'is_required' => 'boolean',
         ];

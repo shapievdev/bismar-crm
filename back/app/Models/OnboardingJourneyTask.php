@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * подтверждением зачёт ставит ответственный.
  */
 #[Fillable([
-    'journey_stage_id', 'stage_task_id', 'text', 'confirm_by', 'is_required',
+    'journey_stage_id', 'stage_task_id', 'text', 'responsible_ids', 'confirm_by', 'is_required',
     'submitted_at', 'confirmed_at', 'confirmed_by', 'achievement_id',
 ])]
 class OnboardingJourneyTask extends Model
@@ -31,6 +31,7 @@ class OnboardingJourneyTask extends Model
     protected function casts(): array
     {
         return [
+            'responsible_ids' => 'array',
             'confirm_by' => TaskConfirmer::class,
             'is_required' => 'boolean',
             'submitted_at' => 'datetime',

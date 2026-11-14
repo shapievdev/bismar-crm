@@ -9,7 +9,6 @@ use App\Enums\OnboardingTemplateStatus;
 use App\Models\OnboardingStage;
 use App\Models\OnboardingTemplate;
 use App\Models\User;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\SlugGenerator;
 use Illuminate\Support\Facades\DB;
 
@@ -39,9 +38,7 @@ final readonly class DuplicateTemplate
                 'job_title' => $template->job_title,
                 'store' => $template->store,
                 'settings' => $template->settings,
-                'requires_graduation' => $template->requires_graduation,
-                'kit_items' => ProfessionalKit::definitions($template->kit_items),
-                'graduation_achievement_id' => $template->graduation_achievement_id,
+                'requires_graduation' => false,
                 'title' => $template->title.' (копия)',
                 'slug' => $this->slugs->generate($template->title.' копия', OnboardingTemplate::class),
                 'description' => $template->description,
@@ -102,6 +99,7 @@ final readonly class DuplicateTemplate
                 'position' => $task->position,
                 'text' => $task->text,
                 'confirm_by' => $task->confirm_by,
+                'responsible_ids' => $task->responsible_ids ?? [],
                 'is_required' => $task->is_required,
                 'achievement_id' => $task->achievement_id,
             ]);

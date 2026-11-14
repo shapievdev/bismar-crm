@@ -7,8 +7,6 @@ namespace Tests\Feature\Onboarding;
 use App\Actions\Lms\SaveQuiz;
 use App\Actions\Onboarding\DuplicateTemplate;
 use App\Jobs\SendPush;
-use App\Models\Achievement;
-use App\Models\AchievementAward;
 use App\Models\OnboardingTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -21,25 +19,6 @@ use Tests\TestCase;
 final class RouteRequirementsTest extends TestCase
 {
     use ActsAsSpaClient, MakesJourneys, MakesUsers, RefreshDatabase;
-
-    public function test_graduation_waits_for_training_and_access_precedes_equipment(): void
-    {
-        $employee = $this->employee();
-        [$journey] = $this->journeyFor($employee, stages: 1, templateState: ['requires_graduation' => true], prepare: function ($template) {
-            $this->quizFor($template->stages()->first());
-        });
-        $hr = $this->hr();
-        $url = route('onboarding.manage.employees.graduate', $employee);
-        $this->actingAs($hr)->postJson($url, ['what' => 'access'])->assertConflict();
-        $stage = $journey->stages->first();
-        $this->actingAs($employee)->postJson(route('onboarding.quiz.submit', $stage), ['answers' => $this->answersFor($this->journeyQuizOf($stage))])->assertCreated();
-        $this->actingAs($employee)->getJson(route('onboarding.my'))->assertJsonPath('data.progress.percent', 100)->assertJsonPath('data.status', 'active');
-        $this->actingAs($hr)->postJson($url, ['what' => 'tshirt'])->assertConflict();
-        $this->postJson($url, ['what' => 'access'])->assertOk()->assertJsonPath('data.status', 'active');
-        $this->postJson($url, ['what' => 'tshirt'])->assertOk()->assertJsonPath('data.status', 'active');
-        $this->postJson($url, ['what' => 'barcode'])->assertOk()->assertJsonPath('data.status', 'completed');
-        $this->assertSame($hr->id, $journey->refresh()->access_confirmed_by);
-    }
 
     public function test_first_failed_attempt_is_visible_and_a_second_attempt_is_available(): void
     {
@@ -140,28 +119,12 @@ final class RouteRequirementsTest extends TestCase
     public function test_new_program_requires_a_real_final_exam_before_publication(): void
     {
         $response = $this->actingAs($this->hr())->postJson(route('onboarding.manage.templates.store'), ['title' => 'Продавец']);
-        $response->assertCreated()->assertJsonPath('data.requires_graduation', true);
+        $response->assertCreated()->assertJsonMissingPath('data.requires_graduation');
         $template = OnboardingTemplate::findOrFail($response->json('data.id'));
         $stage = $template->stages()->create(['position' => 1, 'day_offset' => 1, 'title' => 'Экзамен', 'is_final_exam' => true]);
         $this->postJson(route('onboarding.manage.templates.status', $template), ['status' => 'published'])->assertConflict();
         $this->quizFor($stage);
         $this->postJson(route('onboarding.manage.templates.status', $template), ['status' => 'published'])->assertOk();
-    }
-
-    public function test_equipped_badge_is_awarded_once_after_the_last_confirmation(): void
-    {
-        $employee = $this->employee();
-        $badge = Achievement::create(['title' => 'Экипирован и готов к работе!']);
-        [$journey] = $this->journeyFor($employee, stages: 1, templateState: ['requires_graduation' => true, 'graduation_achievement_id' => $badge->id], prepare: fn ($t) => $this->quizFor($t->stages()->first()));
-        $stage = $journey->stages->first();
-        $this->actingAs($employee)->postJson(route('onboarding.quiz.submit', $stage), ['answers' => $this->answersFor($this->journeyQuizOf($stage))])->assertCreated();
-        $this->actingAs($this->hr());
-        foreach (['access', 'tshirt', 'barcode'] as $what) {
-            $this->postJson(route('onboarding.manage.employees.graduate', $employee), ['what' => $what])->assertOk();
-        }
-        $this->assertDatabaseHas('achievement_user', ['achievement_id' => $badge->id, 'user_id' => $employee->id]);
-        $this->actingAs($employee)->getJson(route('onboarding.my'))->assertOk();
-        $this->assertSame(1, AchievementAward::where('user_id', $employee->id)->where('achievement_id', $badge->id)->count());
     }
 
     public function test_stage_responsible_can_confirm_only_their_assigned_tasks(): void

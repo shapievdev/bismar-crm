@@ -23,7 +23,7 @@ final class DemonstrationTest extends TestCase
             $data = json_decode(File::get($directory.'/evidence.json'), true, flags: JSON_THROW_ON_ERROR);
             $this->assertSame('completed', $data['graduate_final']['status']);
             $this->assertSame(100, $data['graduate_final']['progress']['percent']);
-            $this->assertTrue($data['graduate_final']['graduation']['fully_equipped']);
+            $this->assertArrayNotHasKey('graduation', $data['graduate_final']);
             $this->assertSame(29, $data['in_progress_final']['progress']['percent']);
             $this->assertCount(5, array_unique(array_column($data['in_progress_final']['stages'], 'status')));
             foreach ($data['checks'] as $check) {

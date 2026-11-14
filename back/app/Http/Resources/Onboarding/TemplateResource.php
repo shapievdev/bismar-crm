@@ -10,7 +10,6 @@ use App\Models\OnboardingStage;
 use App\Models\OnboardingTemplate;
 use App\Models\User;
 use App\Support\News\LinkedMaterial;
-use App\Support\Onboarding\ProfessionalKit;
 use App\Support\Onboarding\RouteSettings;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -47,9 +46,6 @@ final class TemplateResource extends JsonResource
             'parent_id' => $this->parent_id,
             'job_title' => $this->job_title,
             'store' => $this->store,
-            'kit_items' => ProfessionalKit::definitions($this->kit_items),
-            'requires_graduation' => $this->requires_graduation,
-            'graduation_achievement_id' => $this->graduation_achievement_id,
             'settings' => RouteSettings::of($this->settings),
             'duration_days' => $this->duration_days,
             'day_mode' => $this->day_mode->value,
@@ -121,6 +117,7 @@ final class TemplateResource extends JsonResource
                 'id' => (int) $task->getKey(),
                 'text' => $task->text,
                 'confirm_by' => $task->confirm_by->value,
+                'responsible_ids' => $task->responsible_ids ?? [],
                 'is_required' => $task->is_required,
                 'achievement_id' => $task->achievement_id,
                 'achievement' => AchievementResource::badge($task->achievement),

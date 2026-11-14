@@ -11,11 +11,10 @@ const { items, isCurrent } = useNavigation()
 const { user, logout } = useAuth()
 const route = useRoute()
 
-/** Сколько разделов помещается в полосу, не считая «ещё» и профиля. */
-const DOCK_LIMIT = 3
-
-const primary = computed(() => items.value.slice(0, DOCK_LIMIT))
-const rest = computed(() => items.value.slice(DOCK_LIMIT))
+/** Закреплённые разделы не зависят от порядка пунктов бокового меню. */
+const dockIcons = ['dashboard', 'library', 'messages']
+const primary = computed(() => dockIcons.flatMap(icon => items.value.filter(item => item.icon === icon)))
+const rest = computed(() => items.value.filter(item => !dockIcons.includes(item.icon)))
 
 const isOpen = ref(false)
 

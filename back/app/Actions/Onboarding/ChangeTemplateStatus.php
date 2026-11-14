@@ -7,7 +7,6 @@ namespace App\Actions\Onboarding;
 use App\Enums\OnboardingTemplateStatus;
 use App\Exceptions\ConflictException;
 use App\Models\OnboardingTemplate;
-use App\Support\Onboarding\ProfessionalKit;
 
 /**
  * Черновик, публикация, архив — отдельным решением со своими проверками.
@@ -31,8 +30,8 @@ final readonly class ChangeTemplateStatus
             if ($finals->count() > 1) {
                 throw new ConflictException('Оставьте один итоговый экзамен в программе.');
             }
-            if ($template->requires_graduation && ProfessionalKit::admission($template->kit_items) !== null && ($finals->count() !== 1 || $finals->first()->quiz === null || $finals->first()->quiz->questions->isEmpty())) {
-                throw new ConflictException('Для программы с допуском отметьте один итоговый экзамен и добавьте вопросы.');
+            if ($finals->count() === 1 && ($finals->first()->quiz === null || $finals->first()->quiz->questions->isEmpty())) {
+                throw new ConflictException('Добавьте вопросы в итоговый экзамен.');
             }
         }
         $template->fill(['status' => $status])->save();

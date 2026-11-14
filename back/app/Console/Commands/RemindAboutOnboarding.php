@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Actions\Onboarding\RefreshJourneyProgress;
 use App\Enums\JourneyStatus;
 use App\Enums\StageStatus;
+use App\Enums\TaskConfirmer;
 use App\Jobs\SendPush;
 use App\Models\OnboardingJourney;
 use App\Models\User;
@@ -28,7 +29,7 @@ final class RemindAboutOnboarding extends Command
         $journeys = OnboardingJourney::where('status', JourneyStatus::Active)
             ->when($this->option('employee'), fn ($query, $id) => $query->where('user_id', (int) $id))
             ->whereHas('user', fn ($q) => $q->whereNull('dismissed_at'))
-            ->with(['user', 'stages.meetings.counterpart'])->get();
+            ->with(['user', 'stages.meetings.counterpart', 'stages.tasks'])->get();
         foreach ($journeys as $journey) {
             $refresh->handle($journey);
             if ($journey->status !== JourneyStatus::Active || ! RouteSettings::of($journey->settings)['notifications_enabled']) {
@@ -43,6 +44,7 @@ final class RemindAboutOnboarding extends Command
                 }
                 $meetings = $stage->meetings->whereNull('confirmed_at');
                 $ids = collect($stage->responsible_ids ?? [])->merge($meetings->pluck('with_user_id'))
+                    ->merge($stage->tasks->where('confirm_by', TaskConfirmer::Responsible)->pluck('responsible_ids')->flatten())
                     ->push($journey->user?->mentor_id)->push($journey->user_id)->filter()->unique();
                 $title = ($stage->day_offset === null ? 'Этап '.$stage->position : 'День '.$stage->day_offset).': '.$stage->title;
                 $date = Date::now()->timezone(config('onboarding.timezone'))->translatedFormat('j F');

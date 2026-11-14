@@ -55,9 +55,6 @@ final readonly class OnboardingReport
                 : round($completed->avg(fn (OnboardingJourney $journey): float => CarbonImmutable::parse($journey->started_at)
                     ->diffInDays($journey->completed_at, true)), 1),
 
-            // Время до подтверждённого допуска к продажам.
-            'average_days_to_access' => $this->averageDaysToAccess($journeys),
-
             ...$this->examFigures($journeys),
 
             'slowest_stages' => $this->slowestStages($journeys),
@@ -88,25 +85,6 @@ final readonly class OnboardingReport
                 ->whereHas('user.departments', fn (Builder $inner) => $inner
                     ->whereIn('departments.id', $this->reach->branch([$department]))))
             ->get();
-    }
-
-    /**
-     * @param  Collection<int, OnboardingJourney>  $journeys
-     */
-    private function averageDaysToAccess(Collection $journeys): ?float
-    {
-        $admitted = $journeys->filter(
-            fn (OnboardingJourney $journey): bool => $journey->access_confirmed_at !== null,
-        );
-
-        if ($admitted->isEmpty()) {
-            return null;
-        }
-
-        return round($admitted->avg(
-            fn (OnboardingJourney $journey): float => CarbonImmutable::parse($journey->started_at)
-                ->diffInDays($journey->access_confirmed_at, true),
-        ), 1);
     }
 
     /**
