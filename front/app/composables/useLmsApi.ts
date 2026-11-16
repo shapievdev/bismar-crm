@@ -227,7 +227,7 @@ export function useLmsApi() {
     addLesson: (moduleId: number, body: LessonPayload) =>
       $api(`/api/lms/modules/${moduleId}/lessons`, { method: 'POST', body }),
 
-    updateLesson: (lessonId: number | string, body: LessonPayload) =>
+    updateLesson: (lessonId: number | string, body: Partial<LessonPayload> & Pick<LessonPayload, 'title'>) =>
       $api(`/api/lms/lessons/${lessonId}`, { method: 'PUT', body }),
 
     deleteLesson: (lessonId: number | string) =>

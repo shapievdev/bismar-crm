@@ -105,9 +105,9 @@ final class CourseStructureController extends Controller
 
         $lesson->update([
             'title' => $request->validated('title'),
-            ...$this->contentAttributes($request),
-            'video_url' => $request->validated('video_url'),
-            'duration_minutes' => $request->validated('duration_minutes'),
+            ...$this->contentAttributes($request, partial: true),
+            'video_url' => $request->validated('video_url', $lesson->video_url),
+            'duration_minutes' => $request->validated('duration_minutes', $lesson->duration_minutes),
             'position' => $request->validated('position', $lesson->position),
             ...$this->publicationAttributes($request, $lesson),
         ]);
@@ -194,10 +194,19 @@ final class CourseStructureController extends Controller
      * строки таблицы урока, и имя, пришедшее от клиента, может оказаться
      * выдуманным или занятым чужим блоком.
      *
-     * @return array{content: ?string, content_json: ?array<mixed>}
+     * @return array{content?: ?string, content_json?: ?array<mixed>}
      */
-    private function contentAttributes(StoreLessonRequest $request): array
+    private function contentAttributes(StoreLessonRequest $request, bool $partial = false): array
     {
+        $attributes = $request->validated();
+        // Course outlines deliberately omit the article. Older reorder clients
+        // also sent content=null: neither request is an instruction to erase it.
+        if ($partial && ! array_key_exists('content_json', $attributes)
+            && (! array_key_exists('content', $attributes)
+                || (array_key_exists('position', $attributes) && $attributes['content'] === null))) {
+            return [];
+        }
+
         /** @var array<mixed>|null $document */
         $document = $request->validated('content_json');
 

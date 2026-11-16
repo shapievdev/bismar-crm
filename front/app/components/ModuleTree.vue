@@ -138,16 +138,10 @@ async function moveLesson(module: CourseModule, index: number, delta: number) {
   await run(async () => {
     await updateLesson(current.id, {
       title: current.title,
-      content: current.content ?? null,
-      video_url: current.video_url,
-      duration_minutes: current.duration_minutes,
       position: neighbour.position,
     })
     await updateLesson(neighbour.id, {
       title: neighbour.title,
-      content: neighbour.content ?? null,
-      video_url: neighbour.video_url,
-      duration_minutes: neighbour.duration_minutes,
       position: current.position,
     })
   })
