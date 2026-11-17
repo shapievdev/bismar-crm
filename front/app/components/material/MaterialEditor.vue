@@ -2,6 +2,7 @@
 import { ApiValidationError, type ValidationErrors } from '~/composables/useAuth'
 import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type {
+  AccessSelection,
   CoursePerson,
   CourseStatus,
   CourseVisibility,
@@ -33,6 +34,7 @@ const {
   updateAttachment,
   deleteAttachment,
   attachDriveFile,
+  fetchAccessOptions,
   fetchMembers,
   updateMembers,
   searchMemberCandidates,
@@ -337,6 +339,14 @@ onMounted(() => void loadPeople())
  * Оба списка уходят вместе: сервер задаёт доступ целиком, и прислать один без
  * другого значило бы стереть второй.
  */
+function addAccessSelection(selection: AccessSelection) {
+  return saveAccess({
+    ...access.value,
+    people: [...new Map([...access.value.people, ...selection.people].map(person => [person.id, person])).values()],
+    departments: [...new Map([...access.value.departments, ...selection.departments].map(unit => [unit.id, unit])).values()],
+  })
+}
+
 async function saveAccess(next: MaterialAccess) {
   isSavingPeople.value = true
   peopleError.value = null
@@ -637,6 +647,9 @@ function moveQuestion(document: RegulationLink, delta: number) {
         :people="access.people"
         :groups="access.groups"
         :departments="access.departments"
+        :error-message="peopleError"
+        :load-selection="async filters => (await fetchAccessOptions(slug, filters)).data"
+        @add-selection="addAccessSelection"
         :is-loading="isLoadingPeople"
         :is-saving="isSavingPeople"
         :fixed-name="regulation.author?.name ?? null"

@@ -392,6 +392,7 @@ Route::middleware([
             // список ведёт автор — см. RegulationPolicy::manageAccess.
             Route::get('{regulation}/access', [RegulationPeopleController::class, 'members'])->name('access.show');
             Route::put('{regulation}/access', [RegulationPeopleController::class, 'updateMembers'])->name('access.update');
+            Route::get('{regulation}/access/options', [RegulationPeopleController::class, 'pickerOptions'])->name('access.options');
             Route::get('{regulation}/access/candidates', [RegulationPeopleController::class, 'memberCandidates'])
                 ->name('access.candidates');
 
@@ -620,6 +621,7 @@ Route::middleware([
     // — см. CoursePolicy::manageAccess, которой эти маршруты и закрыты.
     Route::get('courses/{course}/access', [CourseAccessController::class, 'show'])->name('courses.access.show');
     Route::put('courses/{course}/access', [CourseAccessController::class, 'update'])->name('courses.access.update');
+    Route::get('courses/{course}/access/options', [CourseAccessController::class, 'pickerOptions'])->name('courses.access.options');
     Route::get('courses/{course}/access/candidates', [CourseAccessController::class, 'candidates'])
         ->name('courses.access.candidates');
 

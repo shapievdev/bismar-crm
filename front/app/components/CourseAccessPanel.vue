@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AccessDepartment, CoursePerson, MaterialAccess } from '~/types/lms'
+import type { AccessDepartment, AccessSelection, CoursePerson, MaterialAccess } from '~/types/lms'
 import type { Group } from '~/types/structure'
 
 /**
@@ -11,7 +11,7 @@ const props = defineProps<{
   authorName: string | null
 }>()
 
-const { fetchCourseAccess, updateCourseAccess, searchAccessCandidates } = useLmsApi()
+const { fetchCourseAccess, updateCourseAccess, fetchCourseAccessOptions, searchAccessCandidates } = useLmsApi()
 
 /**
  * Кто допущен к курсу — поимённо и группами (2026-09-12).
@@ -67,6 +67,14 @@ async function save(next: MaterialAccess) {
   }
 }
 
+function addSelection(selection: AccessSelection) {
+  return save({
+    ...access.value,
+    people: [...new Map([...access.value.people, ...selection.people].map(person => [person.id, person])).values()],
+    departments: [...new Map([...access.value.departments, ...selection.departments].map(unit => [unit.id, unit])).values()],
+  })
+}
+
 function withPeople(people: CoursePerson[]): MaterialAccess {
   return { ...access.value, people }
 }
@@ -117,6 +125,8 @@ function candidates(term: string): Promise<MaterialAccess> {
     :search="async (term: string) => (await candidates(term)).people"
     :search-groups="async (term: string) => (await candidates(term)).groups"
     :search-departments="async (term: string) => (await candidates(term)).departments"
+    :load-selection="async filters => (await fetchCourseAccessOptions(slug, filters)).data"
+    @add-selection="addSelection"
     @add="person => save(withPeople([...access.people, person]))"
     @remove="person => save(withPeople(access.people.filter(one => one.id !== person.id)))"
     @add-group="group => save(withGroups([...access.groups, group]))"

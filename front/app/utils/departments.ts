@@ -20,7 +20,9 @@ export interface FlatDepartment {
  * поэтому подотделы из списка не вычёркиваются: их отмечают отдельно, когда
  * нужен именно подотдел, а не весь куст.
  */
-export function flattenDepartments(tree: Department[], depth = 0, parent: string | null = null): FlatDepartment[] {
+type DepartmentBranch = Pick<Department, 'id' | 'name'> & { children?: DepartmentBranch[] }
+
+export function flattenDepartments(tree: DepartmentBranch[], depth = 0, parent: string | null = null): FlatDepartment[] {
   return tree.flatMap(node => [
     { id: node.id, name: node.name, depth, parent },
     ...flattenDepartments(node.children ?? [], depth + 1, node.name),

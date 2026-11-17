@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AccessDepartment, CoursePerson } from '~/types/lms'
+import type { AccessDepartment, AccessPickerFilters, AccessPickerOptions, AccessSelection, CoursePerson } from '~/types/lms'
 import type { Group } from '~/types/structure'
 
 /**
@@ -36,6 +36,7 @@ const props = defineProps<{
   addLabel: string
   searchPlaceholder?: string
   notFoundNote: string
+  loadSelection?: (filters: AccessPickerFilters) => Promise<AccessPickerOptions>
   search: (term: string) => Promise<CoursePerson[]>
   /** Поиск групп тем же словом. Не передали — ищутся одни люди. */
   searchGroups?: (term: string) => Promise<Group[]>
@@ -44,6 +45,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  addSelection: [selection: AccessSelection]
   add: [person: CoursePerson]
   remove: [person: CoursePerson]
   addGroup: [group: Group]
@@ -51,6 +53,8 @@ const emit = defineEmits<{
   addDepartment: [department: AccessDepartment]
   removeDepartment: [department: AccessDepartment]
 }>()
+
+const pickerMode = ref<'people' | 'departments' | null>(null)
 
 const groups = computed(() => props.groups ?? [])
 const departments = computed(() => props.departments ?? [])
@@ -237,6 +241,22 @@ const inputId = useId()
       {{ emptyNote }}
     </p>
 
+    <div v-if="loadSelection && !isLoading" class="access-actions">
+      <button type="button" class="button-secondary" :disabled="isSaving" @click="pickerMode = 'people'">По должности</button>
+      <button type="button" class="button-secondary" :disabled="isSaving" @click="pickerMode = 'departments'">По отделам</button>
+    </div>
+    <MaterialAccessPicker
+      v-if="loadSelection"
+      :open="pickerMode !== null"
+      :mode="pickerMode ?? 'people'"
+      :load="loadSelection"
+      :people="people"
+      :departments="departments"
+      :is-saving="isSaving"
+      :error-message="errorMessage"
+      @close="pickerMode = null"
+      @select="selection => emit('addSelection', selection)"
+    />
     <div class="finder">
       <!-- Подпись и поле в одну строку: порознь они занимают два ряда на
            каждой из трёх панелей подряд, а сказать им нужно одно. -->
@@ -293,6 +313,7 @@ const inputId = useId()
 </template>
 
 <style scoped>
+.access-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
 /*
  * Плотнее, чем было. Панель — список из трёх-четырёх строк и поля поиска;
  * прежние отступы отдавали ей высоту целого экрана, и редактор материала, где

@@ -5,6 +5,8 @@ import type {
   AnswerSourceKind,
   Attestation,
   Category,
+  AccessPickerFilters,
+  AccessPickerOptions,
   CategoryPayload,
   ConsultantAnswer,
   ConsultantExchange,
@@ -98,6 +100,9 @@ export function useLmsApi() {
       }),
 
     /** Кого ещё можно добавить — поиском: сотрудников тысячи, нужен один. */
+    fetchCourseAccessOptions: (slug: string, filters: AccessPickerFilters = {}): Promise<ResourceResponse<AccessPickerOptions>> =>
+      $api<ResourceResponse<AccessPickerOptions>>(`/api/lms/courses/${slug}/access/options`, { query: filters }),
+
     searchAccessCandidates: (slug: string, search: string): Promise<ResourceResponse<MaterialAccess>> =>
       $api<ResourceResponse<MaterialAccess>>(`/api/lms/courses/${slug}/access/candidates`, {
         query: { search },

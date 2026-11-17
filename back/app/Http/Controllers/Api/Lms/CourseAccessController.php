@@ -13,6 +13,7 @@ use App\Models\Course;
 use App\Models\Department;
 use App\Models\Group;
 use App\Models\User;
+use App\Support\Lms\AccessPickerOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,17 @@ final class CourseAccessController extends Controller
 {
     /** Сколько строк показывает подсказка поиска — людей и групп поровну. */
     private const CANDIDATES = 20;
+
+    public function pickerOptions(Request $request, Course $course, AccessPickerOptions $options): JsonResponse
+    {
+        Gate::authorize('manageAccess', $course);
+        $filters = $request->validate([
+            'job_title' => ['nullable', 'string', 'max:255'],
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $options->for($course, $filters['job_title'] ?? null, trim($filters['search'] ?? ''))]);
+    }
 
     public function show(Course $course): JsonResponse
     {

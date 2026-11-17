@@ -1117,3 +1117,15 @@ export interface MaterialReview {
     is_published: boolean
   }
 }
+
+/** Scoped bulk selector for material authors; departments remain live rules. */
+export interface AccessPickerOptions {
+  job_titles: string[]
+  people: CoursePerson[]
+  departments: AccessDepartmentNode[]
+}
+export interface AccessDepartmentNode extends AccessDepartment {
+  children: AccessDepartmentNode[]
+}
+export interface AccessPickerFilters { job_title?: string, search?: string }
+export interface AccessSelection { people: CoursePerson[], departments: AccessDepartment[] }

@@ -14,6 +14,7 @@ use App\Models\Department;
 use App\Models\Group;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\AccessPickerOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -40,6 +41,17 @@ final class RegulationPeopleController extends Controller
     private const CANDIDATES = 20;
 
     /* ---------- Допущенные: право авторское ---------- */
+
+    public function pickerOptions(Request $request, Regulation $regulation, AccessPickerOptions $options): JsonResponse
+    {
+        Gate::authorize('manageAccess', $regulation);
+        $filters = $request->validate([
+            'job_title' => ['nullable', 'string', 'max:255'],
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $options->for($regulation, $filters['job_title'] ?? null, trim($filters['search'] ?? ''))]);
+    }
 
     public function members(Regulation $regulation): JsonResponse
     {

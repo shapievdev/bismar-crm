@@ -2,6 +2,8 @@ import { toValidationError } from '~/composables/useAuth'
 import type { DriveFile } from '~/composables/useGoogleDrive'
 import type { ResourceResponse } from '~/types/auth'
 import type {
+  AccessPickerFilters,
+  AccessPickerOptions,
   CategoryPayload,
   CoursePerson,
   LessonAttachment,
@@ -241,6 +243,9 @@ export function useMaterialsApi(section: MaterialSection) {
         method: 'PUT',
         body: { members, groups, departments },
       }),
+
+    fetchAccessOptions: (slug: string, filters: AccessPickerFilters = {}): Promise<ResourceResponse<AccessPickerOptions>> =>
+      $api<ResourceResponse<AccessPickerOptions>>(`${base}/${slug}/access/options`, { query: filters }),
 
     searchMemberCandidates: (slug: string, search: string): Promise<ResourceResponse<MaterialAccess>> =>
       $api<ResourceResponse<MaterialAccess>>(`${base}/${slug}/access/candidates`, {
