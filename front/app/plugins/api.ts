@@ -73,6 +73,10 @@ export default defineNuxtPlugin({
       },
 
       onResponseError({ response }) {
+        if (import.meta.client && response._data?.code === 'EXIT_SURVEY_REQUIRED'
+          && window.location.pathname !== '/lms/exit-survey') {
+          window.location.replace('/lms/exit-survey')
+        }
         if (response.status === 419) {
           csrfCookieIsStale = true
         }

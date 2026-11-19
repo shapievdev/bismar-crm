@@ -452,7 +452,7 @@ async function dismiss() {
 
   const confirmed = await confirm({
     title: `Уволить ${person.name}?`,
-    message: 'Учётная запись останется, но войти на платформу человек больше не сможет. Вернуть в строй можно в любой момент.',
+    message: 'Сотруднику останется доступна только анкета при увольнении. После её отправки доступ закроется полностью. Ожидание и ответы будут видны в аналитике. Вернуть сотрудника в строй можно в любой момент.',
     confirmLabel: 'Уволить',
     danger: true,
   })
@@ -560,6 +560,9 @@ async function afterChange() {
           </p>
 
           <div class="profile__marks">
+            <NuxtLink v-if="member.exit_survey_status" to="/analytics/exit-surveys" class="badge badge--warning">
+              {{ member.exit_survey_status === 'pending' ? 'Ожидается выходная анкета' : member.exit_survey_status === 'submitted' ? 'Выходная анкета заполнена' : 'Выходная анкета отменена' }}
+            </NuxtLink>
             <span v-if="member.dismissed_at" class="badge badge--warning">
               Уволен {{ formatDate(member.dismissed_at) }}
             </span>
@@ -748,8 +751,11 @@ async function afterChange() {
 
         <section class="card panel">
           <h2 class="panel__title">
-            Что доступно
+            {{ member.dismissed_at ? 'Права при восстановлении' : 'Что доступно' }}
           </h2>
+          <p v-if="member.dismissed_at" class="muted">
+            {{ member.exit_survey_status === 'pending' ? 'Сейчас доступна только анкета при увольнении.' : 'Сейчас доступ к платформе закрыт.' }}
+          </p>
 
           <p v-if="member.level !== 'user'" class="muted">
             {{ member.level_label }} — доступно всё, отмечать права по отдельности не нужно.

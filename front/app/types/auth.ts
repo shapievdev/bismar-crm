@@ -50,6 +50,8 @@ export interface User {
   email_verified_at: string | null
   created_at: string | null
   /** С какого числа человек уволен. У работающих пусто. */
+  exit_survey_pending?: boolean
+  exit_survey_status?: 'pending' | 'submitted' | 'cancelled' | null
   dismissed_at: string | null
 
   /*

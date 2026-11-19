@@ -50,7 +50,7 @@ final readonly class AttemptLogin
     }
 
     /**
-     * Уволенного дальше двери не пускают.
+     * Уволенный может войти только пока ожидается выходная анкета.
      *
      * Проверка стоит после `Auth::attempt`, а не до него, намеренно: узнать,
      * что учётная запись закрыта, должен только тот, кто и так знает пароль, —
@@ -66,7 +66,7 @@ final readonly class AttemptLogin
     {
         $user = $this->guard()->user();
 
-        if (! $user instanceof User || ! $user->isDismissed()) {
+        if (! $user instanceof User || ! $user->isDismissed() || $user->pendingExitSurvey() !== null) {
             return;
         }
 

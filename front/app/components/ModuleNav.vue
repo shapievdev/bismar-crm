@@ -187,6 +187,7 @@ const links = computed<NavLink[]>(() => {
         // направление. Что именно человек увидит, решает не это, а структура.
         visible: can('staff-report.view-all') || can('staff-report.view'),
       },
+      { to: '/analytics/exit-surveys', label: 'Выходные анкеты', visible: can('users.manage') },
       { to: '/analytics/sales', label: 'Продажи', visible: can('analytics.view') },
       { to: '/analytics/customers', label: 'Клиенты', visible: can('analytics.view') },
       { to: '/analytics/products', label: 'Товары', visible: can('analytics.view') },

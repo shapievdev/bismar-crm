@@ -86,8 +86,8 @@ final readonly class SendPasswordResetLink
     /**
      * Кому это принадлежит — работающему сотруднику.
      *
-     * Уволенного здесь нет намеренно: войти он всё равно не может, и ссылка
-     * привела бы его к форме, за которой отказ. Удалённого не видно и так —
+     * Вход доступен работающему и уволенному с незаполненной выходной анкетой.
+     * Остальным ссылка не выдаётся. Удалённого не видно и так —
      * мягкое удаление снимает его со всех запросов.
      */
     private function person(string $login): ?User
@@ -96,7 +96,7 @@ final readonly class SendPasswordResetLink
         $phone = Phone::normalize($login);
 
         if ($phone !== null && preg_match(Phone::PATTERN, $phone) === 1) {
-            return User::query()->employed()->where('phone', $phone)->first();
+            return User::query()->canSignIn()->where('phone', $phone)->first();
         }
 
         /*
@@ -106,7 +106,7 @@ final readonly class SendPasswordResetLink
          * не выбираем наугад: письмо ушло бы, возможно, не тому.
          */
         $matches = User::query()
-            ->employed()
+            ->canSignIn()
             ->whereRaw('lower(email) = lower(?)', [$login])
             ->limit(2)
             ->get();

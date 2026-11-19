@@ -24,7 +24,15 @@ final class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        if ($request->user()?->is($this->resource) && $this->isDismissed()) {
+            return ['id' => $this->id, 'name' => $this->name, 'level' => 'user',
+                'permissions' => [], 'own_permissions' => [], 'dismissed_at' => $this->dismissed_at?->toIso8601String(),
+                'exit_survey_pending' => $this->pendingExitSurvey() !== null];
+        }
+
         return [
+            'exit_survey_status' => $this->when($request->user()?->can(Permission::ManageUsers->value) ?? false,
+                fn () => $this->isDismissed() ? $this->exitSurveys()->latest('id')->first()?->status() : null),
             'id' => $this->id,
 
             // The joined form for anywhere a name is shown, the parts for the

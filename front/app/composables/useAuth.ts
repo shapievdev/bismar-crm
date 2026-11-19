@@ -277,6 +277,7 @@ export function useAuth() {
 
   return {
     user: readonly(user),
+    clearSession: () => { user.value = null },
     isAuthenticated,
     can,
     level,

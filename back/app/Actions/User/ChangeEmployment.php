@@ -8,6 +8,7 @@ use App\Enums\AccessLevel;
 use App\Enums\DismissalReason;
 use App\Exceptions\ConflictException;
 use App\Models\User;
+use App\Support\ExitSurveys\Definition;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Уволенный не удаляется: запись остаётся со всем, что за ней числится, —
  * авторством курсов, сообщениями в переписках, вопросами к консультанту, — но
- * платформа для него закрыта. Войти он не может, в списках, из которых
+ * платформа для него закрыта, кроме выходной анкеты. В списках, из которых
  * выбирают человека, не появляется, а открытые сессии обрываются в тот же миг.
  *
  * Все три действия живут в одном классе, потому что правило «кого можно
@@ -54,11 +55,26 @@ final readonly class ChangeEmployment
         $this->ensureStandingMayBeTouchedBy($user, $actor);
         $this->ensureAnEmployedSuperAdminRemains($user);
 
-        $user->forceFill([
-            'dismissed_at' => now(),
-            'dismissed_by_id' => $actor->getKey(),
-            'dismissal_reason' => $reason,
-        ])->save();
+        DB::transaction(function () use ($user, $actor, $reason): void {
+            $locked = User::query()->lockForUpdate()->findOrFail($user->getKey());
+            if ($locked->isDismissed()) {
+                throw new ConflictException('Сотрудник уже уволен.');
+            }
+            $user->forceFill([
+                'dismissed_at' => now(),
+                'dismissed_by_id' => $actor->getKey(),
+                'dismissal_reason' => $reason,
+            ])->save();
+
+            $user->exitSurveys()->create([
+                'assigned_by_id' => $actor->getKey(),
+                'dismissed_at' => $user->dismissed_at,
+                'employee' => ['name' => $user->name, 'job_title' => $user->job_title,
+                    'department' => $user->departments()->pluck('name')->implode(', '),
+                    'hired_at' => $user->hired_at?->toDateString()],
+                'definition' => Definition::make(),
+            ]);
+        });
 
         $this->signOutEverywhere($user);
 
@@ -100,7 +116,11 @@ final readonly class ChangeEmployment
 
         $this->ensureStandingMayBeTouchedBy($user, $actor);
 
-        $user->forceFill(['dismissed_at' => $date->endOfDay()])->save();
+        DB::transaction(function () use ($user, $date): void {
+            User::query()->lockForUpdate()->findOrFail($user->getKey());
+            $user->forceFill(['dismissed_at' => $date->endOfDay()])->save();
+            $user->exitSurveys()->pending()->update(['dismissed_at' => $date->endOfDay()]);
+        });
 
         return $user->load('roles', 'permissions');
     }
@@ -118,14 +138,18 @@ final readonly class ChangeEmployment
 
         // Уровень доступа и отмеченные права возвращаются те же: увольнение их
         // не снимало, и вернувшийся продолжает с того места, где остановился.
-        $user->forceFill([
-            'dismissed_at' => null,
-            'dismissed_by_id' => null,
+        DB::transaction(function () use ($user): void {
+            User::query()->lockForUpdate()->findOrFail($user->getKey());
+            $user->exitSurveys()->pending()->update(['cancelled_at' => now()]);
+            $user->forceFill([
+                'dismissed_at' => null,
+                'dismissed_by_id' => null,
 
-            // Причина уходит вместе с увольнением: вернувшийся не «ушедший по
-            // собственному, который передумал», а работающий сотрудник.
-            'dismissal_reason' => null,
-        ])->save();
+                // Причина уходит вместе с увольнением: вернувшийся не «ушедший по
+                // собственному, который передумал», а работающий сотрудник.
+                'dismissal_reason' => null,
+            ])->save();
+        });
 
         return $user->load('roles', 'permissions');
     }

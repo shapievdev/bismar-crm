@@ -90,6 +90,22 @@ class User extends Authenticatable implements OAuthenticatable
         return $this->dismissed_at !== null;
     }
 
+    public function scopeCanSignIn(Builder $query): void
+    {
+        $query->where(fn (Builder $query) => $query->whereNull('dismissed_at')
+            ->orWhereHas('exitSurveys', fn (Builder $surveys) => $surveys->pending()));
+    }
+
+    public function exitSurveys(): HasMany
+    {
+        return $this->hasMany(EmployeeExitSurvey::class);
+    }
+
+    public function pendingExitSurvey(): ?EmployeeExitSurvey
+    {
+        return $this->isDismissed() ? $this->exitSurveys()->pending()->latest('id')->first() : null;
+    }
+
     /**
      * Кто уволил. Пусто у работающих — и у тех, кого уволил человек, чью
      * запись с тех пор удалили.

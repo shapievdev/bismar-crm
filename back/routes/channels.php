@@ -16,13 +16,13 @@ use Illuminate\Support\Facades\Broadcast;
  */
 
 // Личный канал: список переписок и счётчик непрочитанного.
-Broadcast::channel('users.{id}', fn (User $user, int $id): bool => $user->getKey() === $id);
+Broadcast::channel('users.{id}', fn (User $user, int $id): bool => ! $user->isDismissed() && $user->getKey() === $id);
 
 // Лента переписки — только тем, кто в ней состоит сейчас.
 Broadcast::channel('conversations.{conversation}', function (User $user, int $conversation): bool {
     $found = Conversation::query()->find($conversation);
 
-    return $found !== null && $found->includes($user);
+    return ! $user->isDismissed() && $found !== null && $found->includes($user);
 });
 
 /*
@@ -33,7 +33,7 @@ Broadcast::channel('conversations.{conversation}', function (User $user, int $co
  * ни одного опроса. Отдаётся ровно то, что и так видно каждому сотруднику в
  * списке коллег.
  */
-Broadcast::presence('presence.employees', fn (User $user): array => [
+Broadcast::presence('presence.employees', fn (User $user): array|false => $user->isDismissed() ? false : [
     'id' => $user->getKey(),
     'name' => $user->name,
     'avatar_url' => $user->avatarUrl(),

@@ -44,7 +44,7 @@ final class PasswordResetController extends Controller
     /**
      * Поставить новый пароль.
      *
-     * Сотрудник ищется среди работающих: ссылка выдаётся только им, но между
+     * Сотрудник ищется среди работающих и ожидающих выходную анкету: между
      * письмом и переходом по нему человека могли уволить. Отказ при этом тот же,
      * что и на негодную ссылку, — объяснять уволенному через форму смены пароля,
      * что он уволен, незачем: об этом ему говорит вход.
@@ -54,7 +54,7 @@ final class PasswordResetController extends Controller
     public function update(ResetPasswordRequest $request, ResetPassword $resetPassword): JsonResponse
     {
         $person = User::query()
-            ->employed()
+            ->canSignIn()
             ->whereKey((int) $request->validated('user'))
             ->first();
 

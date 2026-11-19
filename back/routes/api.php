@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\Chat\PinnedMessageController;
 use App\Http\Controllers\Api\Chat\ReactionController;
 use App\Http\Controllers\Api\Exams\ExamController;
 use App\Http\Controllers\Api\Exams\ManageExamController;
+use App\Http\Controllers\Api\ExitSurveyController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\GroupMemberController;
 use App\Http\Controllers\Api\Integrations\GoogleController;
@@ -123,7 +124,7 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
         Route::post('password/reset', [PasswordResetController::class, 'update'])->name('password.reset');
     });
 
-    Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
+    Route::middleware(['auth:sanctum', EnsureEmployed::class.':yes'])->group(function (): void {
         Route::get('user', [AuthenticatedUserController::class, 'show'])->name('user');
         Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
@@ -136,7 +137,7 @@ Route::prefix('auth')->as('auth.')->group(function (): void {
          * номера: вернуться можно только туда, откуда пришёл, и выбирать тут
          * нечего.
          */
-        Route::post('impersonate/{user}', [ImpersonationController::class, 'store'])->name('impersonate');
+        Route::post('impersonate/{user}', [ImpersonationController::class, 'store'])->middleware(EnsureEmployed::class)->name('impersonate');
         Route::delete('impersonate', [ImpersonationController::class, 'destroy'])->name('impersonate.stop');
     });
 });
@@ -1512,3 +1513,14 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->prefix('chat')->as('
     // реплик и кэшируется на сутки — в самом сообщении её нет.
     Route::get('link-preview', [LinkPreviewController::class, 'show'])->name('link-preview');
 });
+
+// Единственное содержимое, доступное после нового увольнения.
+Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('exit-survey', [ExitSurveyController::class, 'show'])->name('exit-survey.show');
+    Route::post('exit-survey', [ExitSurveyController::class, 'store'])->middleware('throttle:10,1')->name('exit-survey.store');
+});
+Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::ManageUsers->value])
+    ->prefix('analytics/exit-surveys')->as('analytics.exit-surveys.')->group(function (): void {
+        Route::get('', [App\Http\Controllers\Api\Analytics\ExitSurveyController::class, 'index'])->name('index');
+        Route::get('{survey}', [App\Http\Controllers\Api\Analytics\ExitSurveyController::class, 'show'])->name('show');
+    });

@@ -210,10 +210,10 @@ export function useNavigation() {
        * обучение не доверено, тот попадает сразу на продажи: пустая страница
        * вместо раздела хуже, чем другая его вкладка.
        */
-      to: can('enrollments.manage') ? '/analytics' : '/analytics/sales',
+      to: can('enrollments.manage') ? '/analytics' : can('analytics.view') ? '/analytics/sales' : '/analytics/exit-surveys',
       label: 'Аналитика',
       icon: 'analytics',
-      visible: can('analytics.view') || can('enrollments.manage'),
+      visible: can('analytics.view') || can('enrollments.manage') || can('users.manage'),
       matches: (path: string) => path.startsWith('/analytics'),
     },
     {
