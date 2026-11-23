@@ -370,6 +370,8 @@ const drift = computed(() => {
         </p>
       </div>
 
+      <AnalyticsStaffDismissals v-if="options" :query="query" />
+
       <div v-if="pending" class="skeleton skeleton-block" />
 
       <AnalyticsBentoGrid v-else-if="summary">
@@ -459,7 +461,7 @@ const drift = computed(() => {
         </AnalyticsChartCard>
 
         <AnalyticsChartCard
-          title="По подразделениям"
+          title="Движение по подразделениям"
           hint="Человек в двух отделах посчитан в каждом: отчёт о подразделении, а не о долях человека"
           :span="7"
           :rows="3"

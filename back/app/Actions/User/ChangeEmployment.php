@@ -40,7 +40,7 @@ final readonly class ChangeEmployment
      *
      * @throws ConflictException
      */
-    public function dismiss(User $user, User $actor, ?DismissalReason $reason = null): User
+    public function dismiss(User $user, User $actor, ?DismissalReason $reason = null, bool $sendSurvey = true): User
     {
         if ($user->isDismissed()) {
             throw new ConflictException('Сотрудник уже уволен.');
@@ -55,7 +55,9 @@ final readonly class ChangeEmployment
         $this->ensureStandingMayBeTouchedBy($user, $actor);
         $this->ensureAnEmployedSuperAdminRemains($user);
 
-        DB::transaction(function () use ($user, $actor, $reason): void {
+        $reason = $sendSurvey ? $reason : DismissalReason::ProbationFailed;
+
+        DB::transaction(function () use ($user, $actor, $reason, $sendSurvey): void {
             $locked = User::query()->lockForUpdate()->findOrFail($user->getKey());
             if ($locked->isDismissed()) {
                 throw new ConflictException('Сотрудник уже уволен.');
@@ -66,14 +68,17 @@ final readonly class ChangeEmployment
                 'dismissal_reason' => $reason,
             ])->save();
 
-            $user->exitSurveys()->create([
-                'assigned_by_id' => $actor->getKey(),
-                'dismissed_at' => $user->dismissed_at,
-                'employee' => ['name' => $user->name, 'job_title' => $user->job_title,
-                    'department' => $user->departments()->pluck('name')->implode(', '),
-                    'hired_at' => $user->hired_at?->toDateString()],
-                'definition' => Definition::make(),
-            ]);
+            if ($sendSurvey) {
+                $user->exitSurveys()->create([
+                    'assigned_by_id' => $actor->getKey(),
+                    'dismissed_at' => $user->dismissed_at,
+                    'employee' => ['name' => $user->name, 'job_title' => $user->job_title,
+                        'department' => $user->departments()->pluck('name')->implode(', '),
+                        'department_ids' => $user->departments()->pluck('departments.id')->all(),
+                        'hired_at' => $user->hired_at?->toDateString()],
+                    'definition' => Definition::make(),
+                ]);
+            }
         });
 
         $this->signOutEverywhere($user);
@@ -118,8 +123,10 @@ final readonly class ChangeEmployment
 
         DB::transaction(function () use ($user, $date): void {
             User::query()->lockForUpdate()->findOrFail($user->getKey());
+            $previous = $user->dismissed_at;
             $user->forceFill(['dismissed_at' => $date->endOfDay()])->save();
-            $user->exitSurveys()->pending()->update(['dismissed_at' => $date->endOfDay()]);
+            $user->exitSurveys()->where('dismissed_at', $previous)->whereNull('cancelled_at')
+                ->update(['dismissed_at' => $date->endOfDay()]);
         });
 
         return $user->load('roles', 'permissions');

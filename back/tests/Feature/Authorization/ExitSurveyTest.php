@@ -45,6 +45,40 @@ final class ExitSurveyTest extends TestCase
         return ['assignment_id' => $survey->id, 'answers' => $answers];
     }
 
+    public function test_failed_internship_closes_access_without_creating_survey(): void
+    {
+        $person = $this->learner();
+        $this->actingAs($this->administrator())->postJson(route('users.dismiss', $person), [
+            'survey_action' => 'failed-internship',
+        ])->assertOk()->assertJsonPath('data.dismissal_reason', 'probation-failed')->assertJsonPath('data.exit_survey_status', null);
+        $this->assertDatabaseCount('employee_exit_surveys', 0);
+        $this->assertNotNull($person->fresh()->dismissed_at);
+        $this->actingAs($person->fresh())->getJson(route('auth.user'))->assertUnauthorized();
+        $this->postJson(route('auth.login'), ['phone' => $person->phone, 'password' => 'password'])->assertUnprocessable();
+    }
+
+    public function test_repeated_dismissal_without_survey_does_not_show_old_invitation(): void
+    {
+        $person = $this->dismiss();
+        $actor = $this->administrator();
+        app(ChangeEmployment::class)->reinstate($person, $actor);
+        $this->actingAs($actor)->postJson(route('users.dismiss', $person), ['survey_action' => 'failed-internship'])
+            ->assertOk()->assertJsonPath('data.exit_survey_status', null);
+        $this->assertDatabaseCount('employee_exit_surveys', 1);
+    }
+
+    public function test_corrected_dismissal_date_keeps_completed_interview_in_the_same_event(): void
+    {
+        $person = $this->dismiss();
+        $survey = $person->pendingExitSurvey();
+        $survey->update(['submitted_at' => now()]);
+        $day = CarbonImmutable::now()->subDay()->startOfDay();
+        app(ChangeEmployment::class)->correctDismissalDate($person, $this->administrator(), $day);
+        $this->assertSame($day->toDateString(), $survey->fresh()->dismissed_at->toDateString());
+        $this->actingAs($this->administrator())->getJson(route('users.show', $person))
+            ->assertOk()->assertJsonPath('data.exit_survey_status', 'submitted');
+    }
+
     public function test_only_new_dismissals_get_an_assignment(): void
     {
         $this->assertNotNull($this->dismiss()->pendingExitSurvey());

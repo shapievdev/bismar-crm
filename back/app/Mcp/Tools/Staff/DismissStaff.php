@@ -45,6 +45,7 @@ final class DismissStaff extends BismarTool
 
         $input = $request->validate([
             'employee_id' => ['required', 'integer'],
+            'survey_action' => ['sometimes', 'in:send,failed-internship'],
             'reason' => ['nullable', 'in:'.implode(',', array_column(DismissalReason::cases(), 'value'))],
             'dismissed_at' => ['nullable', 'date', 'before_or_equal:today'],
         ]);
@@ -55,7 +56,10 @@ final class DismissStaff extends BismarTool
             $dismissed = $employment->dismiss(
                 $person,
                 $actor,
-                ($input['reason'] ?? null) === null ? null : DismissalReason::from((string) $input['reason']),
+                ($input['survey_action'] ?? 'send') === 'failed-internship'
+                    ? DismissalReason::ProbationFailed
+                    : (($input['reason'] ?? null) === null ? null : DismissalReason::from((string) $input['reason'])),
+                ($input['survey_action'] ?? 'send') === 'send',
             );
 
             // День ухода — тем же действием, что и правка: увольнение ставит
@@ -81,6 +85,8 @@ final class DismissStaff extends BismarTool
     {
         return [
             'employee_id' => $schema->integer()->required()->description('Номер сотрудника.'),
+            'survey_action' => $schema->string()->enum(['send', 'failed-internship'])
+                ->description('send — назначить выходную анкету; failed-internship — не прошёл стажировку, закрыть доступ без анкеты.'),
             'reason' => $schema->string()
                 ->enum(DismissalReason::class)
                 ->description('Причина ухода: own — по собственному, agreement — по соглашению, employer — по инициативе компании, probation-failed — не прошёл испытательный, no-show — не вышел, other — иное.'),

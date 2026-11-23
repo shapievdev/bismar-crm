@@ -443,7 +443,9 @@ function tenure(months: number): string {
   return parts.join(' ')
 }
 
-async function dismiss() {
+const dismissalOpen = ref(false)
+
+async function dismiss(surveyAction: 'send' | 'failed-internship') {
   const person = member.value
 
   if (!person) {
@@ -452,15 +454,18 @@ async function dismiss() {
 
   const confirmed = await confirm({
     title: `Уволить ${person.name}?`,
-    message: 'Сотруднику останется доступна только анкета при увольнении. После её отправки доступ закроется полностью. Ожидание и ответы будут видны в аналитике. Вернуть сотрудника в строй можно в любой момент.',
+    message: surveyAction === 'send'
+      ? 'Сотруднику останется доступна только выходная анкета. После её заполнения доступ закроется полностью.'
+      : 'Сотрудник будет уволен как не прошедший стажировку. Анкета не назначается, доступ закрывается сразу.',
     confirmLabel: 'Уволить',
     danger: true,
   })
 
   if (confirmed) {
-    await act(() => dismissUser(person, dismissalReason.value), 'Не удалось уволить сотрудника.')
+    await act(() => dismissUser(person, dismissalReason.value, surveyAction), 'Не удалось уволить сотрудника.')
 
     dismissalReason.value = ''
+    dismissalOpen.value = false
   }
 }
 
@@ -563,6 +568,7 @@ async function afterChange() {
             <NuxtLink v-if="member.exit_survey_status" to="/analytics/exit-surveys" class="badge badge--warning">
               {{ member.exit_survey_status === 'pending' ? 'Ожидается выходная анкета' : member.exit_survey_status === 'submitted' ? 'Выходная анкета заполнена' : 'Выходная анкета отменена' }}
             </NuxtLink>
+            <span v-if="!member.exit_survey_status && member.dismissed_at && member.dismissal_reason === 'probation-failed'" class="badge">Не прошёл стажировку · без анкеты</span>
             <span v-if="member.dismissed_at" class="badge badge--warning">
               Уволен {{ formatDate(member.dismissed_at) }}
             </span>
@@ -634,13 +640,20 @@ async function afterChange() {
             <!-- Себя не увольняют, а суперадминистратора увольняет один
                  суперадминистратор. API проверяет то же самое — здесь кнопка
                  просто не предлагает того, чего нельзя. -->
-            <!-- Причина стоит перед кнопкой, а не в окне подтверждения: окно
-                 задаёт вопрос «точно?», а не собирает данные. -->
+
             <template v-if="mayDismiss">
-              <UiSelect v-model="dismissalReason" :options="DISMISSAL_REASONS" auto />
-              <button type="button" class="button-secondary" :disabled="isBusy" @click="dismiss">
+              <button type="button" class="button-secondary" :disabled="isBusy" @click="dismissalOpen = !dismissalOpen">
                 Уволить
               </button>
+              <AppSheet :open="dismissalOpen" title="Увольнение сотрудника" @close="dismissalOpen = false">
+                <p>Назначить сотруднику выходную анкету?</p>
+                <UiSelect v-model="dismissalReason" :options="DISMISSAL_REASONS" auto />
+                <div class="actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap">
+                  <button class="button-primary" :disabled="isBusy" @click="dismiss('send')">Выслать анкету</button>
+                  <button class="button-secondary" :disabled="isBusy" @click="dismiss('failed-internship')">Не прошёл стажировку</button>
+                  <button class="button-secondary" :disabled="isBusy" @click="dismissalOpen = false">Отмена</button>
+                </div>
+              </AppSheet>
             </template>
           </template>
         </div>

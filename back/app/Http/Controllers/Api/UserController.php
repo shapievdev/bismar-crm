@@ -200,14 +200,18 @@ final class UserController extends Controller
          * сейчас. Отчёт о причинах при этом считает доли от тех, у кого она
          * проставлена, и называет число тех, у кого её нет.
          */
-        $reason = $request->validate([
+        $input = $request->validate([
+            'survey_action' => ['sometimes', Rule::in(['send', 'failed-internship'])],
             'reason' => ['nullable', Rule::enum(DismissalReason::class)],
-        ])['reason'] ?? null;
+        ]);
+        $sendSurvey = ($input['survey_action'] ?? 'send') === 'send';
+        $reason = $sendSurvey ? ($input['reason'] ?? null) : DismissalReason::ProbationFailed->value;
 
         return UserResource::make($employment->dismiss(
             $user,
             $actor,
             $reason === null ? null : DismissalReason::from((string) $reason),
+            $sendSurvey,
         ));
     }
 

@@ -88,10 +88,10 @@ export function useAdminApi() {
      * когда кадровик решит, какой из шести пунктов ближе. Без неё он просто не
      * попадёт в доли причин — отчёт называет число таких отдельно.
      */
-    dismissUser: (user: User, reason?: string | null): Promise<ResourceResponse<User>> =>
+    dismissUser: (user: User, reason?: string | null, surveyAction: 'send' | 'failed-internship' = 'send'): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${user.id}/dismissal`, {
         method: 'POST',
-        body: { reason: reason || null },
+        body: { reason: reason || null, survey_action: surveyAction },
       }),
 
     /**

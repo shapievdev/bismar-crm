@@ -1323,6 +1323,8 @@ Route::middleware([
  */
 Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
     Route::get('analytics/staff', StaffController::class)->name('analytics.staff');
+    Route::get('analytics/staff/dismissals', [\App\Http\Controllers\Api\Analytics\StaffDismissalController::class, 'show'])->name('analytics.staff.dismissals');
+    Route::put('analytics/staff/dismissals', [\App\Http\Controllers\Api\Analytics\StaffDismissalController::class, 'update'])->name('analytics.staff.dismissals.update');
 
     // Люди за цифрой — отдельным адресом: это персональные данные, и присылать
     // их всякому, кто открыл сводку, незачем.

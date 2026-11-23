@@ -333,6 +333,7 @@ function foundLabel(count: number): string {
                 <div v-if="row.exit_survey_status" class="muted">
                   {{ row.exit_survey_status === 'pending' ? 'Уволен · ожидается выходная анкета' : row.exit_survey_status === 'submitted' ? 'Выходная анкета заполнена' : 'Выходная анкета отменена' }}
                 </div>
+                <div v-if="!row.exit_survey_status && row.dismissed_at && row.dismissal_reason === 'probation-failed'" class="muted">Не прошёл стажировку · без анкеты</div>
                 <div v-if="row.job_title" class="muted">
                   {{ row.job_title }}
                 </div>

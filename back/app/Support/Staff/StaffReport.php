@@ -320,7 +320,7 @@ final readonly class StaffReport
      *
      * @return Builder<User>
      */
-    private function matching(StaffFilters $filters): Builder
+    public function matching(StaffFilters $filters): Builder
     {
         return User::query()
             ->when($filters->departmentIds !== null, fn (Builder $query) => $query

@@ -32,7 +32,7 @@ final class UserResource extends JsonResource
 
         return [
             'exit_survey_status' => $this->when($request->user()?->can(Permission::ManageUsers->value) ?? false,
-                fn () => $this->isDismissed() ? $this->exitSurveys()->latest('id')->first()?->status() : null),
+                fn () => $this->isDismissed() ? $this->exitSurveys()->where('dismissed_at', $this->dismissed_at)->whereNull('cancelled_at')->latest('id')->first()?->status() : null),
             'id' => $this->id,
 
             // The joined form for anywhere a name is shown, the parts for the
