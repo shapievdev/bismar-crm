@@ -85,6 +85,28 @@ final class StaffDismissalTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_department_hierarchy_aggregates_people_once_and_hides_inaccessible_parents(): void
+    {
+        $root = Department::factory()->create(['name' => 'Компания']);
+        $first = Department::factory()->create(['name' => 'Розница', 'parent_id' => $root->id]);
+        $second = Department::factory()->create(['name' => 'Касса', 'parent_id' => $root->id]);
+        $person = $this->leaver($first);
+        $person->departments()->attach($second, ['role' => 'member']);
+        $this->survey($person);
+        $response = $this->actingAs($this->administrator())->getJson($this->url())->assertOk();
+        $rows = collect($response->json('data.departments'))->keyBy('id');
+        $this->assertSame(1, $rows[$root->id]['left']);
+        $this->assertSame(1, $rows[$root->id]['interviews']);
+        $this->assertSame(1, $rows[$first->id]['left']);
+        $this->assertSame(1, $rows[$second->id]['left']);
+        $this->assertSame($root->id, $rows[$first->id]['parent_id']);
+        $viewer = $this->userWith(Permission::ViewStaffReport);
+        $viewer->departments()->attach($first, ['role' => 'member']);
+        $this->actingAs($viewer)->getJson($this->url())->assertOk()
+            ->assertJsonCount(1, 'data.departments')->assertJsonPath('data.departments.0.parent_id', null)
+            ->assertJsonMissing(['name' => 'Компания']);
+    }
+
     public function test_empty_period_has_no_fake_percentages(): void
     {
         $this->actingAs($this->administrator())->getJson($this->url())->assertOk()->assertJsonPath('data.summary.left', 0)

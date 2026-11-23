@@ -13,6 +13,7 @@ export interface DismissalMetrics {
 export interface DismissalDepartment extends DismissalMetrics {
   id: number
   name: string
+  parent_id: number | null
   average_headcount: number | null
   turnover: number | null
 }
@@ -25,4 +26,11 @@ export interface StaffDismissalReport {
   conditions_assessment: string
   can_edit: boolean
   updated_at: string | null
+}
+
+export interface DismissalDepartmentInput {
+  id: number
+  name: string
+  average_headcount: number | string
+  retainable: number | string
 }

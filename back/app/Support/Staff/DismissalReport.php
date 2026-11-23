@@ -8,11 +8,12 @@ use App\Enums\DismissalReason;
 use App\Models\Department;
 use App\Models\EmployeeExitSurvey;
 use App\Models\StaffDismissalReportInput;
+use App\Support\Structure\DepartmentReach;
 use Illuminate\Support\Collection;
 
 final readonly class DismissalReport
 {
-    public function __construct(private StaffReport $staff) {}
+    public function __construct(private StaffReport $staff, private DepartmentReach $reach) {}
 
     public function key(StaffFilters $filters): string
     {
@@ -42,13 +43,15 @@ final readonly class DismissalReport
         $values = $input?->values ?? [];
         $departments = Department::query()
             ->when($filters->departmentIds !== null, fn ($q) => $q->whereIn('id', $filters->departmentIds))
-            ->ordered()->get(['id', 'name']);
+            ->ordered()->get(['id', 'name', 'parent_id']);
 
-        $rows = $departments->map(function ($department) use ($people, $surveys, $values): array {
-            $members = $people->filter(fn ($person) => $person->departments->contains('id', $department->id));
+        $rows = $departments->map(function ($department) use ($people, $surveys, $values, $departments): array {
+            $branch = $this->reach->branch([(int) $department->id]);
+            $members = $people->filter(fn ($person) => $person->departments->pluck('id')->intersect($branch)->isNotEmpty());
             $manual = $values['departments'][(string) $department->id] ?? [];
 
             return ['id' => $department->id, 'name' => $department->name,
+                'parent_id' => $departments->contains('id', $department->parent_id) ? $department->parent_id : null,
                 ...$this->metrics($members, $surveys, $manual),
                 'average_headcount' => $manual['average_headcount'] ?? null,
                 'turnover' => $this->percent($members->count(), $manual['average_headcount'] ?? null),
