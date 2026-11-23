@@ -38,7 +38,7 @@ final class SaveVersionRequest extends FormRequest
 
             // Статья приходит с экрана правки версии, а с формы заведения —
             // нет: там называют версию и выбирают, для кого она.
-            'content_json' => ['sometimes', 'nullable', 'array'],
+            'content_json' => ['sometimes', 'nullable', 'array', new \App\Rules\ValidArticleDocument],
 
             // Ссылка на запись — у версии урока (2026-09-25). Загруженный файл
             // приходит своим маршрутом, как и у самого урока; здесь ссылка на

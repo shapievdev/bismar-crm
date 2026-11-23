@@ -2,7 +2,7 @@
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { JSONContent } from '@tiptap/core'
 import type { UploadedMedia } from '~/utils/editor/attachments'
-import { isSameDocument } from '~/utils/editor/document'
+import { isSameDocument, normalizeDocument } from '~/utils/editor/document'
 import { insertBlock } from '~/utils/editor/insertBlock'
 
 const props = defineProps<{
@@ -18,25 +18,33 @@ const props = defineProps<{
 }>()
 
 const model = defineModel<JSONContent | null>({ required: true })
+const emit = defineEmits<{ ready: [value: boolean] }>()
+const contentError = ref(false)
 
 // ProseMirror needs a DOM, so this component is mounted inside <ClientOnly>.
 // Rendering it during SSR produces an empty surface and a hydration mismatch.
 
 const editor = useEditor({
-  content: model.value ?? undefined,
+  content: normalizeDocument(model.value) ?? undefined,
+  enableContentCheck: true,
   extensions: useRichTextExtensions({ placeholder: props.placeholder }),
   editorProps: {
     attributes: { class: 'prose-editor__surface' },
   },
   onUpdate: ({ editor }) => {
-    model.value = editor.getJSON()
+    if (!contentError.value) model.value = editor.getJSON()
   },
+  onContentError: () => {
+    contentError.value = true
+    emit('ready', false)
+  },
+  onCreate: () => emit('ready', !contentError.value),
 })
 
 // The parent may replace the document (a reload, a discarded draft); pushing it
 // back in only when it differs keeps the caret from jumping on every keystroke.
-watch(model, (value) => {
-  if (!editor.value || !value || isSameDocument(editor.value.getJSON(), value)) {
+watch([model, editor], ([value, instance]) => {
+  if (!instance || isSameDocument(instance.getJSON(), value)) {
     return
   }
 
@@ -46,13 +54,29 @@ watch(model, (value) => {
   // у вложений обновляются подписанные адреса — в глазах редактора это новый
   // документ. Без этого курсор уезжал в начало статьи, и следующая вставка —
   // картинка, видео, HTML-блок — попадала не туда, куда автор её ставил.
-  const { from, to } = editor.value.state.selection
+  const { from, to } = instance.state.selection
 
-  editor.value.commands.setContent(value, { emitUpdate: false })
-  editor.value.commands.setTextSelection({ from, to })
+  contentError.value = false
+  emit('ready', false)
+  try {
+    instance.commands.setContent(normalizeDocument(value) ?? { type: 'doc', content: [] }, {
+      emitUpdate: false,
+      errorOnInvalidContent: true,
+    })
+  }
+  catch {
+    contentError.value = true
+  }
+  if (!contentError.value) {
+    instance.commands.setTextSelection({ from, to })
+    emit('ready', true)
+  }
 })
 
-onBeforeUnmount(() => editor.value?.destroy())
+onBeforeUnmount(() => {
+  emit('ready', false)
+  editor.value?.destroy()
+})
 
 const imageInput = useTemplateRef<HTMLInputElement>('imageInput')
 const videoInput = useTemplateRef<HTMLInputElement>('videoInput')
@@ -181,6 +205,9 @@ function isActive(name: string, attrs?: Record<string, unknown>): boolean {
 </script>
 
 <template>
+  <p v-if="contentError" class="alert alert--danger" role="alert">
+    Не удалось открыть содержимое статьи. Сохранение отключено, чтобы не потерять текст. Обновите страницу или обратитесь к администратору.
+  </p>
   <div v-if="editor" class="prose-editor">
     <div class="toolbar">
       <div class="toolbar__group">

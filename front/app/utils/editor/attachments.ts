@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { LessonAttachment } from '~/types/lms'
+import { normalizeDocument } from './document'
 
 /** What an upload gives back to the editor: which attachment, and where it is now. */
 export interface UploadedMedia {
@@ -43,6 +44,7 @@ export function withResolvedMedia(
   document: JSONContent | null,
   attachments: LessonAttachment[],
 ): JSONContent | null {
+  document = normalizeDocument(document)
   if (!document) {
     return null
   }

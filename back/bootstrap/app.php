@@ -18,6 +18,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // domain listed in `sanctum.stateful` are authenticated via the session.
         $middleware->statefulApi();
 
+        // Rich text is structured content: trimming a space between marked
+        // spans corrupts the text; converting it to null breaks ProseMirror.
+        $middleware->trimStrings(except: ['content_json.*']);
+        $middleware->replace(
+            \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+            \App\Http\Middleware\PreserveArticleStrings::class,
+        );
+
         /*
          * There is no login page to send a guest to — the sign-in form belongs to
          * the Nuxt application. Without this, the `auth` middleware falls back to

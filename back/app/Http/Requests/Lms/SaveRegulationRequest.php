@@ -35,7 +35,7 @@ final class SaveRegulationRequest extends FormRequest
             'summary' => ['nullable', 'string', 'max:500'],
 
             // Документ редактора блоков — тот же формат, что у урока.
-            'content_json' => ['nullable', 'array'],
+            'content_json' => ['nullable', 'array', new \App\Rules\ValidArticleDocument],
 
             'status' => ['required', Rule::enum(CourseStatus::class)],
             'visibility' => ['required', Rule::enum(CourseVisibility::class)],

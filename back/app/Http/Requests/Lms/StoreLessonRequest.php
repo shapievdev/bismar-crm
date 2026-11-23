@@ -28,7 +28,7 @@ final class StoreLessonRequest extends FormRequest
             'content' => ['nullable', 'string'],
             // The editor's node tree. Its shape is the editor's business; we
             // only insist it is a document, and derive plain text from it.
-            'content_json' => ['nullable', 'array'],
+            'content_json' => ['nullable', 'array', new \App\Rules\ValidArticleDocument],
             'content_json.type' => ['required_with:content_json', 'string', 'in:doc'],
             'content_json.content' => ['nullable', 'array'],
             // Only http(s) links: a javascript: or data: URL would be rendered

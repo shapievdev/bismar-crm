@@ -1,9 +1,24 @@
 import type { JSONContent } from '@tiptap/core'
 
+/** Old request middleware turned whitespace-only text nodes into null. */
+export function normalizeDocument(document: JSONContent | null): JSONContent | null {
+  if (!document) return null
+  if (document.type === 'text' && (document.text == null || document.text === '')) return null
+  if (!Array.isArray(document.content)) return document
+
+  const content = document.content.flatMap(child => {
+    const normalized = normalizeDocument(child)
+    return normalized ? [normalized] : []
+  })
+  return content.length === document.content.length && content.every((child, index) => child === document.content![index])
+    ? document
+    : { ...document, content }
+}
+
 /** Legacy lessons keep plain text until the editor explicitly saves their block document. */
 export function documentForEditing(content: JSONContent | null | undefined, fallbackText?: string | null): JSONContent | null {
   // A stored block document (even an intentionally empty one) always wins.
-  if (content != null) return content
+  if (content != null) return normalizeDocument(content)
 
   const paragraphs = (fallbackText ?? '').replace(/\r\n?/g, '\n')
     .split(/\n{2,}/).map(paragraph => paragraph.trim()).filter(Boolean)
@@ -46,7 +61,7 @@ export function isSameDocument(one: JSONContent | null, other: JSONContent | nul
 }
 
 function canonical(value: JSONContent | null): string {
-  return JSON.stringify(withSortedKeys(value))
+  return JSON.stringify(withSortedKeys(normalizeDocument(value)))
 }
 
 /** То же значение, но ключи каждого объекта — по алфавиту, а пустота — одна. */

@@ -99,6 +99,7 @@ async function uploadInlineVideo(file: File, options: UploadOptions): Promise<Up
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
+const articleReady = ref(false)
 
 /*
  * Документы и справочники, приложенные к уроку. Список сохраняется сам, без
@@ -164,6 +165,11 @@ const isSuggesting = ref(false)
 const answerTable = useTemplateRef<{ showSuggestions: (drafts: SuggestedAnswer[]) => void }>('answerTable')
 
 async function save() {
+  if (!articleReady.value) {
+    generalError.value = 'Содержимое статьи ещё не загружено. Сохранение отменено, чтобы не потерять текст.'
+    return
+  }
+
   isSaving.value = true
   errors.value = {}
   generalError.value = null
@@ -418,6 +424,7 @@ async function removeQuiz() {
         <ClientOnly>
           <EditorRichTextEditor
             v-model="document"
+            @ready="articleReady = $event"
             :upload-image="uploadInlineImage"
             :upload-video="uploadInlineVideo"
             placeholder="Заголовки, текст, цитаты, таблицы, изображения, видео и блоки HTML…"
@@ -437,7 +444,7 @@ async function removeQuiz() {
                только с несохранёнными правками — иначе полоса выглядела бы
                рамкой вокруг пустого места. -->
           <div class="actions" :class="{ 'actions--dirty': isDirty }">
-            <button type="submit" class="button-primary" :disabled="isSaving">
+            <button type="submit" class="button-primary" :disabled="isSaving || !articleReady">
               {{ isSaving ? 'Сохраняем…' : 'Сохранить урок' }}
             </button>
             <span v-if="isDirty" class="muted">Есть несохранённые правки</span>

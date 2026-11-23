@@ -35,7 +35,7 @@ final class SaveNewsRequest extends FormRequest
             'excerpt' => ['nullable', 'string', 'max:500'],
 
             // Документ редактора блоков — тот же формат, что у урока.
-            'content_json' => ['nullable', 'array'],
+            'content_json' => ['nullable', 'array', new \App\Rules\ValidArticleDocument],
 
             'status' => ['required', Rule::enum(NewsStatus::class)],
             'is_pinned' => ['sometimes', 'boolean'],

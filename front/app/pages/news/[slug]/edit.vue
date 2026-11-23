@@ -139,8 +139,14 @@ function sameIds(one: { id: number }[], other: { id: number }[]): boolean {
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
+const articleReady = ref(false)
 
 async function save() {
+  if (!articleReady.value) {
+    generalError.value = 'Содержимое статьи ещё не загружено. Сохранение отменено, чтобы не потерять текст.'
+    return
+  }
+
   isSaving.value = true
   errors.value = {}
   generalError.value = null
@@ -471,6 +477,7 @@ function dropLink(found: LinkedMaterialResult) {
         <ClientOnly>
           <EditorRichTextEditor
             v-model="document"
+            @ready="articleReady = $event"
             placeholder="Текст новости. Можно вставить картинку или видео."
             :upload-image="(file, options) => uploadInline(file, options, 'Изображение в новости')"
             :upload-video="(file, options) => uploadInline(file, options, 'Видео в новости')"
@@ -727,7 +734,7 @@ function dropLink(found: LinkedMaterialResult) {
     </section>
 
     <div class="actions">
-      <button type="button" class="button-primary" :disabled="isSaving" @click="save">
+      <button type="button" class="button-primary" :disabled="isSaving || !articleReady" @click="save">
         {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
       </button>
       <!-- Кнопка одна на всю страницу: без этой строчки автор не отличает

@@ -177,8 +177,14 @@ const isDirty = computed(() => {
 const errors = ref<ValidationErrors>({})
 const generalError = ref<string | null>(null)
 const isSaving = ref(false)
+const articleReady = ref(false)
 
 async function save() {
+  if (!articleReady.value) {
+    generalError.value = 'Содержимое статьи ещё не загружено. Сохранение отменено, чтобы не потерять текст.'
+    return
+  }
+
   isSaving.value = true
   errors.value = {}
   generalError.value = null
@@ -470,6 +476,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
         <ClientOnly>
           <EditorRichTextEditor
             v-model="document"
+            @ready="articleReady = $event"
             :placeholder="articlePlaceholder"
             :upload-image="(file, options) => uploadInline(file, options, 'Изображение в версии')"
             :upload-video="(file, options) => uploadInline(file, options, 'Видео в версии')"
@@ -547,7 +554,7 @@ async function uploadInline(file: File, options: UploadOptions, label: string): 
     </p>
 
     <div class="actions">
-      <button type="button" class="button-primary" :disabled="isSaving" @click="save">
+      <button type="button" class="button-primary" :disabled="isSaving || !articleReady" @click="save">
         {{ isSaving ? 'Сохраняем…' : 'Сохранить версию' }}
       </button>
       <span v-if="isDirty" class="faint">Есть несохранённые правки</span>
