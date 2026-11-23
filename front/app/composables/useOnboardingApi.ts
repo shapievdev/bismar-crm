@@ -69,6 +69,9 @@ export function useOnboardingApi() {
 
     /* ---------- Шаблоны ---------- */
 
+    fetchJobTitles: (): Promise<{ data: string[] }> =>
+      $api<{ data: string[] }>('/api/onboarding/manage/job-titles'),
+
     fetchTemplates: (): Promise<{ data: OnboardingTemplate[] }> =>
       $api<{ data: OnboardingTemplate[] }>('/api/onboarding/manage/templates'),
 

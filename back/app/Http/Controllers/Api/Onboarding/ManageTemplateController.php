@@ -48,6 +48,15 @@ final class ManageTemplateController extends Controller
         );
     }
 
+    /** Suggestions for optional job title binding, without requiring staff management access. */
+    public function jobTitles(): JsonResponse
+    {
+        return response()->json(['data' => User::query()->employed()
+            ->whereNotNull('job_title')->whereRaw("btrim(job_title) <> ''")
+            ->distinct()->orderByRaw('job_title COLLATE "und-x-icu"')
+            ->selectRaw('job_title COLLATE "und-x-icu" as job_title')->pluck('job_title')]);
+    }
+
     public function store(SaveTemplateRequest $request, SaveTemplate $save): TemplateResource
     {
         /** @var User $actor */

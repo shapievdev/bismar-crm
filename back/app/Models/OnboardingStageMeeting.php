@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\MeetingFormat;
 use App\Models\Concerns\AwardsAchievement;
+use App\Models\Concerns\HasMeetingParticipants;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,17 +14,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * Заготовка встречи в этапе шаблона.
  *
- * С кем — либо конкретный человек (`with_user_id`), либо роль `mentor`
- * (`with_role`): наставник у каждого стажёра свой и подставляется при
- * назначении маршрута. Ровно одно из двух — следит SaveStage.
+ * Участники задаются списком; при назначении можно дополнительно подставить
+ * наставника стажёра. Старое поле with_user_id сохраняет совместимость.
  */
 #[Fillable([
     'stage_id', 'position', 'topic', 'format', 'place', 'with_user_id', 'with_role',
-    'achievement_id',
+    'participant_ids', 'scheduled_time', 'achievement_id',
 ])]
 class OnboardingStageMeeting extends Model
 {
-    use AwardsAchievement;
+    use AwardsAchievement, HasMeetingParticipants;
 
     /** Роль «наставник стажёра» — разворачивается в users.mentor_id. */
     public const ROLE_MENTOR = 'mentor';
@@ -36,6 +36,7 @@ class OnboardingStageMeeting extends Model
         return [
             'position' => 'integer',
             'format' => MeetingFormat::class,
+            'participant_ids' => 'array',
         ];
     }
 

@@ -78,7 +78,7 @@ final class MeetingController extends Controller
         $actor = $request->user();
 
         $meetings = OnboardingJourneyMeeting::query()
-            ->where('with_user_id', $actor->getKey())
+            ->forParticipant((int) $actor->getKey())
             ->whereNull('confirmed_at')
             ->whereHas('journeyStage.journey', fn ($journey) => $journey->alive())
             ->with(['journeyStage.journey.user'])
@@ -87,6 +87,7 @@ final class MeetingController extends Controller
             ->map(fn (OnboardingJourneyMeeting $meeting): array => [
                 'id' => (int) $meeting->getKey(),
                 'topic' => $meeting->topic,
+                'participants' => $meeting->participantPeople(),
                 'format' => $meeting->format->value,
                 'format_label' => $meeting->format->label(),
                 'place' => $meeting->place,

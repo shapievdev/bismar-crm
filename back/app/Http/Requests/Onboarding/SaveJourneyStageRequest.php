@@ -51,6 +51,12 @@ final class SaveJourneyStageRequest extends FormRequest
             'meetings.*.topic' => ['required', 'string', 'max:255'],
             'meetings.*.format' => ['required', Rule::enum(MeetingFormat::class)],
             'meetings.*.place' => ['nullable', 'string', 'max:255'],
+            'meetings.*.participant_ids' => ['sometimes', 'array', 'max:30', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (is_array($value) && count($value) !== count(array_unique($value, SORT_REGULAR))) {
+                    $fail('Участники одной встречи не должны повторяться.');
+                }
+            }],
+            'meetings.*.participant_ids.*' => ['integer', Rule::exists('users', 'id')->whereNull('dismissed_at')->whereNull('deleted_at')],
             'meetings.*.with_user_id' => [
                 'nullable',
                 'integer',

@@ -59,6 +59,7 @@ use App\Http\Controllers\Api\Lms\LessonTranscriptController;
 use App\Http\Controllers\Api\Lms\LessonVersionController;
 use App\Http\Controllers\Api\Lms\ProgressController;
 use App\Http\Controllers\Api\Lms\QuizController;
+use App\Http\Controllers\Api\Lms\ReadershipController;
 use App\Http\Controllers\Api\Lms\RegulationAcknowledgementController;
 use App\Http\Controllers\Api\Lms\RegulationAttachmentController;
 use App\Http\Controllers\Api\Lms\RegulationCategoryController;
@@ -373,6 +374,8 @@ Route::middleware([
              * (решение пользователя 2026-09-12). Разбор проверки переехал сюда
              * из редактора вместе с разбором теста урока.
              */
+            Route::get('{regulation}/readership', [ReadershipController::class, 'material'])->name('readership');
+
             Route::middleware(EnsureAdministrator::class)->group(function (): void {
                 Route::get('{regulation}/progress', [ProgressController::class, 'material'])
                     ->name('progress');
@@ -740,6 +743,9 @@ Route::middleware([
      * стоял в редакторе, но это такая же статистика прохождения, и место у неё
      * одно — страница материала, а не форма его правки.
      */
+    Route::get('courses/{course}/readership', [ReadershipController::class, 'course'])->name('courses.readership');
+    Route::get('lessons/{lesson}/readership', [ReadershipController::class, 'lesson'])->name('lessons.readership');
+
     Route::middleware(EnsureAdministrator::class)->group(function (): void {
         Route::get('courses/{course}/progress', [ProgressController::class, 'course'])
             ->name('courses.progress');
@@ -894,6 +900,7 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class, 'can:'.Permission::Man
         // Шаблоны маршрутов и их этапы.
         Route::get('templates', [OnboardingManageTemplateController::class, 'index'])->name('templates.index');
         Route::post('templates', [OnboardingManageTemplateController::class, 'store'])->name('templates.store');
+        Route::get('job-titles', [OnboardingManageTemplateController::class, 'jobTitles'])->name('job-titles');
 
         // Каталог материалов для этапа — прежде `{template}`: иначе это шаблон
         // по имени «materials».

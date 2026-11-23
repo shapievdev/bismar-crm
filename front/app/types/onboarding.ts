@@ -38,6 +38,8 @@ export interface StageItem {
   meta: {
     id?: number
     quiz_id?: number
+    participant_ids?: number[]
+    participants?: { id: number, name: string, job_title: string | null }[]
     with?: { id: number, name: string, job_title: string | null } | null
     format?: string
     format_label?: string
@@ -129,6 +131,7 @@ export interface Journey {
 
 /** Встреча, которую проводит вошедший: его очередь подтверждений. */
 export interface HostedMeeting {
+  participants?: { id: number, name: string, job_title: string | null }[]
   id: number
   topic: string
   format: string
@@ -159,6 +162,9 @@ export interface TemplateStageMeeting {
   topic: string
   format: string
   place: string | null
+  participant_ids: number[]
+  participants: { id: number, name: string, job_title: string | null }[]
+  scheduled_time: string | null
   with_user_id: number | null
   with_name: string | null
   with_role: string | null
@@ -269,6 +275,8 @@ export interface StagePayload {
     topic: string
     format: string
     place?: string | null
+    participant_ids?: number[]
+    scheduled_time?: string | null
     with_user_id?: number | null
     with_role?: string | null
     achievement_id?: number | null
@@ -300,6 +308,8 @@ export interface JourneyStagePayload {
     place?: string | null
     /** ISO со смещением; null — «время уточняется». */
     scheduled_at?: string | null
+    participant_ids?: number[]
+    scheduled_time?: string | null
     with_user_id?: number | null
     achievement_id?: number | null
   }[]

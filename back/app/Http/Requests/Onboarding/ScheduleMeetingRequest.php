@@ -17,6 +17,8 @@ final class ScheduleMeetingRequest extends FormRequest
         return [
             'scheduled_at' => ['required', 'date'],
             'place' => ['nullable', 'string', 'max:255'],
+            'participant_ids' => ['sometimes', 'array', 'max:30'],
+            'participant_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')->whereNull('dismissed_at')->whereNull('deleted_at')],
             'with_user_id' => [
                 'sometimes',
                 'nullable',

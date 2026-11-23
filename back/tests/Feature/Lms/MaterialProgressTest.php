@@ -20,26 +20,21 @@ use Tests\Concerns\ActsAsSpaClient;
 use Tests\Concerns\MakesUsers;
 use Tests\TestCase;
 
-/**
- * Как материал проходят — внизу его же страницы.
- *
- * Круг людей здесь один на все три отчёта: начавшие и те, кому материал
- * назначен планом (решение пользователя 2026-09-12). Весь штат в него не
- * входит: документ открыт всякому, кто читает базу знаний, и «ещё не
- * ознакомился» означало бы расписание компании вместо отчёта.
- */
+/** Поимённый прогресс среди всех допущенных сейчас. */
 final class MaterialProgressTest extends TestCase
 {
     use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
     /* ---------- Курс ---------- */
 
-    public function test_the_course_report_counts_the_enrolled_and_the_assigned(): void
+    public function test_the_course_report_counts_all_currently_admitted(): void
     {
         [$course, $lessons] = $this->courseWithLessons(4);
 
         $started = User::factory()->create(['last_name' => 'Антонов', 'first_name' => 'Илья']);
         $assigned = User::factory()->create(['last_name' => 'Борисова', 'first_name' => 'Вера']);
+        $started->givePermissionTo('courses.view');
+        $assigned->givePermissionTo('courses.view');
 
         $enrollment = Enrollment::factory()->create([
             'course_id' => $course->id,
@@ -60,12 +55,12 @@ final class MaterialProgressTest extends TestCase
 
         $summary = $response->json('data.summary');
 
-        $this->assertSame(2, $summary['people']);
+        $this->assertSame(3, $summary['people']);
         $this->assertSame(4, $summary['lessons']);
         $this->assertSame(1, $summary['in_progress']);
-        $this->assertSame(1, $summary['not_started']);
-        // Два урока из четырёх у одного и ноль у второго — в среднем четверть.
-        $this->assertSame(25, $summary['average_progress']);
+        $this->assertSame(2, $summary['not_started']);
+        // Два урока из четырёх у одного; ещё двое допущенных не начинали.
+        $this->assertSame(17, $summary['average_progress']);
 
         $people = collect($response->json('data.people'))->keyBy('id');
 
@@ -85,6 +80,8 @@ final class MaterialProgressTest extends TestCase
 
         $done = User::factory()->create(['last_name' => 'Абрамов']);
         $waiting = User::factory()->create(['last_name' => 'Яковлев']);
+        $done->givePermissionTo('courses.view');
+        $waiting->givePermissionTo('courses.view');
 
         $finished = Enrollment::factory()->create([
             'course_id' => $course->id,
@@ -101,10 +98,10 @@ final class MaterialProgressTest extends TestCase
             ->assertOk()
             ->json('data.people');
 
-        $this->assertSame($waiting->id, $people[0]['id']);
-        $this->assertSame($done->id, $people[1]['id']);
-        $this->assertSame('completed', $people[1]['status']);
-        $this->assertSame(100, $people[1]['progress']);
+        $this->assertSame($done->id, $people[2]['id']);
+        $this->assertContains($waiting->id, array_column(array_slice($people, 0, 2), 'id'));
+        $this->assertSame('completed', $people[2]['status']);
+        $this->assertSame(100, $people[2]['progress']);
     }
 
     /** Уволенный уходит из отчёта: спрашивать с него уже нечего. */
@@ -118,7 +115,8 @@ final class MaterialProgressTest extends TestCase
         $this->actingAs($this->administrator())
             ->getJson(route('lms.courses.progress', $course))
             ->assertOk()
-            ->assertJsonPath('data.summary.people', 0);
+            ->assertJsonPath('data.summary.people', 1)
+            ->assertJsonMissing(['id' => $gone->id]);
     }
 
     /** Свежесобранный курс — это ноль процентов, а не деление на ноль. */
@@ -206,7 +204,7 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.lessons.progress', $lesson))
             ->assertOk();
 
-        $this->assertSame(2, $response->json('data.summary.people'));
+        $this->assertSame(3, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.done'));
         $this->assertSame(2, $response->json('data.summary.attempted'));
         $this->assertSame(1, $response->json('data.summary.passed'));
@@ -240,7 +238,7 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.documents.progress', $document))
             ->assertOk();
 
-        $this->assertSame(2, $response->json('data.summary.people'));
+        $this->assertSame(3, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.done'));
         $this->assertSame(2, $response->json('data.summary.attempted'));
 
@@ -287,10 +285,10 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.documents.progress', $document))
             ->assertOk();
 
-        $this->assertSame(1, $response->json('data.summary.people'));
+        $this->assertSame(2, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.passed'));
 
-        $person = $response->json('data.people.0');
+        $person = collect($response->json('data.people'))->firstWhere('id', $salesman->id);
 
         $this->assertTrue($person['is_done']);
         $this->assertTrue($person['quiz']['passed']);

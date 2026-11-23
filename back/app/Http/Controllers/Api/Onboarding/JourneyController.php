@@ -53,7 +53,7 @@ final class JourneyController extends Controller
         $person = $request->user();
 
         $pendingMeetings = OnboardingJourneyMeeting::query()
-            ->where('with_user_id', $person->getKey())
+            ->forParticipant((int) $person->getKey())
             ->whereNull('confirmed_at')
             ->whereHas('journeyStage.journey', fn ($journey) => $journey->alive())
             ->count();

@@ -169,6 +169,7 @@ const trail = computed(() => categoryTrail(categoryData.value?.data ?? [], cours
                полотном внизу страницы (решение пользователя 2026-09-20).
                Читателю этой кнопки нет вовсе: сервер отвечает ему 403, и
                спрашивать незачем. -->
+          <MaterialReaders v-if="can('courses.update')" :endpoint="`/api/lms/courses/${slug}/readership`" kind="course" />
           <ProgressCourseStats
             v-if="isAdmin"
             :load="async () => (await fetchCourseProgress(slug)).data"

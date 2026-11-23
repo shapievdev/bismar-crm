@@ -99,6 +99,7 @@ function when(value: string | null): string {
         <div class="row__body">
           <span class="row__name">{{ meeting.employee.name }}</span>
           <span class="row__topic">{{ meeting.topic }}</span>
+          <span v-if="meeting.participants?.length" class="faint small">Участники: {{ meeting.participants.map(person => person.name).join(', ') }}</span>
           <span class="faint small">
             {{ when(meeting.scheduled_at) }} · {{ meeting.format_label }}<template v-if="meeting.place"> · {{ meeting.place }}</template>
           </span>

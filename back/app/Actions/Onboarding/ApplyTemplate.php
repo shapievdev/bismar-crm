@@ -37,6 +37,7 @@ final readonly class ApplyTemplate
     public function __construct(
         private JourneySchedule $schedule,
         private SaveQuiz $saveQuiz,
+        private ScheduleMeeting $scheduleMeeting,
     ) {}
 
     /**
@@ -173,17 +174,23 @@ final readonly class ApplyTemplate
         }
 
         foreach ($stage->meetings as $meeting) {
-            $copy->meetings()->create([
+            $personalMeeting = $copy->meetings()->create([
                 'stage_meeting_id' => $meeting->getKey(),
                 'topic' => $meeting->topic,
                 'format' => $meeting->format,
                 'place' => $meeting->place,
                 'with_user_id' => $this->meetingCounterpart($meeting, $employee),
-                // Время не назначается само: день знает этап, а час — живые
-                // люди. До назначения встреча стоит «время уточняется».
-                'scheduled_at' => null,
+                'participant_ids' => array_values(array_unique(array_filter([
+                    ...$meeting->participantIds(), $meeting->with_role === OnboardingStageMeeting::ROLE_MENTOR ? $employee?->mentor_id : null,
+                ]))),
+                // Час из шаблона применяется к дате этапа в часовом поясе маршрута.
+                'scheduled_at' => $meeting->scheduled_time !== null && $opensAt !== null
+                    ? CarbonImmutable::parse($opensAt->toDateString().' '.$meeting->scheduled_time, config('onboarding.timezone'))->utc() : null,
                 'achievement_id' => $meeting->achievement_id,
             ]);
+            if ($personalMeeting->scheduled_at !== null) {
+                $this->scheduleMeeting->handle($personalMeeting, ['scheduled_at' => $personalMeeting->scheduled_at->toIso8601String()]);
+            }
         }
 
         foreach ($stage->tasks as $task) {

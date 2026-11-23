@@ -119,12 +119,15 @@ final readonly class SaveStage
             // С кем — ровно одно из двух: роль обнуляет человека и наоборот.
             $withRole = $data['with_role'] ?? null;
 
+            $participants = array_values(array_unique(array_map(intval(...), $data['participant_ids'] ?? array_filter([$data['with_user_id'] ?? null]))));
             $meeting->fill([
+                'participant_ids' => $participants,
+                'scheduled_time' => $data['scheduled_time'] ?? null,
                 'position' => $position + 1,
                 'topic' => $data['topic'],
                 'format' => $data['format'],
                 'place' => $data['place'] ?? null,
-                'with_user_id' => $withRole === null ? ($data['with_user_id'] ?? null) : null,
+                'with_user_id' => $withRole === null ? ($participants[0] ?? null) : null,
                 'with_role' => $withRole,
                 'achievement_id' => $data['achievement_id'] ?? null,
             ])->save();

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\MeetingFormat;
 use App\Models\Concerns\AwardsAchievement;
+use App\Models\Concerns\HasMeetingParticipants;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,12 +21,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable([
     'journey_stage_id', 'stage_meeting_id', 'topic', 'format', 'place',
-    'with_user_id', 'scheduled_at', 'reschedules_count',
+    'participant_ids', 'with_user_id', 'scheduled_at', 'reschedules_count',
     'confirmed_at', 'confirmed_by', 'reminded_at', 'achievement_id',
 ])]
 class OnboardingJourneyMeeting extends Model
 {
-    use AwardsAchievement;
+    use AwardsAchievement, HasMeetingParticipants;
 
     /**
      * @return array<string, string>
@@ -34,6 +35,7 @@ class OnboardingJourneyMeeting extends Model
     {
         return [
             'format' => MeetingFormat::class,
+            'participant_ids' => 'array',
             'scheduled_at' => 'datetime',
             'reschedules_count' => 'integer',
             'confirmed_at' => 'datetime',

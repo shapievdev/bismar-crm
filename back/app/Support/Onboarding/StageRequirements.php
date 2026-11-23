@@ -147,6 +147,8 @@ final readonly class StageRequirements
                 'url' => null,
                 'meta' => [
                     'id' => (int) $meeting->getKey(),
+                    'participant_ids' => $meeting->participantIds(),
+                    'participants' => $meeting->participantPeople(),
                     'with' => $meeting->counterpart === null ? null : [
                         'id' => $meeting->counterpart->getKey(),
                         'name' => $meeting->counterpart->name,

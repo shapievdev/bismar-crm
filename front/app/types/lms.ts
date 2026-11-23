@@ -204,6 +204,7 @@ export interface Quiz {
   description: string | null
   passing_score: number
   max_attempts: number | null
+  attempts_used?: number
   questions?: QuizQuestion[]
   kind: QuizKind
   /** Кому уходят работы. Null у обычного теста. */

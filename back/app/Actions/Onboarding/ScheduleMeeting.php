@@ -33,12 +33,14 @@ final readonly class ScheduleMeeting
         $newTime = CarbonImmutable::parse($attributes['scheduled_at'])->utc();
         $isReschedule = $meeting->scheduled_at !== null && ! $newTime->equalTo($meeting->scheduled_at);
 
+        $participants = array_key_exists('participant_ids', $attributes)
+            ? array_values(array_unique(array_map(intval(...), $attributes['participant_ids'])))
+            : (array_key_exists('with_user_id', $attributes) ? array_values(array_filter([$attributes['with_user_id']])) : $meeting->participantIds());
         $meeting->fill([
+            'participant_ids' => $participants,
             'scheduled_at' => $newTime,
             'place' => array_key_exists('place', $attributes) ? $attributes['place'] : $meeting->place,
-            'with_user_id' => array_key_exists('with_user_id', $attributes)
-                ? $attributes['with_user_id']
-                : $meeting->with_user_id,
+            'with_user_id' => $participants[0] ?? null,
             'reschedules_count' => $meeting->reschedules_count + ($isReschedule ? 1 : 0),
             'reminded_at' => null,
         ])->save();
@@ -56,10 +58,10 @@ final readonly class ScheduleMeeting
     {
         $meeting->loadMissing('journeyStage.journey');
 
-        $recipients = array_values(array_filter([
+        $recipients = array_values(array_unique(array_filter([
             (int) $meeting->journeyStage->journey->user_id,
-            $meeting->with_user_id === null ? null : (int) $meeting->with_user_id,
-        ]));
+            ...$meeting->participantIds(),
+        ])));
 
         if ($recipients === []) {
             return;

@@ -84,6 +84,8 @@ watch(lesson, async (value) => {
  * ответ», приложенные документы) у урока одно на всех.
  */
 const body = computed(() => selectedVersion.value ?? lesson.value)
+const { testActive, testVersion, beginTest, finishTest } = useMaterialTestMode(() => `lesson:${lessonId.value}`)
+
 
 async function openVersion(versionId: number | null) {
   if (versionId === null) {
@@ -104,6 +106,13 @@ async function openVersion(versionId: number | null) {
   finally {
     isSwitchingVersion.value = false
   }
+}
+
+if (testActive.value) {
+  try { await openVersion(testVersion.value) }
+  catch { finishTest() }
+  if (!body.value?.quiz || lesson.value?.is_completed
+    || body.value?.own_attempts?.some(attempt => attempt.review_status === 'pending')) finishTest()
 }
 
 const completedIds = computed(() => new Set(course.value?.enrollment?.completed_lesson_ids ?? []))
@@ -386,6 +395,7 @@ async function sendQuiz() {
       ? await submitQuiz(lessonId.value, answers.value)
       : await submitVersionQuiz(lessonId.value, selectedVersion.value.id, answers.value)
     attempt.value = result
+    finishTest()
     await refresh()
   }
   catch (caught) {
@@ -400,6 +410,7 @@ async function sendQuiz() {
 function retry() {
   attempt.value = null
   answers.value = {}
+  beginTest(selectedVersion.value?.id ?? null)
 }
 
 function formatSize(bytes: number): string {
@@ -478,7 +489,7 @@ function formatSize(bytes: number): string {
             самого начала, но посмотреть соседнюю не запрещено. Закрытая
             помечена: пересказывать её тому, кого в группу не внесли, не стоит.
           -->
-          <nav v-if="versions.length" class="versions" aria-label="Версии урока">
+          <nav v-if="!testActive && versions.length" class="versions" aria-label="Версии урока">
             <button
               type="button"
               class="versions__item"
@@ -536,6 +547,7 @@ function formatSize(bytes: number): string {
                шапке урока, а не двумя полотнами под ним (решение пользователя
                2026-09-20). Разбор теста уехал туда же второй вкладкой: это
                такая же статистика прохождения, и место у неё одно. -->
+          <MaterialReaders v-if="can('courses.update')" :endpoint="`/api/lms/lessons/${lessonId}/readership`" kind="lesson" />
           <ProgressMaterialStats
             v-if="isAdmin"
             :key="`progress-${lesson.id}-${selectedVersion?.id ?? 'base'}`"
@@ -551,6 +563,7 @@ function formatSize(bytes: number): string {
         </div>
       </header>
 
+      <template v-if="!testActive">
       <div v-if="body?.video_upload_url" class="video">
         <video ref="uploadedVideo" :src="body?.video_upload_url" controls preload="metadata" />
       </div>
@@ -642,7 +655,9 @@ function formatSize(bytes: number): string {
         </ul>
       </section>
 
-      <section v-if="body?.quiz" class="block quiz card">
+      </template>
+
+      <section v-if="body?.quiz" class="block quiz card" data-material-test>
         <header class="quiz__head">
           <div>
             <h2 class="block__title">
@@ -687,6 +702,7 @@ function formatSize(bytes: number): string {
             v-if="!attempt.passed && (attemptsLeft === null || attemptsLeft > 0)"
             type="button"
             class="button-secondary button-sm"
+            :disabled="isWorking"
             @click="retry"
           >
             Пройти ещё раз
@@ -697,9 +713,16 @@ function formatSize(bytes: number): string {
              человека пересдавать с тем же знанием, с каким он пришёл. У
              аттестации разбора нет: работу читает человек, и его слово придёт
              отдельно. -->
-        <QuizReviewPanel v-if="!isAttestation && attempt?.review" :review="attempt.review" />
+        <QuizReviewPanel v-if="!testActive && !isAttestation && attempt?.review" :review="attempt.review" />
 
-        <template v-if="!isCompleted && !attempt?.passed && !isAwaitingReview">
+        <MaterialTestStart
+          v-if="!testActive && !isCompleted && !attempt && !isAwaitingReview"
+          :title="body?.quiz?.title"
+          :disabled="!isEnrolled || blockedBy !== null || surveyHolds || attemptsLeft === 0"
+          :reason="surveyHolds ? 'Сначала заполните обязательный опрос ниже.' : blockedBy !== null ? 'Сначала завершите предыдущий урок.' : attemptsLeft === 0 ? 'Доступные попытки закончились.' : undefined"
+          @start="retry"
+        />
+        <template v-if="testActive && !isCompleted && !attempt?.passed && !isAwaitingReview">
           <div v-for="(question, index) in body?.quiz?.questions ?? []" :key="question.id" class="question">
             <p class="question__text">
               <span class="question__num">{{ index + 1 }}.</span>
@@ -763,7 +786,7 @@ function formatSize(bytes: number): string {
           </button>
         </template>
 
-        <QuizAttemptsHistory :attempts="body?.own_attempts ?? []" />
+        <QuizAttemptsHistory v-if="!testActive" :attempts="body?.own_attempts ?? []" />
       </section>
 
       <div v-else-if="isEnrolled && !isCompleted" class="block">
@@ -794,7 +817,7 @@ function formatSize(bytes: number): string {
       <!-- Опрос об уроке. Стоит после теста и после кнопки «пройдено»: сперва
            урок, потом мнение о нём. -->
       <SurveyRunner
-        v-if="survey"
+        v-if="!testActive && survey"
         :survey="survey"
         :is-submitting="isSendingSurvey"
         :error-message="surveyError"
@@ -810,9 +833,9 @@ function formatSize(bytes: number): string {
 
       <!-- Замечание пишут с того урока, на котором споткнулись: автору важно,
            где именно не хватило, а не «где-то в курсе». -->
-      <MaterialFeedback :target="{ kind: 'lesson', id: lesson.id }" class="feedback" />
+      <MaterialFeedback v-if="!testActive" :target="{ kind: 'lesson', id: lesson.id }" class="feedback" />
 
-      <nav class="pager">
+      <nav v-if="!testActive" class="pager">
         <NuxtLink
           v-if="lesson.neighbours?.previous"
           :to="`/lms/${courseSlug}/lessons/${lesson.neighbours.previous.id}`"

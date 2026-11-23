@@ -45,11 +45,18 @@ final class SaveStageRequest extends FormRequest
             'meetings.*.topic' => ['required', 'string', 'max:255'],
             'meetings.*.format' => ['required', Rule::enum(MeetingFormat::class)],
             'meetings.*.place' => ['nullable', 'string', 'max:255'],
+            'meetings.*.participant_ids' => ['sometimes', 'array', 'max:30', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (is_array($value) && count($value) !== count(array_unique($value, SORT_REGULAR))) {
+                    $fail('Участники одной встречи не должны повторяться.');
+                }
+            }],
+            'meetings.*.participant_ids.*' => ['integer', Rule::exists('users', 'id')->whereNull('dismissed_at')->whereNull('deleted_at')],
             'meetings.*.with_user_id' => [
                 'nullable',
                 'integer',
                 Rule::exists('users', 'id')->whereNull('dismissed_at'),
             ],
+            'meetings.*.scheduled_time' => ['nullable', 'date_format:H:i'],
             'meetings.*.with_role' => ['nullable', Rule::in([OnboardingStageMeeting::ROLE_MENTOR])],
 
             'tasks' => ['sometimes', 'array'],
@@ -81,15 +88,15 @@ final class SaveStageRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             foreach ($this->input('meetings', []) as $index => $meeting) {
-                $hasPerson = ! empty($meeting['with_user_id']);
+                $hasPerson = ! empty($meeting['participant_ids']) || ! empty($meeting['with_user_id']);
                 $hasRole = ! empty($meeting['with_role']);
 
-                // Встреча ни с кем — дырка в программе, встреча с двумя
-                // адресатами сразу — неразрешимая двусмысленность.
-                if ($hasPerson === $hasRole) {
+                // Нужны участники или наставник. Наставника можно добавить к списку;
+                // старый одиночный собеседник с ролью остаётся неоднозначным.
+                if ((! $hasPerson && ! $hasRole) || (! empty($meeting['with_user_id']) && $hasRole)) {
                     $validator->errors()->add(
                         "meetings.{$index}.with_user_id",
-                        'У встречи должен быть ровно один собеседник: человек или роль «наставник».',
+                        'Выберите участников встречи или роль «наставник».',
                     );
                 }
             }

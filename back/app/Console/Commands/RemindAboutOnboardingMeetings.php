@@ -56,7 +56,7 @@ final class RemindAboutOnboardingMeetings extends Command
 
             $recipients = array_values(array_unique(array_filter([
                 (int) $journey->user_id,
-                $meeting->with_user_id === null ? null : (int) $meeting->with_user_id,
+                ...$meeting->participantIds(),
             ])));
 
             foreach ($recipients as $recipient) {

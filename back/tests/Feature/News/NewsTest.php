@@ -614,6 +614,10 @@ final class NewsTest extends TestCase
             ->assertJsonPath('data.is_acknowledged', false);
 
         $this->assertFalse($news->isAcknowledgedBy($reader));
+        $this->actingAs($reader)->getJson(route('news.show', $news))
+            ->assertOk()->assertJsonPath('data.quiz.attempts_used', 1);
+        $this->actingAs($this->employee())->getJson(route('news.show', $news))
+            ->assertOk()->assertJsonPath('data.quiz.attempts_used', 0);
     }
 
     /**

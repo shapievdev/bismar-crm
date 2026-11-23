@@ -162,8 +162,8 @@ function quizButtonLabel(item: StageItem): string {
         <div class="meeting__head">
           <span class="meeting__avatar" aria-hidden="true">{{ item.meta.with ? initials(item.meta.with.name) : '—' }}</span>
           <span class="meeting__who">
-            <span class="meeting__name">{{ item.meta.with?.name ?? 'Собеседник уточняется' }}</span>
-            <span v-if="item.meta.with?.job_title" class="faint">{{ item.meta.with.job_title }}</span>
+            <span class="meeting__name">{{ item.meta.participants?.length ? item.meta.participants.map(person => person.name).join(', ') : item.meta.with?.name ?? 'Участники уточняются' }}</span>
+            <span v-if="item.meta.with?.job_title && (item.meta.participants?.length ?? 0) <= 1" class="faint">{{ item.meta.with.job_title }}</span>
           </span>
           <AchievementsMedal
             v-if="item.meta.achievement"

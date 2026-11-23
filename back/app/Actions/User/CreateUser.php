@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace App\Actions\User;
 
+use App\Actions\Onboarding\AutoAssignTemplate;
 use App\Data\User\NewUserData;
 use App\Models\User;
 use App\Support\Chat\GeneralChat;
+use Illuminate\Support\Facades\DB;
 
 final readonly class CreateUser
 {
-    public function __construct(private GeneralChat $general) {}
+    public function __construct(private GeneralChat $general, private AutoAssignTemplate $autoAssign) {}
 
     /**
      * Adds a colleague, with nothing granted.
@@ -24,20 +26,23 @@ final readonly class CreateUser
      */
     public function handle(NewUserData $data): User
     {
-        $user = User::create([
-            'last_name' => $data->lastName,
-            'first_name' => $data->firstName,
-            'middle_name' => $data->middleName,
-            'email' => $data->email,
-            'phone' => $data->phone,
-            'job_title' => $data->jobTitle,
-            'hired_at' => $data->hiredAt,
-            'work_mode' => $data->workMode,
-            'password' => $data->password,
-        ]);
+        return DB::transaction(function () use ($data): User {
+            $user = User::create([
+                'last_name' => $data->lastName,
+                'first_name' => $data->firstName,
+                'middle_name' => $data->middleName,
+                'email' => $data->email,
+                'phone' => $data->phone,
+                'job_title' => $data->jobTitle,
+                'hired_at' => $data->hiredAt,
+                'work_mode' => $data->workMode,
+                'password' => $data->password,
+            ]);
 
-        $this->general->include($user);
+            $this->general->include($user);
+            $this->autoAssign->handle($user, auth()->user() ?? $user);
 
-        return $user;
+            return $user;
+        });
     }
 }

@@ -34,6 +34,7 @@ final class NewsQuizResource extends JsonResource
             'description' => $this->description,
             'passing_score' => $this->passing_score,
             'max_attempts' => $this->max_attempts,
+            'attempts_used' => $request->user() === null ? 0 : $this->attempts()->where('user_id', $request->user()->getKey())->count(),
             'questions' => $this->whenLoaded(
                 'questions',
                 fn () => $this->questions->map(fn (NewsQuizQuestion $question): array => [

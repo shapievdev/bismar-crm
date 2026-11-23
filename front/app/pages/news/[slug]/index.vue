@@ -22,6 +22,13 @@ if (error.value) {
 }
 
 const news = computed(() => data.value?.data ?? null)
+const { testActive, beginTest, finishTest } = useMaterialTestMode(() => `news:${news.value?.id}`)
+const newsAttemptsLeft = computed(() => {
+  const quiz = news.value?.quiz
+  return quiz?.max_attempts == null ? null : Math.max(0, quiz.max_attempts - (quiz.attempts_used ?? 0))
+})
+if (!news.value?.quiz || news.value?.is_acknowledged || newsAttemptsLeft.value === 0) finishTest()
+
 
 useHead({ title: () => news.value?.title ?? 'Новость' })
 
@@ -75,10 +82,9 @@ async function send(answers: Record<number, number[] | string | string[][]>) {
   try {
     const { data: outcome } = await submitQuiz(slug.value, answers)
     result.value = outcome
+    finishTest()
 
-    if (outcome.passed) {
-      await refresh()
-    }
+    await refresh()
   }
   catch (caught) {
     const failure = caught as { data?: { message?: string } }
@@ -91,6 +97,7 @@ async function send(answers: Record<number, number[] | string | string[][]>) {
 
 function retry() {
   result.value = null
+  beginTest()
 }
 
 /* ---------- Опрос ---------- */
@@ -239,10 +246,10 @@ async function loadReaders() {
       </div>
     </section>
 
-    <EditorRichTextRenderer :content="article" />
+    <EditorRichTextRenderer v-if="!testActive" :content="article" />
 
     <!-- Куда сходить после новости: правило поменялось — вот само правило. -->
-    <section v-if="news.links?.length" class="card links">
+    <section v-if="!testActive && news.links?.length" class="card links">
       <h2 class="files__title">
         Обязательно для просмотра
       </h2>
@@ -259,7 +266,7 @@ async function loadReaders() {
       </ul>
     </section>
 
-    <section v-if="documents.length" class="card files">
+    <section v-if="!testActive && documents.length" class="card files">
       <h2 class="files__title">
         Документы
       </h2>
@@ -276,10 +283,13 @@ async function loadReaders() {
 
     <!-- Проверка вместо кнопки: сдал — значит прочитал. Разметка общая с
          документом: там и там тест подтверждает ознакомление. -->
+    <template v-if="news.quiz && !news.is_acknowledged">
+      <MaterialTestStart v-if="!testActive && !result" :title="news.quiz.title" :disabled="surveyHolds || newsAttemptsLeft === 0" :reason="surveyHolds ? 'Сначала заполните обязательный опрос ниже.' : newsAttemptsLeft === 0 ? 'Доступные попытки закончились.' : undefined" @start="beginTest()" />
     <QuizRunner
-      v-if="news.quiz && !news.is_acknowledged"
+      v-if="testActive || result"
       :quiz="news.quiz"
       :is-submitting="isSubmitting"
+      :can-retry="newsAttemptsLeft === null || newsAttemptsLeft > 0"
       :error-message="quizError"
       :result="result"
       :rule="`Проходной балл — ${news.quiz.passing_score}%. Сдав проверку, вы подтверждаете, что прочитали новость.`"
@@ -288,6 +298,7 @@ async function loadReaders() {
       @submit="send"
       @retry="retry"
     />
+    </template>
 
     <!-- Кнопка — когда проверки нет. Есть у любой новости, а не только у той,
          где ознакомление требуют: отметиться человек вправе всегда. -->
@@ -326,7 +337,7 @@ async function loadReaders() {
     <!-- Опрос: мнение о новости. Стоит после подтверждения — сперва прочитали,
          потом высказались. -->
     <SurveyRunner
-      v-if="news.survey"
+      v-if="!testActive && news.survey"
       :survey="news.survey"
       :is-submitting="isSendingSurvey"
       :error-message="surveyError"

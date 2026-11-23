@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SurveyOwner } from '~/composables/useSurveyApi'
-import type { CoursePerson, MaterialSection, MaterialVersion, QuizOutcome } from '~/types/lms'
+import type { MaterialSection, MaterialVersion, QuizOutcome } from '~/types/lms'
 import type { SurveyAnswer } from '~/types/survey'
 import { filesBesideArticle, withResolvedMedia } from '~/utils/editor/attachments'
 
@@ -18,7 +18,6 @@ const { can, isAdmin, user } = useAuth()
 const {
   fetchRegulation,
   acknowledge,
-  fetchReaders,
   fetchCategories,
   submitQuiz,
   fetchVersion,
@@ -81,6 +80,9 @@ watch(regulation, async (value) => {
  */
 const body = computed(() => selected.value ?? regulation.value)
 
+const { testActive, testVersion, beginTest, finishTest } = useMaterialTestMode(() => `material:${regulation.value?.id}`)
+
+
 async function openVersion(versionId: number | null) {
   if (versionId === null) {
     selected.value = null
@@ -100,6 +102,13 @@ async function openVersion(versionId: number | null) {
   finally {
     isSwitchingVersion.value = false
   }
+}
+
+if (testActive.value) {
+  try { await openVersion(testVersion.value) }
+  catch { finishTest() }
+  if (!body.value?.quiz || regulation.value?.is_acknowledged
+    || body.value?.own_attempts?.some(attempt => attempt.review_status === 'pending')) finishTest()
 }
 
 /**
@@ -226,11 +235,11 @@ async function sendAnswers(answers: Record<number, number[] | string | string[][
       ? (await submitQuiz(slug.value, answers)).data
       : (await submitVersionQuiz(slug.value, selected.value.id, answers)).data
 
+    finishTest()
+
     // Сдал — документ прочитан: перечитываем его, чтобы отметка и история
     // попыток пришли с сервера, а не собирались на экране.
-    if (outcome.value.passed) {
-      await refresh()
-    }
+    await refresh()
   }
   catch (caught) {
     const failure = caught as { data?: { message?: string } }
@@ -307,19 +316,6 @@ async function sendSurvey(answers: Record<number, SurveyAnswer>) {
   }
 }
 
-/* ---------- Кто прочитал: только тому, кто документ ведёт ---------- */
-
-const readers = ref<CoursePerson[] | null>(null)
-
-async function toggleReaders() {
-  if (readers.value !== null) {
-    readers.value = null
-
-    return
-  }
-
-  readers.value = (await fetchReaders(slug.value)).data
-}
 </script>
 
 <template>
@@ -363,7 +359,7 @@ async function toggleReaders() {
         {{ regulation.title }}
       </h1>
 
-      <p v-if="regulation.summary" class="page-subtitle">
+      <p v-if="!testActive && regulation.summary" class="page-subtitle">
         {{ regulation.summary }}
       </p>
 
@@ -398,7 +394,7 @@ async function toggleReaders() {
         приходят («а как считают у них»). Закрытая помечена: пересказывать её
         коллеге, которого в группу не внесли, не стоит.
       -->
-      <nav v-if="versions.length" class="versions" aria-label="Версии документа">
+      <nav v-if="!testActive && versions.length" class="versions" aria-label="Версии документа">
         <button
           type="button"
           class="versions__item"
@@ -430,18 +426,12 @@ async function toggleReaders() {
         <NuxtLink :to="`/lms/${copy.section}/${regulation.slug}/edit`" class="button-secondary button-sm">
           Редактировать
         </NuxtLink>
-        <button type="button" class="button-ghost button-sm" @click="toggleReaders">
-          {{ readers ? 'Скрыть' : 'Кто ознакомился' }}
-          <template v-if="regulation.acknowledged_count !== undefined">
-            ({{ regulation.acknowledged_count }})
-          </template>
-        </button>
+        <MaterialReaders :endpoint="`/api/lms/${copy.section}/${slug}/readership`" />
 
         <!-- Как материал проходят и как проходят его проверку — администратору,
              в шапке, а не двумя полотнами под страницей (решение пользователя
-             2026-09-20). Соседняя кнопка показывает список ознакомившихся тому,
-             кто материал правит; здесь же — весь круг читателей поимённо, и
-             открыт он только администратору. -->
+             2026-09-20). Соседняя кнопка показывает ознакомившихся и ожидающих среди допущенных.
+             Здесь подробный прогресс и результаты проверок — только администратору. -->
         <ProgressMaterialStats
           v-if="isAdmin"
           :key="`progress-${regulation.id}-${selected?.id ?? 'base'}`"
@@ -457,23 +447,6 @@ async function toggleReaders() {
       </div>
     </header>
 
-    <section v-if="readers" class="card readers">
-      <h2 class="readers__title">
-        Ознакомились — {{ readers.length }}
-      </h2>
-      <p v-if="!readers.length" class="faint">
-        Пока никто.
-      </p>
-      <ul v-else class="people">
-        <li v-for="person in readers" :key="person.id" class="person">
-          <UserAvatar :name="person.name" :src="person.avatar_url" :size="26" />
-          <span class="person__body">
-            <span>{{ person.name }}</span>
-            <span v-if="person.acknowledged_at" class="faint">{{ day(person.acknowledged_at) }}</span>
-          </span>
-        </li>
-      </ul>
-    </section>
 
     <!--
       Статья слева, ссылки справа (решение пользователя 2026-09-06). Соседи,
@@ -481,11 +454,11 @@ async function toggleReaders() {
       него: стоя друг под другом под текстом, они отодвигали отметку
       «ознакомлен» на третий экран.
     -->
-    <div class="layout">
+    <div class="layout" :class="{ 'layout--test': testActive }">
       <div class="layout__main">
-        <EditorRichTextRenderer :content="article" />
+        <EditorRichTextRenderer v-if="!testActive" :content="article" />
 
-        <section v-if="documents.length" class="card files">
+        <section v-if="!testActive && documents.length" class="card files">
           <h2 class="files__title">
             Приложенные файлы
           </h2>
@@ -534,9 +507,18 @@ async function toggleReaders() {
           </section>
 
           <!-- Проверка вместо кнопки: сдал — значит прочитал. -->
+          <template v-else-if="quiz">
+            <MaterialTestStart
+              v-if="!testActive && !outcome"
+              :title="quiz.title"
+              :disabled="surveyHolds || (quiz.max_attempts !== null && attempts.length >= quiz.max_attempts)"
+              :reason="surveyHolds ? 'Сначала заполните обязательный опрос ниже.' : quiz.max_attempts !== null && attempts.length >= quiz.max_attempts ? 'Доступные попытки закончились.' : undefined"
+              @start="beginTest(selected?.id ?? null)"
+            />
           <QuizRunner
-            v-else-if="quiz"
+            v-if="testActive || outcome"
             :quiz="quiz"
+            :can-retry="quiz.max_attempts === null || attempts.length < quiz.max_attempts"
             :is-submitting="isSubmitting"
             :error-message="quizError"
             :result="outcome"
@@ -546,8 +528,9 @@ async function toggleReaders() {
             :passed-note="copy.quizPassedNote"
             :failed-note="copy.quizFailedNote"
             @submit="sendAnswers"
-            @retry="outcome = null"
+            @retry="outcome = null; beginTest(selected?.id ?? null)"
           />
+          </template>
 
           <!-- Ответ проверяющего, когда он уже пришёл: отказ с причиной или зачёт. -->
           <section v-if="quiz && judgedAttestation" class="card confirm">
@@ -584,11 +567,11 @@ async function toggleReaders() {
           </section>
 
           <!-- Прошлые попытки с разбором каждой — как у теста урока. -->
-          <QuizAttemptsHistory :attempts="attempts" />
+          <QuizAttemptsHistory v-if="!testActive" :attempts="attempts" />
 
           <!-- Опрос: мнение о материале. Обязательный держит отметку выше. -->
           <SurveyRunner
-            v-if="survey"
+            v-if="!testActive && survey"
             :survey="survey"
             :is-submitting="isSendingSurvey"
             :error-message="surveyError"
@@ -601,6 +584,7 @@ async function toggleReaders() {
         <!-- «Нашли ответ?» — то же, что и у курса: справочник читают ради
              ответа, и сказать, что ответа не нашлось, надо там же, где искали. -->
         <MaterialFeedback
+          v-if="!testActive"
           :target="{ kind: 'material', section, slug: regulation.slug }"
           class="feedback"
         />
@@ -611,7 +595,7 @@ async function toggleReaders() {
         «что ещё почитать», потом «у кого спросить», и только потом список
         частых вопросов, который ведёт дальше по базе знаний.
       -->
-      <aside class="layout__side">
+      <aside v-if="!testActive" class="layout__side">
         <!-- Что читать рядом. Сервер отдаёт только то, что этому человеку
              открыто, — отбирать здесь нечего. -->
         <section v-if="regulation.related?.length" class="card neighbours">
@@ -771,7 +755,6 @@ async function toggleReaders() {
   }
 }
 
-.readers,
 .files,
 .experts,
 .neighbours,
@@ -815,7 +798,6 @@ async function toggleReaders() {
   color: var(--color-accent);
 }
 
-.readers__title,
 .files__title {
   margin: 0 0 0.6rem;
   font-size: 1rem;
@@ -979,4 +961,5 @@ async function toggleReaders() {
   color: var(--color-success);
   font-weight: 550;
 }
+.layout.layout--test { grid-template-columns: minmax(0, 1fr); }
 </style>

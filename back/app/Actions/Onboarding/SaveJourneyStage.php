@@ -170,15 +170,22 @@ final readonly class SaveJourneyStage
 
             $meeting ??= new OnboardingJourneyMeeting(['journey_stage_id' => $stage->getKey()]);
 
+            $previousParticipants = $meeting->participantIds();
+            $participants = array_values(array_unique(array_map(intval(...), $data['participant_ids'] ?? array_filter([$data['with_user_id'] ?? null]))));
             $meeting->fill([
+                'participant_ids' => $participants,
                 'topic' => $data['topic'],
                 'format' => $data['format'],
                 'place' => $data['place'] ?? null,
-                'with_user_id' => $data['with_user_id'] ?? null,
+                'with_user_id' => $participants[0] ?? null,
                 'achievement_id' => $data['achievement_id'] ?? null,
             ])->save();
 
-            $this->keepTime($meeting, $data);
+            $participantsChanged = $previousParticipants !== $meeting->participantIds();
+            if ($participantsChanged && ! array_key_exists('scheduled_at', $data) && $meeting->scheduled_at !== null) {
+                $data['scheduled_at'] = $meeting->scheduled_at->toIso8601String();
+            }
+            $this->keepTime($meeting, $data, $participantsChanged);
 
             $kept[] = $meeting->getKey();
         }
@@ -200,7 +207,7 @@ final readonly class SaveJourneyStage
      *
      * @param  array{scheduled_at?: ?string}  $data
      */
-    private function keepTime(OnboardingJourneyMeeting $meeting, array $data): void
+    private function keepTime(OnboardingJourneyMeeting $meeting, array $data, bool $participantsChanged = false): void
     {
         if (! array_key_exists('scheduled_at', $data) || $meeting->isConfirmed()) {
             return;
@@ -216,7 +223,7 @@ final readonly class SaveJourneyStage
 
         $wanted = CarbonImmutable::parse($data['scheduled_at']);
 
-        if ($meeting->scheduled_at !== null && $wanted->equalTo($meeting->scheduled_at)) {
+        if (! $participantsChanged && $meeting->scheduled_at !== null && $wanted->equalTo($meeting->scheduled_at)) {
             return;
         }
 

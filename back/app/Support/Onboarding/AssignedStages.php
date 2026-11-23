@@ -17,7 +17,7 @@ final class AssignedStages
             ->where(function (Builder $q) use ($person): void {
                 $q->whereJsonContains('responsible_ids', (int) $person->id)
                     ->orWhereHas('tasks', fn ($tasks) => $tasks->where('confirm_by', 'responsible')->whereJsonContains('responsible_ids', (int) $person->id))
-                    ->orWhereHas('meetings', fn ($m) => $m->where('with_user_id', $person->id))
+                    ->orWhereHas('meetings', fn ($m) => $m->forParticipant((int) $person->id))
                     ->orWhereHas('journey.user', fn ($u) => $u->where('mentor_id', $person->id));
             });
     }

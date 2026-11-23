@@ -4,6 +4,7 @@ import type { SurveyOwner } from '~/composables/useSurveyApi'
 import type { LessonAnswerPayload, LessonPayload, QuizPayload, RegulationLink, SuggestedAnswer } from '~/types/lms'
 import type { SurveyPayload } from '~/types/survey'
 import { type UploadedMedia, withoutResolvedMedia } from '~/utils/editor/attachments'
+import { documentForEditing } from '~/utils/editor/document'
 
 definePageMeta({ middleware: 'auth', permission: 'courses.update' })
 
@@ -52,7 +53,7 @@ const form = ref<LessonPayload>({
 // the record holds attachment ids and never a signature that expires. Написанное
 // при этом переживает перечитывание урока — см. useArticleDocument.
 const { document, isDirty: hasArticleEdits } = useArticleDocument(lesson, value => ({
-  content: value.content_json ?? null,
+  content: documentForEditing(value.content_json, value.content),
   attachments: value.attachments ?? [],
 }))
 

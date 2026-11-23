@@ -43,7 +43,7 @@ final class RemindAboutOnboarding extends Command
                     continue;
                 }
                 $meetings = $stage->meetings->whereNull('confirmed_at');
-                $ids = collect($stage->responsible_ids ?? [])->merge($meetings->pluck('with_user_id'))
+                $ids = collect($stage->responsible_ids ?? [])->merge($meetings->flatMap(fn ($meeting) => $meeting->participantIds()))
                     ->merge($stage->tasks->where('confirm_by', TaskConfirmer::Responsible)->pluck('responsible_ids')->flatten())
                     ->push($journey->user?->mentor_id)->push($journey->user_id)->filter()->unique();
                 $title = ($stage->day_offset === null ? 'Этап '.$stage->position : 'День '.$stage->day_offset).': '.$stage->title;

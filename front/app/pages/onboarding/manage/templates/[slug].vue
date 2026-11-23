@@ -30,6 +30,7 @@ const { data, pending, error, refresh } = await useAsyncData(
 )
 
 const template = computed(() => data.value?.data ?? null)
+const { data: jobTitles } = await useAsyncData('onboarding.job-titles', () => api.fetchJobTitles())
 
 /**
  * Каталог значков — один на весь редактор: его спрашивают строки этапа, а
@@ -183,7 +184,7 @@ interface StageDraft {
   achievement_id: number | null
   quiz_achievement_id: number | null
   links: { type: string, id: number, title: string, is_required: boolean, day_offset: string | number, achievement_id: number | null }[]
-  meetings: { id: number | null, topic: string, format: string, place: string, with_user_id: number | null, with_name: string, with_role: string | null, achievement_id: number | null }[]
+  meetings: { id: number | null, topic: string, format: string, place: string, with_user_id: number | null, with_name: string, with_role: string | null, participant_ids: number[], scheduled_time: string, achievement_id: number | null }[]
   tasks: { id: number | null, text: string, responsible_ids: number[], confirm_by: string, is_required: boolean, achievement_id: number | null }[]
 }
 
@@ -235,6 +236,8 @@ function editStage(stage: TemplateStage) {
       topic: meeting.topic,
       format: meeting.format,
       place: meeting.place ?? '',
+      participant_ids: meeting.participant_ids ?? (meeting.with_user_id ? [meeting.with_user_id] : []),
+      scheduled_time: meeting.scheduled_time ?? '',
       with_user_id: meeting.with_user_id,
       with_name: meeting.with_name ?? '',
       with_role: meeting.with_role,
@@ -268,25 +271,9 @@ watch(materialToAdd, (value) => {
   materialToAdd.value = ''
 })
 
-const people = useDebouncedSearch<{ id: number, name: string }>(
-  async term => (await api.searchPeople(term)).data,
-)
 
-/** В какую встречу подставить найденного человека. */
-const meetingPicking = ref<number | null>(null)
 
-function pickPerson(person: { id: number, name: string }) {
-  const meeting = meetingPicking.value === null ? null : stageDraft.value?.meetings[meetingPicking.value]
 
-  if (meeting) {
-    meeting.with_user_id = person.id
-    meeting.with_name = person.name
-    meeting.with_role = null
-  }
-
-  people.clear()
-  meetingPicking.value = null
-}
 
 async function saveStage() {
   if (!stageDraft.value) {
@@ -317,7 +304,9 @@ async function saveStage() {
       topic: meeting.topic,
       format: meeting.format,
       place: meeting.place || null,
-      with_user_id: meeting.with_role ? null : meeting.with_user_id,
+      participant_ids: meeting.participant_ids,
+      scheduled_time: meeting.scheduled_time || null,
+      with_user_id: meeting.with_role ? null : meeting.participant_ids[0] ?? null,
       with_role: meeting.with_role,
       achievement_id: meeting.achievement_id,
     })),
@@ -477,10 +466,17 @@ async function removeQuiz(stageId: number) {
             <textarea id="t-desc" v-model.trim="form.description" class="input" rows="2" maxlength="2000" />
           </div>
 
+          <div class="field">
+            <label class="field-label" for="template-job-title">Должность для автоназначения <span class="field-optional">— необязательно</span></label>
+            <input id="template-job-title" v-model="form.job_title" class="input" maxlength="255" list="onboarding-job-titles" placeholder="Выберите должность или введите новую" aria-describedby="template-job-title-help">
+            <datalist id="onboarding-job-titles"><option v-for="title in jobTitles?.data ?? []" :key="title" :value="title" /></datalist>
+            <p id="template-job-title-help" class="faint">При создании сотрудника с этой должностью опубликованный шаблон назначится автоматически, если у сотрудника ещё нет этапов. Пустое поле — только ручное назначение. Если подходят несколько шаблонов, назначится самый новый опубликованный.</p>
+            <p v-if="headerErrors.job_title?.length" class="field__error">{{ headerErrors.job_title[0] }}</p>
+          </div>
+
           <details class="editor-disclosure"><summary>Расписание и правила</summary><div class="editor-section">
           <p class="faint">Версия {{ template.version }}<template v-if="template.parent_id"> · связана с предыдущей программой</template></p>
           <div class="field-pair">
-            <label class="field"><span class="field-label">Должность</span><input v-model="form.job_title" class="input" maxlength="255"></label>
             <label class="field"><span class="field-label">Магазин</span><input v-model="form.store" class="input" maxlength="255"></label>
           </div>
 
@@ -574,7 +570,7 @@ async function removeQuiz(stageId: number) {
                 <ul v-if="stage.meetings.length" class="plain">
                   <li v-for="meeting in stage.meetings" :key="meeting.id" class="plain__row">
                     <OnboardingItemIcon kind="meeting" class="plain__icon" />
-                    {{ meeting.topic }} — {{ meeting.with_role === 'mentor' ? 'наставник сотрудника' : meeting.with_name ?? 'не назначен' }}
+                    {{ meeting.topic }} — {{ [meeting.with_role === 'mentor' ? 'наставник сотрудника' : '', ...(meeting.participants ?? []).map(person => person.name)].filter(Boolean).join(', ') || meeting.with_name || 'не назначен' }}<span v-if="meeting.scheduled_time"> · {{ meeting.scheduled_time }}</span>
                   </li>
                 </ul>
                 <ul v-if="stage.tasks.length" class="plain">
@@ -726,55 +722,14 @@ async function removeQuiz(stageId: number) {
                 </div>
 
                 <div class="field">
-                  <span class="field-label">С кем</span>
-
-                  <label class="rows__toggle">
-                    <input
-                      :checked="meeting.with_role === 'mentor'"
-                      type="checkbox"
-                      @change="meeting.with_role = meeting.with_role === 'mentor' ? null : 'mentor'; if (meeting.with_role) { meeting.with_user_id = null; meeting.with_name = '' }"
-                    >
-                    С наставником сотрудника — подставится при наложении шаблона
-                  </label>
-
-                  <template v-if="meeting.with_role !== 'mentor'">
-                    <div v-if="meeting.with_user_id" class="chip chip--person">
-                      {{ meeting.with_name }}
-                      <button type="button" class="chip__drop" aria-label="Выбрать другого" @click="meeting.with_user_id = null; meeting.with_name = ''">
-                        ✕
-                      </button>
-                    </div>
-
-                    <!-- Подсказка поиска: видно, что он жив и что нашёл. -->
-                    <div v-else class="search">
-                      <input
-                        v-model="people.query.value"
-                        class="input"
-                        type="search"
-                        placeholder="Фамилия или имя"
-                        autocomplete="off"
-                        @focus="meetingPicking = index"
-                      >
-                      <ul v-if="meetingPicking === index && people.results.value.length" class="picker">
-                        <li v-for="person in people.results.value" :key="person.id">
-                          <button type="button" class="picker__option" @click="pickPerson(person)">
-                            {{ person.name }}
-                          </button>
-                        </li>
-                      </ul>
-                      <p v-else-if="meetingPicking === index && people.isSearching.value" class="search__note">
-                        Ищем…
-                      </p>
-                      <p v-else-if="meetingPicking === index && people.query.value.trim() !== ''" class="search__note">
-                        Никого не нашли — проверьте фамилию.
-                      </p>
-                    </div>
-                  </template>
-
-                  <p v-if="stageErrors[`meetings.${index}.with_user_id`]?.length" class="field-error">
-                    {{ stageErrors[`meetings.${index}.with_user_id`]?.[0] }}
-                  </p>
+                  <label class="field-label" :for="`meeting-time-${index}`">Время в день этапа <span class="field-optional">— необязательно</span></label>
+                  <input :id="`meeting-time-${index}`" v-model="meeting.scheduled_time" class="input" type="time">
+                  <p class="faint">Дата будет взята из календаря этапа. Часовой пояс маршрута — Москва.</p>
                 </div>
+                <OnboardingResponsibles v-model="meeting.participant_ids" label="Участники встречи" hint="Можно выбрать нескольких сотрудников. Стажёр уже участвует в своей встрече." />
+                <label class="rows__toggle"><input v-model="meeting.with_role" type="checkbox" true-value="mentor" :false-value="null">Также добавить наставника сотрудника — подставится при назначении маршрута</label>
+                <p v-if="stageErrors[`meetings.${index}.participant_ids`]?.length" class="field-error">{{ stageErrors[`meetings.${index}.participant_ids`]?.[0] }}</p>
+                <p v-if="stageErrors[`meetings.${index}.with_user_id`]?.length" class="field-error">{{ stageErrors[`meetings.${index}.with_user_id`]?.[0] }}</p>
 
                 <AchievementsSelect
                   v-if="achievements.length"
@@ -788,7 +743,7 @@ async function removeQuiz(stageId: number) {
               <button
                 type="button"
                 class="add-row"
-                @click="stageDraft.meetings.push({ id: null, topic: '', format: 'offline', place: '', with_user_id: null, with_name: '', with_role: null, achievement_id: null })"
+                @click="stageDraft.meetings.push({ id: null, topic: '', format: 'offline', place: '', participant_ids: [], scheduled_time: '', with_user_id: null, with_name: '', with_role: null, achievement_id: null })"
               >
                 + Добавить встречу
               </button>

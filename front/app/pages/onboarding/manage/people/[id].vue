@@ -168,6 +168,7 @@ interface StageDraft {
     place: string
     /** Значение поля «дата и время», в поясе браузера. Пусто — время уточняется. */
     scheduled_at: string
+    participant_ids: number[]
     with_user_id: number | null
     with_name: string
     achievement_id: number | null
@@ -224,6 +225,7 @@ function editStage(stage: JourneyStage) {
       format: String(item.meta.format ?? 'offline'),
       place: String(item.meta.place ?? ''),
       scheduled_at: toLocalInput(item.meta.scheduled_at),
+      participant_ids: item.meta.participant_ids ?? (item.meta.with ? [item.meta.with.id] : []),
       with_user_id: item.meta.with?.id ?? null,
       with_name: item.meta.with?.name ?? '',
       achievement_id: item.meta.achievement?.id ?? null,
@@ -278,23 +280,9 @@ watch(materialToAdd, (value) => {
   materialToAdd.value = ''
 })
 
-const people = useDebouncedSearch<{ id: number, name: string }>(
-  async term => (await api.searchPeople(term)).data,
-)
 
-const meetingPicking = ref<number | null>(null)
 
-function pickPerson(person: { id: number, name: string }) {
-  const meeting = meetingPicking.value === null ? null : stageDraft.value?.meetings[meetingPicking.value]
 
-  if (meeting) {
-    meeting.with_user_id = person.id
-    meeting.with_name = person.name
-  }
-
-  people.clear()
-  meetingPicking.value = null
-}
 
 async function saveStage() {
   if (!stageDraft.value) {
@@ -325,7 +313,8 @@ async function saveStage() {
       format: meeting.format,
       place: meeting.place || null,
       scheduled_at: fromLocalInput(meeting.scheduled_at),
-      with_user_id: meeting.with_user_id,
+      participant_ids: meeting.participant_ids,
+      with_user_id: meeting.participant_ids[0] ?? null,
       achievement_id: meeting.achievement_id,
     })),
     tasks: stageDraft.value.tasks.map(task => ({
@@ -838,45 +827,12 @@ function day(value: string | null): string {
                 <div class="field-pair">
                   <div class="field">
                     <label class="field-label" :for="`m-when-${index}`">
-                      Когда <span class="field-optional">— можно потом</span>
+                      Дата и время <span class="field-optional">— можно назначить позже</span>
                     </label>
                     <input :id="`m-when-${index}`" v-model="meeting.scheduled_at" type="datetime-local" class="input">
                   </div>
 
-                  <div class="field">
-                    <span class="field-label">С кем</span>
-
-                    <div v-if="meeting.with_user_id" class="chip chip--person">
-                      {{ meeting.with_name }}
-                      <button type="button" class="chip__drop" aria-label="Выбрать другого" @click="meeting.with_user_id = null; meeting.with_name = ''">
-                        ✕
-                      </button>
-                    </div>
-
-                    <div v-else class="search">
-                      <input
-                        v-model="people.query.value"
-                        class="input"
-                        type="search"
-                        placeholder="Фамилия или имя"
-                        autocomplete="off"
-                        @focus="meetingPicking = index"
-                      >
-                      <ul v-if="meetingPicking === index && people.results.value.length" class="picker">
-                        <li v-for="person in people.results.value" :key="person.id">
-                          <button type="button" class="picker__option" @click="pickPerson(person)">
-                            {{ person.name }}
-                          </button>
-                        </li>
-                      </ul>
-                      <p v-else-if="meetingPicking === index && people.isSearching.value" class="search__note">
-                        Ищем…
-                      </p>
-                      <p v-else-if="meetingPicking === index && people.query.value.trim() !== ''" class="search__note">
-                        Никого не нашли — проверьте фамилию.
-                      </p>
-                    </div>
-                  </div>
+                  <OnboardingResponsibles v-model="meeting.participant_ids" label="Участники встречи" hint="Можно выбрать нескольких сотрудников. Стажёр уже участвует в своей встрече." />
                 </div>
 
                 <AchievementsSelect
@@ -891,7 +847,7 @@ function day(value: string | null): string {
               <button
                 type="button"
                 class="add-row"
-                @click="stageDraft.meetings.push({ id: null, topic: '', format: 'offline', place: '', scheduled_at: '', with_user_id: null, with_name: '', achievement_id: null })"
+                @click="stageDraft.meetings.push({ id: null, topic: '', format: 'offline', place: '', scheduled_at: '', participant_ids: [], with_user_id: null, with_name: '', achievement_id: null })"
               >
                 + Добавить встречу
               </button>

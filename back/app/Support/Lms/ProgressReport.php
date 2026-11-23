@@ -12,8 +12,6 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\Regulation;
 use App\Models\User;
-use Illuminate\Contracts\Database\Query\Builder as QueryBuilder;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -46,9 +44,7 @@ final readonly class ProgressReport
         $lessonIds = $course->lessons()->pluck('lessons.id')->all();
         $quizIds = $this->quizIdsFor('lesson', $lessonIds);
 
-        $learners = $this->circle([
-            Enrollment::query()->where('course_id', $course->getKey())->select('user_id'),
-        ]);
+        $learners = app(MaterialAudience::class)->people($course);
 
         $enrollments = Enrollment::query()
             ->where('course_id', $course->getKey())
@@ -78,7 +74,7 @@ final readonly class ProgressReport
                 ...$this->person($learner),
 
                 'is_enrolled' => $enrollment !== null,
-                'status' => $this->status($enrollment, $done),
+                'status' => $this->status($enrollment, $done, $lessons),
                 'progress' => $lessons === 0 ? 0 : (int) round(min($done, $lessons) / $lessons * 100),
 
                 'lessons_done' => min($done, $lessons),
@@ -168,9 +164,8 @@ final readonly class ProgressReport
     /**
      * Один урок: кто его закрыл и чем кончился тест.
      *
-     * Круг тот же, что у курса, плюс отправлявшие ответы: попытка без записи
-     * на курс — редкость, но человек, который тест уже писал, не должен
-     * пропасть из списка только потому, что записи не нашлось.
+     * Круг тот же, что у курса: все допущенные сейчас, включая не открывавших
+     * урок. Прежние попытки не возвращают отозванный доступ в круг читателей.
      *
      * @return array{summary: array<string, int>, people: list<array<string, mixed>>}
      */
@@ -179,15 +174,7 @@ final readonly class ProgressReport
         $course = $lesson->course();
         $quiz = $lesson->loadMissing('quiz')->quiz;
 
-        $sources = $course === null ? [] : [
-            Enrollment::query()->where('course_id', $course->getKey())->select('user_id'),
-        ];
-
-        if ($quiz !== null) {
-            $sources[] = QuizAttempt::query()->where('quiz_id', $quiz->getKey())->select('user_id');
-        }
-
-        $learners = $this->circle($sources);
+        $learners = $course === null ? new EloquentCollection : app(MaterialAudience::class)->people($course);
 
         $completions = DB::table('lesson_completions')
             ->join('enrollments', 'enrollments.id', '=', 'lesson_completions.enrollment_id')
@@ -218,9 +205,8 @@ final readonly class ProgressReport
      * Документ или справочник: кто с ним ознакомился.
      *
      * Ознакомление — весь прогресс, какой у документа бывает; при проверке его
-     * заменяет сдача. Поэтому в списке стоят и отправлявшие ответы: не сдавший
-     * проверку не ознакомлен, но он к документу приходил, и молчать о нём
-     * значит терять ровно тех, с кем и надо разговаривать.
+     * заменяет сдача. В списке все допущенные сейчас, даже если ещё не открывали материал.
+     * Само открытие страницы не считается ознакомлением.
      *
      * @return array{summary: array<string, int>, people: list<array<string, mixed>>}
      */
@@ -244,19 +230,7 @@ final readonly class ProgressReport
         // коллекция, и об Eloquent она ничего не знает.
         $quizIds = $quizzes->map(static fn (Quiz $one): int => (int) $one->getKey())->all();
 
-        $sources = [
-            DB::table('regulation_acknowledgements')
-                ->where('regulation_id', $regulation->getKey())
-                ->select('user_id'),
-        ];
-
-        if ($quizzes->isNotEmpty()) {
-            $sources[] = QuizAttempt::query()
-                ->whereIn('quiz_id', $quizIds)
-                ->select('user_id');
-        }
-
-        $learners = $this->circle($sources);
+        $learners = app(MaterialAudience::class)->people($regulation);
 
         $acknowledgements = DB::table('regulation_acknowledgements')
             ->where('regulation_id', $regulation->getKey())
@@ -296,34 +270,6 @@ final readonly class ProgressReport
             'summary' => $this->materialSummary($people, $quizzes->first()),
             'people' => $this->ordered($people),
         ];
-    }
-
-    /**
-     * Круг людей, о которых идёт речь: начавшие и те, кому материал назначен
-     * планом (решение пользователя 2026-09-12).
-     *
-     * Не весь штат: документ открыт всякому, кто читает базу знаний, и «ещё не
-     * ознакомился» означало бы там расписание компании вместо отчёта. Не одни
-     * начавшие: тогда назначенный, но не открытый материал выглядел бы
-     * пройденным целиком — некому проваливать.
-     *
-     * @param  list<Builder<*>|QueryBuilder>  $sources  выборки номеров сотрудников
-     * @return EloquentCollection<int, User>
-     */
-    private function circle(array $sources): EloquentCollection
-    {
-        if ($sources === []) {
-            return new EloquentCollection;
-        }
-
-        return User::query()
-            ->employed()
-            ->where(function (Builder $query) use ($sources): void {
-                foreach ($sources as $source) {
-                    $query->orWhereIn('users.id', $source);
-                }
-            })
-            ->get();
     }
 
     /**
@@ -539,13 +485,13 @@ final readonly class ProgressReport
     /**
      * Приступал ли человек к курсу и дошёл ли до конца.
      */
-    private function status(?Enrollment $enrollment, int $completedLessons): string
+    private function status(?Enrollment $enrollment, int $completedLessons, int $lessons): string
     {
         if ($enrollment === null) {
             return 'not_started';
         }
 
-        if ($enrollment->isCompleted()) {
+        if ($lessons > 0 && $completedLessons >= $lessons) {
             return 'completed';
         }
 

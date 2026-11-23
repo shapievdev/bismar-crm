@@ -42,6 +42,8 @@ const props = defineProps<{
    * а не смотреть на запертую кнопку.
    */
   allowPartial?: boolean
+  /** A failed attempt can be retried only while attempts remain. */
+  canRetry?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -198,7 +200,7 @@ function retry() {
 </script>
 
 <template>
-  <section class="card quiz">
+  <section class="card quiz" data-material-test>
     <header>
       <!-- Таймер — у заголовка, а не в углу экрана: взгляд возвращается к
            вопросам, и время должно попадаться по пути. -->
@@ -240,7 +242,7 @@ function retry() {
       <!-- Разбор: где ошибка, видно сразу; верные ответы — нет. -->
       <QuizReviewPanel v-if="result.review" :review="result.review" />
 
-      <button v-if="!result.passed" type="button" class="button-secondary" @click="retry">
+      <button v-if="!result.passed && canRetry !== false" type="button" class="button-secondary" :disabled="isSubmitting" @click="retry">
         Попробовать снова
       </button>
     </template>

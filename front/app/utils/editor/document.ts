@@ -1,5 +1,27 @@
 import type { JSONContent } from '@tiptap/core'
 
+/** Legacy lessons keep plain text until the editor explicitly saves their block document. */
+export function documentForEditing(content: JSONContent | null | undefined, fallbackText?: string | null): JSONContent | null {
+  // A stored block document (even an intentionally empty one) always wins.
+  if (content != null) return content
+
+  const paragraphs = (fallbackText ?? '').replace(/\r\n?/g, '\n')
+    .split(/\n{2,}/).map(paragraph => paragraph.trim()).filter(Boolean)
+
+  if (!paragraphs.length) return null
+
+  return {
+    type: 'doc',
+    content: paragraphs.map(paragraph => ({
+      type: 'paragraph',
+      content: paragraph.split('\n').flatMap((line, index) => [
+        ...(index > 0 ? [{ type: 'hardBreak' }] : []),
+        ...(line ? [{ type: 'text', text: line }] : []),
+      ]),
+    })),
+  }
+}
+
 /**
  * Одинаковы ли два документа статьи.
  *

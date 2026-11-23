@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Lms\CoursePersonResource;
 use App\Models\Regulation;
 use App\Models\User;
+use App\Support\Lms\MaterialAudience;
 use App\Support\Lms\MaterialDues;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,19 +63,13 @@ final class RegulationAcknowledgementController extends Controller
         ]);
     }
 
-    /**
-     * Кто ознакомился — тому, кто регламент ведёт.
-     *
-     * Списка «кто ещё нет» здесь нет намеренно, в отличие от новости: у новости
-     * есть адресаты, а регламент открыт всем, кто читает базу знаний, и «ещё
-     * нет» означало бы весь штат за вычетом отметившихся. Кому именно правило
-     * обязательно — вопрос плана обучения, там и видно.
-     */
+    /** Список подтверждений среди допущенных сейчас; полная сводка — /readership. */
     public function index(Regulation $regulation): JsonResponse
     {
         Gate::authorize('update', $regulation);
 
         $people = $regulation->acknowledgements()
+            ->whereIn('user_id', app(MaterialAudience::class)->people($regulation)->modelKeys())
             ->with('user')
             ->get()
             ->map(function ($row) {

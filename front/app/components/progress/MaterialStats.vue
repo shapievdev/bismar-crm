@@ -51,7 +51,7 @@ const errorMessage = ref<string | null>(null)
 async function open() {
   isOpen.value = true
 
-  if (report.value || isLoading.value) {
+  if (isLoading.value) {
     return
   }
 
@@ -201,10 +201,9 @@ function day(value: string | null): string {
           {{ errorMessage }}
         </p>
 
-        <!-- Круг людей — начавшие и те, кому материал назначен планом. Весь штат
-             сюда не входит: документ открыт всякому, кто читает базу знаний. -->
+        <!-- Круг людей определяется текущим допуском к материалу. -->
         <p v-else-if="!people.length" class="faint">
-          Материал пока никто не открывал, и в планах обучения его нет.
+          Нет допущенных сотрудников с правом чтения материала.
         </p>
 
         <!-- Один человек: путь назад стоит первой строкой, чтобы из карточки

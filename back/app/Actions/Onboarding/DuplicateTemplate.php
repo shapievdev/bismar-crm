@@ -89,6 +89,8 @@ final readonly class DuplicateTemplate
                 'format' => $meeting->format,
                 'place' => $meeting->place,
                 'with_user_id' => $meeting->with_user_id,
+                'participant_ids' => $meeting->participantIds(),
+                'scheduled_time' => $meeting->scheduled_time,
                 'with_role' => $meeting->with_role,
                 'achievement_id' => $meeting->achievement_id,
             ]);
