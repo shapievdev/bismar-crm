@@ -34,6 +34,7 @@ function update(id: number, key: 'average_headcount' | 'retainable', event: Even
 const columns = [
   ['average_headcount', 'Среднесписочная', false], ['left', 'Уволилось', false], ['turnover', 'Текучка', true],
   ['interviews', 'Интервью', false], ['interview_coverage', 'Охват', true], ['retainable', 'Можно удержать', false],
+  ['rehire_recommended_count', 'К повторному приёму', false],
 ] as const
 </script>
 

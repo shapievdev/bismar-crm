@@ -370,7 +370,7 @@ const drift = computed(() => {
         </p>
       </div>
 
-      <AnalyticsStaffDismissals v-if="options" :query="query" />
+      <AnalyticsStaffDismissals v-if="options" :query="query" @period="query = { ...query, ...$event }" />
 
       <div v-if="pending" class="skeleton skeleton-block" />
 

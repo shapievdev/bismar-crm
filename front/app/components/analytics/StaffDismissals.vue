@@ -4,6 +4,7 @@ import type { DismissalDepartmentInput, StaffDismissalReport } from '~/types/sta
 import { ApiValidationError, toValidationError } from '~/composables/useAuth'
 
 const props = defineProps<{ query: StaffQuery }>()
+const emit = defineEmits<{ period: [value: { from: string, to: string }] }>()
 const { $api } = useNuxtApp()
 const { can } = useAuth()
 const { data, error, pending, refresh } = await useAsyncData('staff-dismissals',
@@ -13,30 +14,59 @@ const report = computed(() => data.value?.data)
 const editing = ref(false), saving = ref(false), message = ref('')
 const retainable = ref<number | string>(''), conditions = ref('')
 const rows = ref<DismissalDepartmentInput[]>([])
+const manualReport = ref<StaffDismissalReport | null>(null)
+const manualPeriod = reactive({ from: '', to: '' })
+const periodLoading = ref(false)
+const periodChanged = computed(() => !manualReport.value || manualPeriod.from !== manualReport.value.period.from || manualPeriod.to !== manualReport.value.period.to)
+function fillManual(value: StaffDismissalReport) {
+  manualReport.value = value
+  retainable.value = value.summary.retainable ?? ''
+  conditions.value = value.conditions_assessment ?? ''
+  rows.value = value.departments.map(row => ({ id: row.id, name: row.name, average_headcount: row.average_headcount ?? '', retainable: row.retainable ?? '' }))
+}
+async function loadManualPeriod() {
+  message.value = ''
+  if (!manualPeriod.from || !manualPeriod.to || manualPeriod.to < manualPeriod.from) {
+    message.value = 'Укажите начало и конец периода. Конец не может быть раньше начала.'
+    return
+  }
+  periodLoading.value = true
+  const period = { ...manualPeriod }, scope = JSON.stringify(props.query)
+  try {
+    const response = await $api<{ data: StaffDismissalReport }>('/api/analytics/staff/dismissals', { query: { ...props.query, ...period } })
+    if (editing.value && scope === JSON.stringify(props.query) && period.from === manualPeriod.from && period.to === manualPeriod.to) fillManual(response.data)
+  }
+  catch { message.value = 'Не удалось загрузить данные за выбранный период.' }
+  finally { periodLoading.value = false }
+}
 function number(value: number | null | undefined, percent = false) {
   return value == null ? '—' : `${value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}${percent ? '%' : ''}`
 }
 function edit() {
-  retainable.value = report.value?.summary.retainable ?? ''
-  conditions.value = report.value?.conditions_assessment ?? ''
-  rows.value = (report.value?.departments ?? []).map(row => ({ id: row.id, name: row.name,
-    average_headcount: row.average_headcount ?? '', retainable: row.retainable ?? '' }))
+  if (!report.value) return
+  fillManual(report.value)
+  Object.assign(manualPeriod, report.value.period)
   message.value = ''; editing.value = true
 }
 watch(() => props.query, () => { editing.value = false; message.value = '' })
 async function save() {
+  if (periodLoading.value || periodChanged.value || !manualReport.value) return
   saving.value = true; message.value = ''
   const applied = JSON.stringify(props.query)
   const nullable = (value: number | string) => value === '' ? null : Number(value)
   try {
     const saved = await $api<{ data: StaffDismissalReport }>('/api/analytics/staff/dismissals', {
-      method: 'PUT', query: props.query, body: {
+      method: 'PUT', query: { ...props.query, ...manualReport.value.period }, body: {
         retainable: nullable(retainable.value), conditions_assessment: conditions.value,
         department_values: rows.value.map(row => ({ id: row.id,
           average_headcount: nullable(row.average_headcount), retainable: nullable(row.retainable) })),
       },
     }).catch(toValidationError)
-    if (JSON.stringify(props.query) === applied) data.value = saved
+    if (JSON.stringify(props.query) === applied) {
+      const changed = saved.data.period.from !== report.value?.period.from || saved.data.period.to !== report.value?.period.to
+      if (changed) emit('period', saved.data.period)
+      else data.value = saved
+    }
     editing.value = false
   }
   catch (caught) { message.value = caught instanceof ApiValidationError ? caught.firstMessage : 'Не удалось сохранить данные. Попробуйте ещё раз.' }
@@ -71,6 +101,8 @@ function day(value: string) {
       </div>
       <div class="sd-status"><span>Ожидают анкету <b>{{ report.summary.pending }}</b></span><span>Без анкеты <b>{{ report.summary.without_survey }}</b></span><span v-if="report.summary.without_hire_date">Без даты приёма <b>{{ report.summary.without_hire_date }}</b></span></div>
 
+      <section class="sd-rehire-summary"><div><h3>Повторное трудоустройство</h3><p>Решение, указанное при увольнении или в карточке сотрудника</p></div><div class="sd-rehire-counts"><span>Да <b>{{ number(report.summary.rehire_recommended_count) }}</b></span><span>Нет <b>{{ number(report.summary.rehire_not_recommended_count) }}</b></span><span>Не указано <b>{{ number(report.summary.rehire_unset_count) }}</b></span></div></section>
+
       <section class="sd-departments">
         <div class="sd-block-heading"><div><h3>Увольнения по подразделениям</h3><p>Структура компании. Нажмите на подразделение, чтобы раскрыть вложенные отделы.</p></div></div>
         <AnalyticsStaffDismissalDepartments :departments="report.departments" />
@@ -82,14 +114,16 @@ function day(value: string) {
         <section class="sd-insight"><div class="sd-detail-heading"><h3>Оценка условий</h3><span class="sd-badge">Ручной ввод</span></div><p class="sd-assessment" :class="{ 'sd-empty': !report.conditions_assessment }">{{ report.conditions_assessment || 'Оценка за этот период пока не внесена.' }}</p><button v-if="report.can_edit && !report.conditions_assessment" type="button" class="button-secondary button-sm" @click="edit">Добавить оценку</button></section>
       </div>
       <details v-if="report.interview_reasons.length" class="sd-explanation"><summary>Причины из выходных анкет <span>{{ report.interview_reasons.length }}</span></summary><p>Одинаковые формулировки объединены. Доли рассчитаны от прошедших интервью.</p><div v-for="reason in report.interview_reasons" :key="reason.label" class="sd-written-reason"><span>{{ reason.label }}</span><strong>{{ reason.count }} чел. · {{ number(reason.share, true) }}</strong></div></details>
+      <AnalyticsStaffRehireRecommendations :query="query" :count="report.summary.rehire_recommended_count" />
       <details class="sd-explanation"><summary>Как считаются показатели</summary><ul><li>Охват интервью — заполненные анкеты / все уволившиеся × 100%.</li><li>Доля удерживаемых — введённое количество / прошедшие интервью × 100%.</li><li>Ранний уход — увольнение до трёх календарных месяцев с даты приёма. Доля — от всех увольнений.</li><li>Текучка подразделения — уволившиеся / ручная среднесписочная × 100%.</li><li>«—» означает, что данных для расчёта пока нет. «Без анкеты» включает не прошедших стажировку и старые увольнения.</li></ul></details>
     </template>
     <AppSheet :open="editing" title="Данные отчёта об увольнениях" hint="Значения сохраняются для выбранного периода и фильтров." wide @close="!saving && (editing = false)">
       <form class="sd-manual-form" @submit.prevent="save">
-        <div class="sd-manual-summary"><label>Можно было удержать, человек<input v-model="retainable" class="input" type="number" min="0" :max="report?.summary.interviews" step="1" placeholder="Не указано"></label><p>Количество сотрудников, которых можно было удержать, среди прошедших интервью.</p></div>
-        <label>Оценка условий<textarea v-model="conditions" class="input" rows="4" maxlength="5000" placeholder="Внесите оценку условий за период" /></label>
-        <section><h3>По подразделениям</h3><p class="sd-description">Для родительского отдела укажите данные по всей ветке. Связанные отделы можно раскрыть.</p><AnalyticsStaffDismissalDepartments v-if="report" v-model="rows" :departments="report.departments" editing :disabled="saving" /></section>
-        <p v-if="message" role="alert" class="alert alert--danger">{{ message }}</p><div class="sd-actions sd-form-actions"><button class="button-primary" :disabled="saving">{{ saving ? 'Сохраняем…' : 'Сохранить' }}</button><button type="button" class="button-secondary" :disabled="saving" @click="editing = false">Отмена</button></div>
+        <section class="sd-period"><h3>Период отчёта</h3><div class="sd-period-fields"><label>С<input v-model="manualPeriod.from" class="input" type="date" required :disabled="saving || periodLoading"></label><label>По<input v-model="manualPeriod.to" class="input" type="date" required :min="manualPeriod.from" :disabled="saving || periodLoading"></label><button v-if="periodChanged" type="button" class="button-secondary" :disabled="saving || periodLoading" @click="loadManualPeriod">{{ periodLoading ? 'Загружаем…' : 'Загрузить период' }}</button></div><p v-if="periodChanged" class="sd-description">Загрузите выбранный период перед вводом данных. Это заменит несохранённые значения.</p></section>
+        <div class="sd-manual-summary"><label>Можно было удержать, человек<input v-model="retainable" :disabled="saving || periodLoading || periodChanged" class="input" type="number" min="0" :max="manualReport?.summary.interviews" step="1" placeholder="Не указано"></label><p>Количество сотрудников, которых можно было удержать, среди прошедших интервью.</p></div>
+        <label>Оценка условий<textarea v-model="conditions" :disabled="saving || periodLoading || periodChanged" class="input" rows="4" maxlength="5000" placeholder="Внесите оценку условий за период" /></label>
+        <section><h3>По подразделениям</h3><p class="sd-description">Для родительского отдела укажите данные по всей ветке. Связанные отделы можно раскрыть.</p><AnalyticsStaffDismissalDepartments v-if="manualReport" v-model="rows" :departments="manualReport.departments" editing :disabled="saving || periodLoading || periodChanged" /></section>
+        <p v-if="message" role="alert" class="alert alert--danger">{{ message }}</p><div class="sd-actions sd-form-actions"><button class="button-primary" :disabled="saving || periodLoading || periodChanged">{{ saving ? 'Сохраняем…' : 'Сохранить' }}</button><button type="button" class="button-secondary" :disabled="saving" @click="editing = false">Отмена</button></div>
       </form>
     </AppSheet>
   </section>
@@ -143,6 +177,15 @@ function day(value: string) {
 .sd-written-reason { display: flex; align-items: start; justify-content: space-between; gap: 18px; padding: 12px 0; border-top: 1px solid var(--color-border); }
 .sd-written-reason span { overflow-wrap: anywhere; }
 .sd-written-reason strong { flex-shrink: 0; font-weight: 500; }
+.sd-rehire-summary { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 20px 0; margin-bottom: 4px; border-top: 1px solid var(--color-border); flex-wrap: wrap; }
+.sd-rehire-summary h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.sd-rehire-summary p { margin: 7px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.6; }
+.sd-rehire-counts { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--color-text-muted); }
+.sd-rehire-counts span { padding: 8px 12px; border-radius: 12px; background: var(--control-surface); }
+.sd-rehire-counts b { color: var(--color-text); font-weight: 500; margin-left: 8px; }
+.sd-period-fields { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+.sd-period-fields label { flex: 1 1 160px; }
+.sd-period-fields input { width: 100%; }
 .sd-manual-form { display: grid; gap: 24px; }
 .sd-manual-form label { display: grid; gap: 10px; font-size: 13px; }
 .sd-manual-form .input { min-width: 0; width: 100%; font-size: 14px; }

@@ -40,7 +40,7 @@ final readonly class ChangeEmployment
      *
      * @throws ConflictException
      */
-    public function dismiss(User $user, User $actor, ?DismissalReason $reason = null, bool $sendSurvey = true): User
+    public function dismiss(User $user, User $actor, ?DismissalReason $reason = null, bool $sendSurvey = true, ?bool $rehireRecommended = null): User
     {
         if ($user->isDismissed()) {
             throw new ConflictException('Сотрудник уже уволен.');
@@ -57,7 +57,7 @@ final readonly class ChangeEmployment
 
         $reason = $sendSurvey ? $reason : DismissalReason::ProbationFailed;
 
-        DB::transaction(function () use ($user, $actor, $reason, $sendSurvey): void {
+        DB::transaction(function () use ($user, $actor, $reason, $sendSurvey, $rehireRecommended): void {
             $locked = User::query()->lockForUpdate()->findOrFail($user->getKey());
             if ($locked->isDismissed()) {
                 throw new ConflictException('Сотрудник уже уволен.');
@@ -66,6 +66,9 @@ final readonly class ChangeEmployment
                 'dismissed_at' => now(),
                 'dismissed_by_id' => $actor->getKey(),
                 'dismissal_reason' => $reason,
+                'rehire_recommended' => $rehireRecommended,
+                'rehire_recommended_at' => $rehireRecommended === null ? null : now(),
+                'rehire_recommended_by_id' => $rehireRecommended === null ? null : $actor->id,
             ])->save();
 
             if ($sendSurvey) {
@@ -75,7 +78,7 @@ final readonly class ChangeEmployment
                     'employee' => ['name' => $user->name, 'job_title' => $user->job_title,
                         'department' => $user->departments()->pluck('name')->implode(', '),
                         'department_ids' => $user->departments()->pluck('departments.id')->all(),
-                        'hired_at' => $user->hired_at?->toDateString()],
+                        'hired_at' => $user->hired_at?->toDateString(), 'rehire_recommended' => $rehireRecommended],
                     'definition' => Definition::make(),
                 ]);
             }
@@ -155,10 +158,35 @@ final readonly class ChangeEmployment
                 // Причина уходит вместе с увольнением: вернувшийся не «ушедший по
                 // собственному, который передумал», а работающий сотрудник.
                 'dismissal_reason' => null,
+                'rehire_recommended' => null,
+                'rehire_recommended_at' => null,
+                'rehire_recommended_by_id' => null,
             ])->save();
         });
 
         return $user->load('roles', 'permissions');
+    }
+
+    public function setRehireRecommendation(User $user, User $actor, bool $recommended): User
+    {
+        $this->ensureStandingMayBeTouchedBy($user, $actor);
+
+        DB::transaction(function () use ($user, $actor, $recommended): void {
+            $locked = User::query()->lockForUpdate()->findOrFail($user->getKey());
+            if (! $locked->isDismissed()) {
+                throw new ConflictException('Рекомендация задаётся только для уволенного сотрудника.');
+            }
+            $locked->forceFill([
+                'rehire_recommended' => $recommended,
+                'rehire_recommended_at' => now(),
+                'rehire_recommended_by_id' => $actor->id,
+            ])->save();
+            foreach ($locked->exitSurveys()->where('dismissed_at', $locked->dismissed_at)->whereNull('cancelled_at')->get() as $survey) {
+                $survey->forceFill(['employee' => [...$survey->employee, 'rehire_recommended' => $recommended]])->save();
+            }
+        });
+
+        return $user->refresh()->load('roles', 'permissions');
     }
 
     /**

@@ -78,6 +78,8 @@ export interface User {
   /** Полных месяцев в компании. Пусто, когда неизвестна дата приёма. */
   tenure_months: number | null
   /** Почему ушёл. Пусто у работающих и у уволенных до того, как причину спрашивали. */
+  rehire_recommended?: boolean | null
+  rehire_recommended_at?: string | null
   dismissal_reason: string | null
   dismissal_reason_label: string | null
   /** Кто ведёт этого человека. Приходит с карточки сотрудника. */

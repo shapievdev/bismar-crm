@@ -1,4 +1,7 @@
 export interface DismissalMetrics {
+  rehire_recommended_count: number
+  rehire_not_recommended_count: number
+  rehire_unset_count: number
   left: number
   interviews: number
   interview_coverage: number | null
@@ -33,4 +36,9 @@ export interface DismissalDepartmentInput {
   name: string
   average_headcount: number | string
   retainable: number | string
+}
+
+export interface RehireRecommendationList {
+  data: { id: number, name: string, job_title: string | null, departments: string[], dismissed_at: string, recommended_at: string | null }[]
+  meta: { current_page: number, last_page: number, total: number }
 }

@@ -90,6 +90,9 @@ final readonly class DismissalReport
 
         return [
             'left' => $people->count(), 'interviews' => $interviews,
+            'rehire_recommended_count' => $people->filter(fn ($person) => $person->rehire_recommended === true)->count(),
+            'rehire_not_recommended_count' => $people->filter(fn ($person) => $person->rehire_recommended === false)->count(),
+            'rehire_unset_count' => $people->filter(fn ($person) => $person->rehire_recommended === null)->count(),
             'interview_coverage' => $this->percent($interviews, $people->count()),
             'retainable' => $retainable,
             'retainable_share' => $retainable !== null ? $this->percent($retainable, $interviews) : null,

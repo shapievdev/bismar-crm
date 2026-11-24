@@ -88,11 +88,16 @@ export function useAdminApi() {
      * когда кадровик решит, какой из шести пунктов ближе. Без неё он просто не
      * попадёт в доли причин — отчёт называет число таких отдельно.
      */
-    dismissUser: (user: User, reason?: string | null, surveyAction: 'send' | 'failed-internship' = 'send'): Promise<ResourceResponse<User>> =>
+    dismissUser: (user: User, reason?: string | null, surveyAction: 'send' | 'failed-internship' = 'send', rehireRecommended: boolean | null = null): Promise<ResourceResponse<User>> =>
       $api<ResourceResponse<User>>(`/api/users/${user.id}/dismissal`, {
         method: 'POST',
-        body: { reason: reason || null, survey_action: surveyAction },
+        body: { reason: reason || null, survey_action: surveyAction, rehire_recommended: rehireRecommended },
       }),
+
+    updateRehireRecommendation: (user: User, recommended: boolean): Promise<ResourceResponse<User>> =>
+      $api<ResourceResponse<User>>(`/api/users/${user.id}/rehire-recommendation`, {
+        method: 'PUT', body: { rehire_recommended: recommended },
+      }).catch(toValidationError),
 
     /**
      * Правка дня увольнения.

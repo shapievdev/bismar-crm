@@ -79,6 +79,7 @@ final class StaffCard
             'dismissed_at' => $user->dismissed_at?->toDateString(),
             'dismissal_reason' => $user->dismissal_reason?->value,
             'dismissal_reason_label' => $user->dismissal_reason?->label(),
+            'rehire_recommended' => $user->isDismissed() ? $user->rehire_recommended : null,
             'dismissed_by' => $user->relationLoaded('dismissedBy') ? $user->dismissedBy?->name : null,
             'deleted_at' => $user->deleted_at?->toDateString(),
 

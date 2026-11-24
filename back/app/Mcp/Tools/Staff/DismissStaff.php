@@ -46,6 +46,7 @@ final class DismissStaff extends BismarTool
         $input = $request->validate([
             'employee_id' => ['required', 'integer'],
             'survey_action' => ['sometimes', 'in:send,failed-internship'],
+            'rehire_recommended' => ['sometimes', 'nullable', 'boolean'],
             'reason' => ['nullable', 'in:'.implode(',', array_column(DismissalReason::cases(), 'value'))],
             'dismissed_at' => ['nullable', 'date', 'before_or_equal:today'],
         ]);
@@ -60,6 +61,7 @@ final class DismissStaff extends BismarTool
                     ? DismissalReason::ProbationFailed
                     : (($input['reason'] ?? null) === null ? null : DismissalReason::from((string) $input['reason'])),
                 ($input['survey_action'] ?? 'send') === 'send',
+                isset($input['rehire_recommended']) ? (bool) $input['rehire_recommended'] : null,
             );
 
             // День ухода — тем же действием, что и правка: увольнение ставит
@@ -85,6 +87,7 @@ final class DismissStaff extends BismarTool
     {
         return [
             'employee_id' => $schema->integer()->required()->description('Номер сотрудника.'),
+            'rehire_recommended' => $schema->boolean()->description('Рекомендован к повторному трудоустройству: true — да, false — нет. Без параметра решение не указано.'),
             'survey_action' => $schema->string()->enum(['send', 'failed-internship'])
                 ->description('send — назначить выходную анкету; failed-internship — не прошёл стажировку, закрыть доступ без анкеты.'),
             'reason' => $schema->string()

@@ -7,8 +7,10 @@ namespace App\Http\Controllers\Api\Analytics;
 use App\Enums\Permission;
 use App\Http\Controllers\Controller;
 use App\Models\StaffDismissalReportInput;
+use App\Support\Search\Substring;
 use App\Support\Staff\DismissalReport;
 use App\Support\Staff\StaffQuery;
+use App\Support\Staff\StaffReport;
 use App\Support\Staff\StaffScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +25,29 @@ final class StaffDismissalController extends Controller
         abort_unless($this->scope->allows($request->user()), 403);
 
         return $this->response($request);
+    }
+
+    public function recommended(Request $request, StaffReport $staff): JsonResponse
+    {
+        abort_unless($this->scope->allows($request->user()), 403);
+        $input = $request->validate(['page' => ['nullable', 'integer', 'min:1'], 'search' => ['nullable', 'string', 'max:200']]);
+        $filters = $this->query->from($request, $request->user());
+        $people = $staff->matching($filters)->whereBetween('dismissed_at', [$filters->from, $filters->to])
+            ->where('rehire_recommended', true)->with('departments:id,name');
+        Substring::apply($people, $input['search'] ?? null, ["concat_ws(' ', last_name, first_name, middle_name)"]);
+        $page = $people->orderBy('last_name')->orderBy('first_name')->orderBy('id')->paginate(25);
+
+        return response()->json([
+            'data' => $page->getCollection()->map(fn ($person) => [
+                'id' => $person->id, 'name' => $person->name, 'job_title' => $person->job_title,
+                'departments' => $person->departments
+                    ->when($filters->departmentIds !== null, fn ($rows) => $rows->whereIn('id', $filters->departmentIds))
+                    ->pluck('name')->values()->all(),
+                'dismissed_at' => $person->dismissed_at->toDateString(),
+                'recommended_at' => $person->rehire_recommended_at?->toDateString(),
+            ]),
+            'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total()],
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function update(Request $request): JsonResponse

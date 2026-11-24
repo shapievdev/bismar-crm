@@ -1216,6 +1216,7 @@ Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): v
          * возвращает в строй.
          */
         Route::post('users/{user}/dismissal', [UserController::class, 'dismiss'])->name('users.dismiss');
+        Route::put('users/{user}/rehire-recommendation', [UserController::class, 'updateRehireRecommendation'])->name('users.rehire.update');
         Route::put('users/{user}/dismissal', [UserController::class, 'updateDismissal'])->name('users.dismissal.update');
         Route::delete('users/{user}/dismissal', [UserController::class, 'reinstate'])->name('users.reinstate');
 
@@ -1324,6 +1325,7 @@ Route::middleware([
 Route::middleware(['auth:sanctum', EnsureEmployed::class])->group(function (): void {
     Route::get('analytics/staff', StaffController::class)->name('analytics.staff');
     Route::get('analytics/staff/dismissals', [\App\Http\Controllers\Api\Analytics\StaffDismissalController::class, 'show'])->name('analytics.staff.dismissals');
+    Route::get('analytics/staff/dismissals/rehire', [\App\Http\Controllers\Api\Analytics\StaffDismissalController::class, 'recommended'])->name('analytics.staff.dismissals.rehire');
     Route::put('analytics/staff/dismissals', [\App\Http\Controllers\Api\Analytics\StaffDismissalController::class, 'update'])->name('analytics.staff.dismissals.update');
 
     // Люди за цифрой — отдельным адресом: это персональные данные, и присылать

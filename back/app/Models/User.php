@@ -410,6 +410,8 @@ class User extends Authenticatable implements OAuthenticatable
         return [
             'email_verified_at' => 'datetime',
             'dismissed_at' => 'datetime',
+            'rehire_recommended' => 'boolean',
+            'rehire_recommended_at' => 'datetime',
             'password' => 'hashed',
 
             // Приём — дата, а не мгновение: кадровик знает день, а не час.

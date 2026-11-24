@@ -202,6 +202,7 @@ final class UserController extends Controller
          */
         $input = $request->validate([
             'survey_action' => ['sometimes', Rule::in(['send', 'failed-internship'])],
+            'rehire_recommended' => ['sometimes', 'nullable', 'boolean'],
             'reason' => ['nullable', Rule::enum(DismissalReason::class)],
         ]);
         $sendSurvey = ($input['survey_action'] ?? 'send') === 'send';
@@ -212,6 +213,16 @@ final class UserController extends Controller
             $actor,
             $reason === null ? null : DismissalReason::from((string) $reason),
             $sendSurvey,
+            isset($input['rehire_recommended']) ? (bool) $input['rehire_recommended'] : null,
+        ));
+    }
+
+    public function updateRehireRecommendation(Request $request, User $user, ChangeEmployment $employment): UserResource
+    {
+        $input = $request->validate(['rehire_recommended' => ['required', 'boolean']]);
+
+        return UserResource::make($employment->setRehireRecommendation(
+            $user, $request->user(), (bool) $input['rehire_recommended'],
         ));
     }
 

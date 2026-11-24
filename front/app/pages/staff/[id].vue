@@ -18,6 +18,7 @@ const {
   updateAccess,
   dismissUser,
   updateDismissalDate,
+  updateRehireRecommendation,
   reinstateUser,
   deleteUser,
 } = useAdminApi()
@@ -444,8 +445,22 @@ function tenure(months: number): string {
 }
 
 const dismissalOpen = ref(false)
+const dismissalRehire = ref<'' | 'yes' | 'no'>('')
+const rehireEditOpen = ref(false)
+const rehireEditChoice = ref<'' | 'yes' | 'no'>('')
+function openRehireEditor() {
+  rehireEditChoice.value = member.value?.rehire_recommended == null ? '' : member.value.rehire_recommended ? 'yes' : 'no'
+  errorMessage.value = null
+  rehireEditOpen.value = true
+}
+async function saveRehireRecommendation() {
+  if (!member.value || rehireEditChoice.value === '') return
+  await act(() => updateRehireRecommendation(member.value!, rehireEditChoice.value === 'yes'), 'Не удалось сохранить рекомендацию.')
+  if (!errorMessage.value) rehireEditOpen.value = false
+}
 
 async function dismiss(surveyAction: 'send' | 'failed-internship') {
+  if (dismissalRehire.value === '') return
   const person = member.value
 
   if (!person) {
@@ -462,9 +477,10 @@ async function dismiss(surveyAction: 'send' | 'failed-internship') {
   })
 
   if (confirmed) {
-    await act(() => dismissUser(person, dismissalReason.value, surveyAction), 'Не удалось уволить сотрудника.')
+    await act(() => dismissUser(person, dismissalReason.value, surveyAction, dismissalRehire.value === 'yes'), 'Не удалось уволить сотрудника.')
 
     dismissalReason.value = ''
+    dismissalRehire.value = ''
     dismissalOpen.value = false
   }
 }
@@ -575,6 +591,8 @@ async function afterChange() {
             <span v-else class="badge" :class="{ 'badge--highlight': member.level !== 'user' }">
               {{ member.level_label }}
             </span>
+            <span v-if="member.dismissed_at" class="badge rehire-status">Рекомендован к повторному трудоустройству: {{ member.rehire_recommended == null ? 'Не указано' : member.rehire_recommended ? 'Да' : 'Нет' }}</span>
+            <button v-if="member.dismissed_at && canManage && isAdmin && mayDismiss" type="button" class="button-secondary button-sm" :disabled="isBusy" @click="openRehireEditor">{{ member.rehire_recommended == null ? 'Указать рекомендацию' : 'Изменить рекомендацию' }}</button>
           </div>
         </div>
 
@@ -646,11 +664,12 @@ async function afterChange() {
                 Уволить
               </button>
               <AppSheet :open="dismissalOpen" title="Увольнение сотрудника" @close="dismissalOpen = false">
+                <fieldset class="rehire-choice"><legend>Рекомендован к повторному трудоустройству?</legend><label><input v-model="dismissalRehire" type="radio" name="rehire-on-dismissal" value="yes"> Да</label><label><input v-model="dismissalRehire" type="radio" name="rehire-on-dismissal" value="no"> Нет</label></fieldset>
                 <p>Назначить сотруднику выходную анкету?</p>
                 <UiSelect v-model="dismissalReason" :options="DISMISSAL_REASONS" auto />
                 <div class="actions" style="margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap">
-                  <button class="button-primary" :disabled="isBusy" @click="dismiss('send')">Выслать анкету</button>
-                  <button class="button-secondary" :disabled="isBusy" @click="dismiss('failed-internship')">Не прошёл стажировку</button>
+                  <button class="button-primary" :disabled="isBusy || dismissalRehire === ''" @click="dismiss('send')">Выслать анкету</button>
+                  <button class="button-secondary" :disabled="isBusy || dismissalRehire === ''" @click="dismiss('failed-internship')">Не прошёл стажировку</button>
                   <button class="button-secondary" :disabled="isBusy" @click="dismissalOpen = false">Отмена</button>
                 </div>
               </AppSheet>
@@ -658,6 +677,13 @@ async function afterChange() {
           </template>
         </div>
       </header>
+
+      <AppSheet :open="rehireEditOpen" title="Повторное трудоустройство" @close="!isBusy && (rehireEditOpen = false)">
+        <p>{{ member.name }}</p>
+        <fieldset class="rehire-choice"><legend>Рекомендован к повторному трудоустройству?</legend><label><input v-model="rehireEditChoice" type="radio" name="rehire-edit" value="yes" :disabled="isBusy"> Да</label><label><input v-model="rehireEditChoice" type="radio" name="rehire-edit" value="no" :disabled="isBusy"> Нет</label></fieldset>
+        <p v-if="errorMessage" role="alert" class="auth-alert">{{ errorMessage }}</p>
+        <button type="button" class="button-primary" :disabled="isBusy || rehireEditChoice === ''" @click="saveRehireRecommendation">{{ isBusy ? 'Сохраняем…' : 'Сохранить рекомендацию' }}</button>
+      </AppSheet>
 
       <p v-if="errorMessage" class="auth-alert" role="alert">
         {{ errorMessage }}
@@ -912,6 +938,11 @@ async function afterChange() {
 </template>
 
 <style scoped>
+.rehire-status { white-space: normal; line-height: 1.5; max-width: 100%; }
+.rehire-choice { border: 1px solid var(--color-border); border-radius: 16px; padding: 18px; margin: 16px 0 24px; display: flex; gap: 24px; flex-wrap: wrap; }
+.rehire-choice legend { padding: 0 6px; font-size: 14px; line-height: 1.5; }
+.rehire-choice label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+
 /* Полка значков читается в ряд, а не в колонку рядом с «что доступно»: на
    широком экране она занимает всю ширину сетки карточек. */
 .panel--wide {

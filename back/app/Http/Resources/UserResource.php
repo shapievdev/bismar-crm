@@ -132,6 +132,8 @@ final class UserResource extends JsonResource
             'dismissed_at' => $this->dismissed_at?->toIso8601String(),
             'dismissal_reason' => $this->dismissal_reason?->value,
             'dismissal_reason_label' => $this->dismissal_reason?->label(),
+            'rehire_recommended' => $this->isDismissed() ? $this->rehire_recommended : null,
+            'rehire_recommended_at' => $this->isDismissed() ? $this->rehire_recommended_at?->toIso8601String() : null,
 
             /*
              * Когда запись удалили и кто. Пусто у всех, кого видно: удаление

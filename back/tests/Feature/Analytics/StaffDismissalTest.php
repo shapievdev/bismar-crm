@@ -64,6 +64,11 @@ final class StaffDismissalTest extends TestCase
         $this->putJson($this->url(), [...$payload, 'retainable' => '1'])->assertOk()->assertJsonPath('data.summary.retainable', 1);
         $this->getJson($this->url())->assertJsonPath('data.conditions_assessment', '4 из 5')->assertJsonPath('data.summary.retainable', 1);
         $this->getJson($this->url(['to' => '2026-11-29']))->assertJsonPath('data.summary.retainable', null);
+        $this->putJson($this->url(['from' => '2026-10-01', 'to' => '2026-10-31']), [
+            'retainable' => null, 'conditions_assessment' => 'Оценка октября',
+            'department_values' => [['id' => $d->id, 'average_headcount' => 5, 'retainable' => null]],
+        ])->assertOk()->assertJsonPath('data.conditions_assessment', 'Оценка октября');
+        $this->getJson($this->url())->assertJsonPath('data.conditions_assessment', '4 из 5');
         $this->putJson($this->url(), [...$payload, 'retainable' => 2])->assertUnprocessable();
         $this->putJson($this->url(), [...$payload, 'retainable' => 0])->assertOk()->assertJsonPath('data.summary.retainable', 0);
     }
@@ -91,12 +96,14 @@ final class StaffDismissalTest extends TestCase
         $first = Department::factory()->create(['name' => 'Розница', 'parent_id' => $root->id]);
         $second = Department::factory()->create(['name' => 'Касса', 'parent_id' => $root->id]);
         $person = $this->leaver($first);
+        $person->forceFill(['rehire_recommended' => true])->save();
         $person->departments()->attach($second, ['role' => 'member']);
         $this->survey($person);
         $response = $this->actingAs($this->administrator())->getJson($this->url())->assertOk();
         $rows = collect($response->json('data.departments'))->keyBy('id');
         $this->assertSame(1, $rows[$root->id]['left']);
         $this->assertSame(1, $rows[$root->id]['interviews']);
+        $this->assertSame(1, $rows[$root->id]['rehire_recommended_count']);
         $this->assertSame(1, $rows[$first->id]['left']);
         $this->assertSame(1, $rows[$second->id]['left']);
         $this->assertSame($root->id, $rows[$first->id]['parent_id']);
