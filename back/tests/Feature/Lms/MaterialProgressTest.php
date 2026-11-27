@@ -55,12 +55,12 @@ final class MaterialProgressTest extends TestCase
 
         $summary = $response->json('data.summary');
 
-        $this->assertSame(3, $summary['people']);
+        $this->assertSame(2, $summary['people']);
         $this->assertSame(4, $summary['lessons']);
         $this->assertSame(1, $summary['in_progress']);
-        $this->assertSame(2, $summary['not_started']);
-        // Два урока из четырёх у одного; ещё двое допущенных не начинали.
-        $this->assertSame(17, $summary['average_progress']);
+        $this->assertSame(1, $summary['not_started']);
+        // Два урока из четырёх у одного; второй назначенный не начинал.
+        $this->assertSame(25, $summary['average_progress']);
 
         $people = collect($response->json('data.people'))->keyBy('id');
 
@@ -98,10 +98,10 @@ final class MaterialProgressTest extends TestCase
             ->assertOk()
             ->json('data.people');
 
-        $this->assertSame($done->id, $people[2]['id']);
-        $this->assertContains($waiting->id, array_column(array_slice($people, 0, 2), 'id'));
-        $this->assertSame('completed', $people[2]['status']);
-        $this->assertSame(100, $people[2]['progress']);
+        $this->assertSame($done->id, $people[1]['id']);
+        $this->assertContains($waiting->id, array_column(array_slice($people, 0, 1), 'id'));
+        $this->assertSame('completed', $people[1]['status']);
+        $this->assertSame(100, $people[1]['progress']);
     }
 
     /** Уволенный уходит из отчёта: спрашивать с него уже нечего. */
@@ -115,7 +115,7 @@ final class MaterialProgressTest extends TestCase
         $this->actingAs($this->administrator())
             ->getJson(route('lms.courses.progress', $course))
             ->assertOk()
-            ->assertJsonPath('data.summary.people', 1)
+            ->assertJsonPath('data.summary.people', 0)
             ->assertJsonMissing(['id' => $gone->id]);
     }
 
@@ -204,7 +204,7 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.lessons.progress', $lesson))
             ->assertOk();
 
-        $this->assertSame(3, $response->json('data.summary.people'));
+        $this->assertSame(2, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.done'));
         $this->assertSame(2, $response->json('data.summary.attempted'));
         $this->assertSame(1, $response->json('data.summary.passed'));
@@ -238,7 +238,7 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.documents.progress', $document))
             ->assertOk();
 
-        $this->assertSame(3, $response->json('data.summary.people'));
+        $this->assertSame(2, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.done'));
         $this->assertSame(2, $response->json('data.summary.attempted'));
 
@@ -285,7 +285,7 @@ final class MaterialProgressTest extends TestCase
             ->getJson(route('lms.documents.progress', $document))
             ->assertOk();
 
-        $this->assertSame(2, $response->json('data.summary.people'));
+        $this->assertSame(1, $response->json('data.summary.people'));
         $this->assertSame(1, $response->json('data.summary.passed'));
 
         $person = collect($response->json('data.people'))->firstWhere('id', $salesman->id);

@@ -33,18 +33,23 @@ final class MaterialAudience
         });
 
         $private = $course ? $material->visibility->isPrivate() : $material->isPrivate();
-        if ($private) {
-            $departments = app(DepartmentReach::class)->branch($material->memberDepartments()->pluck('departments.id')->map(intval(...))->all());
-            $query->where(function (Builder $query) use ($material, $prefix, $departments, $administrators): void {
-                $query->where('users.id', $material->author_id)
-                    ->orWhereIn('users.id', DB::table($prefix.'_members')->where($prefix.'_id', $material->id)->select('user_id'))
+        $departments = app(DepartmentReach::class)->branch($material->memberDepartments()->pluck('departments.id')->map(intval(...))->all());
+        // Administrative visibility does not constitute an assignment to learn.
+        // Administrators enter the audience only through an explicit admission.
+        $query->where(function (Builder $query) use ($private, $material, $prefix, $departments, $administrators): void {
+            $query->where(function (Builder $ordinary) use ($private, $material, $administrators): void {
+                $ordinary->whereDoesntHave('roles', fn (Builder $roles) => $roles->whereIn('name', $administrators));
+                if ($private) {
+                    $ordinary->where('users.id', $material->author_id);
+                }
+            })->orWhere(function (Builder $assigned) use ($material, $prefix, $departments): void {
+                $assigned->whereIn('users.id', DB::table($prefix.'_members')->where($prefix.'_id', $material->id)->select('user_id'))
                     ->orWhereIn('users.id', DB::table($prefix.'_member_groups')
                         ->join('group_members', 'group_members.group_id', '=', $prefix.'_member_groups.group_id')
                         ->where($prefix.'_member_groups.'.$prefix.'_id', $material->id)->select('group_members.user_id'))
-                    ->orWhereHas('departments', fn (Builder $memberships) => $memberships->whereIn('departments.id', $departments))
-                    ->orWhereHas('roles', fn (Builder $roles) => $roles->whereIn('name', $administrators));
+                    ->orWhereHas('departments', fn (Builder $memberships) => $memberships->whereIn('departments.id', $departments));
             });
-        }
+        });
 
         return $query->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')->orderBy('users.id')->get();

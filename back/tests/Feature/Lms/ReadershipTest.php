@@ -23,6 +23,33 @@ final class ReadershipTest extends TestCase
 {
     use ActsAsSpaClient, MakesUsers, RefreshDatabase;
 
+    public function test_administrative_access_does_not_assign_reading_but_explicit_admission_does(): void
+    {
+        $author = $this->administrator();
+        $unassigned = $this->superAdministrator();
+        $direct = $this->administrator();
+        $groupMember = $this->administrator();
+        $departmentMember = $this->superAdministrator();
+        $group = Group::factory()->create();
+        $group->members()->attach($groupMember);
+        $parent = Department::factory()->create();
+        $child = Department::factory()->create(['parent_id' => $parent->id]);
+        $departmentMember->departments()->attach($child, ['role' => DepartmentRole::Member->value]);
+        foreach ([Course::factory()->published(), Regulation::factory()->published(), Regulation::factory()->handbook()->published()] as $factory) {
+            foreach ([CourseVisibility::Public, CourseVisibility::Private] as $visibility) {
+                $material = $factory->create(['author_id' => $author->id, 'visibility' => $visibility]);
+                $material->members()->attach($direct);
+                $material->memberGroups()->attach($group);
+                $material->memberDepartments()->attach($parent);
+                $ids = app(\App\Support\Lms\MaterialAudience::class)->people($material)->modelKeys();
+                $this->assertNotContains($unassigned->id, $ids);
+                $this->assertNotContains($author->id, $ids);
+                foreach ([$direct, $groupMember, $departmentMember] as $person) $this->assertContains($person->id, $ids);
+                $this->assertTrue($unassigned->can('view', $material));
+            }
+        }
+    }
+
     public function test_public_document_includes_people_who_never_opened_it_and_filters_section_permissions(): void
     {
         $author = $this->author();
