@@ -381,7 +381,18 @@ class User extends Authenticatable implements OAuthenticatable
      */
     public function scopeMatching(Builder $query, ?string $term): void
     {
-        Substring::apply($query, $term, ['last_name', 'first_name', 'middle_name', 'email']);
+        $term = trim((string) $term);
+        if ($term === '') return;
+        if (preg_match('/^[+\d\s().\p{Pd}]+$/u', $term)) {
+            $digits = preg_replace('/\D+/', '', $term);
+            if (strlen($digits) === 11 && in_array($digits[0], ['7', '8'], true)) $digits = '7'.substr($digits, 1);
+            if ($digits !== '') $query->whereRaw("regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ?", ['%'.$digits.'%']);
+            else $query->whereRaw('1 = 0');
+            return;
+        }
+        foreach (preg_split('/\s+/u', $term, -1, PREG_SPLIT_NO_EMPTY) as $part) {
+            Substring::apply($query, $part, ['last_name', 'first_name', 'middle_name', 'email']);
+        }
     }
 
     /**

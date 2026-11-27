@@ -25,6 +25,7 @@ const page = ref(pageFromQuery(route.query.page))
  * суперадминистратор — он их и возвращает; API проверяет то же самое.
  */
 const showDeleted = ref(route.query.deleted === '1')
+const showDismissed = ref(route.query.status === 'dismissed')
 
 /**
  * Должность, по которой отбирают, — точным совпадением с выбранной из списка.
@@ -78,14 +79,15 @@ const { data, pending, error, refresh } = await useAsyncData(
     page: page.value > 1 ? page.value : undefined,
     job_title: jobTitle.value || undefined,
     deleted: showDeleted.value || undefined,
+    status: showDeleted.value ? undefined : showDismissed.value ? 'dismissed' : 'working',
   }),
-  { watch: [term, page, showDeleted, jobTitle] },
+  { watch: [term, page, showDeleted, showDismissed, jobTitle] },
 )
 
 // Найденное — свой, куда более короткий список: четвёртая страница всех
 // сотрудников почти никогда не четвёртая страница поиска и обычно за её концом.
 // Удалённых это касается тем более: их единицы.
-watch([term, showDeleted, jobTitle], () => {
+watch([term, showDeleted, showDismissed, jobTitle], () => {
   page.value = 1
 })
 
@@ -97,7 +99,7 @@ watchEffect(() => {
       ...(term.value ? { search: term.value } : {}),
       ...(page.value > 1 ? { page: String(page.value) } : {}),
       ...(jobTitle.value ? { job_title: jobTitle.value } : {}),
-      ...(showDeleted.value ? { deleted: '1' } : {}),
+      ...(showDeleted.value ? { deleted: '1' } : showDismissed.value ? { status: 'dismissed' } : {}),
     },
   })
 })
@@ -222,28 +224,31 @@ function foundLabel(count: number): string {
     <header class="page-header">
       <div class="page-header__row">
         <div>
-          <h1>{{ showDeleted ? 'Удалённые записи' : 'Сотрудники' }}</h1>
+          <h1>{{ showDeleted ? 'Удалённые записи' : showDismissed ? 'Уволенные сотрудники' : 'Сотрудники' }}</h1>
           <p class="muted">
             {{ showDeleted
               ? 'Этих людей в приложении нет — ни в списках, ни в отчёте о движении персонала. Всё, что за ними числилось, в базе осталось: любую запись можно вернуть, и она вернётся уволенной.'
+              : showDismissed
+                ? 'Архив уволенных сотрудников. Карточки и история сохранены; вернуть сотрудника в строй можно из его карточки.'
               : canManage
                 ? 'Откройте карточку, чтобы посмотреть человека, поправить его данные или отметить доступ.'
                 : 'Только просмотр: у вас нет права управлять сотрудниками.' }}
           </p>
         </div>
 
-        <NuxtLink v-if="canManage && !showDeleted" to="/staff/new" class="button-primary">
+        <NuxtLink v-if="canManage && !showDeleted && !showDismissed" to="/staff/new" class="button-primary">
           Новый сотрудник
         </NuxtLink>
       </div>
 
+      <div v-if="!showDeleted" class="staff-status-tabs" role="group" aria-label="Статус сотрудников"><button type="button" :class="{ 'is-selected': !showDismissed }" :aria-pressed="!showDismissed" @click="showDismissed = false">Действующие</button><button type="button" :class="{ 'is-selected': showDismissed }" :aria-pressed="showDismissed" @click="showDismissed = true">Уволенные</button></div>
       <div class="page-header__tools">
         <input
-          v-model.trim="search"
+          v-model="search"
           type="search"
           class="input search"
           autocomplete="off"
-          placeholder="Поиск по фамилии, имени или почте…"
+          placeholder="ФИО, телефон или почта…"
           aria-label="Поиск по сотрудникам"
         >
 
@@ -292,18 +297,18 @@ function foundLabel(count: number): string {
       v-else-if="!users.length && showDeleted"
       :title="isFiltered ? 'Среди удалённых никого не нашли' : 'Удалённых записей нет'"
       :description="isFiltered
-        ? 'Поиск идёт по фамилии, имени, отчеству и почте, а должность берётся точным совпадением.'
+        ? 'Поиск идёт по ФИО, телефону и почте, а должность берётся точным совпадением.'
         : 'Удаляют редко, и до увольнения — никого.'"
     />
 
     <UiEmptyState
       v-else-if="!users.length"
-      :title="isFiltered ? 'Никого не нашли' : 'Сотрудников пока нет'"
+      :title="isFiltered ? 'Никого не нашли' : showDismissed ? 'Уволенных сотрудников нет' : 'Действующих сотрудников пока нет'"
       :description="isFiltered
-        ? 'Поиск идёт по фамилии, имени, отчеству и почте, а должность берётся точным совпадением — проверьте и то и другое.'
+        ? 'Поиск идёт по ФИО, телефону и почте, а должность берётся точным совпадением — проверьте и то и другое.'
         : 'Как только появятся сотрудники, они будут здесь.'"
     >
-      <NuxtLink v-if="canManage && !isFiltered" to="/staff/new" class="button-primary">
+      <NuxtLink v-if="canManage && !isFiltered && !showDismissed" to="/staff/new" class="button-primary">
         Завести первого
       </NuxtLink>
     </UiEmptyState>
@@ -430,6 +435,10 @@ function foundLabel(count: number): string {
 </template>
 
 <style scoped>
+.staff-status-tabs { display: inline-flex; gap: 6px; padding: 5px; border-radius: 24px; background: var(--color-surface); margin-bottom: 18px; }
+.staff-status-tabs button { border: 0; border-radius: 20px; background: transparent; color: var(--color-text-muted); font: inherit; font-size: 14px; padding: 10px 18px; cursor: pointer; }
+.staff-status-tabs .is-selected { background: var(--color-accent); color: var(--color-accent-text); }
+
 .page-header {
   margin-bottom: 1.5rem;
 }

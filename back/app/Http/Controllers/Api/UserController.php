@@ -51,6 +51,8 @@ final class UserController extends Controller
         $reader = $request->user();
 
         $deleted = $request->boolean('deleted');
+        $filters = $request->validate(['status' => ['nullable', Rule::in(['all', 'working', 'dismissed'])], 'search' => ['nullable', 'string', 'max:200']]);
+        $status = $filters['status'] ?? 'all';
 
         $jobTitle = trim((string) $request->query('job_title', ''));
 
@@ -67,6 +69,8 @@ final class UserController extends Controller
         // orders Cyrillic by byte value and would put "Ёлкин" after "Яковлев".
         $users = User::query()
             ->when($deleted, fn (Builder $query) => $query->onlyTrashed()->with('remover'))
+            ->when(!$deleted && $status === 'working', fn (Builder $query) => $query->whereNull('dismissed_at'))
+            ->when(!$deleted && $status === 'dismissed', fn (Builder $query) => $query->whereNotNull('dismissed_at'))
             ->with([
                 'roles',
                 'permissions',
@@ -89,6 +93,7 @@ final class UserController extends Controller
             ->when(! $deleted, fn (Builder $query) => $query->orderByRaw('dismissed_at IS NOT NULL'))
             ->orderByRaw('COALESCE(last_name, first_name) COLLATE "und-x-icu"')
             ->orderByRaw('first_name COLLATE "und-x-icu"')
+            ->orderBy('users.id')
             ->paginate(25)
             // Иначе вторая страница поиска возвращается ко всему списку.
             ->withQueryString();

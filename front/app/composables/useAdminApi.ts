@@ -12,6 +12,7 @@ import { toValidationError } from '~/composables/useAuth'
 
 /** Чего просят у списка сотрудников: страницу и строку поиска. */
 export interface StaffQuery {
+  status?: 'working' | 'dismissed' | 'all'
   search?: string
   page?: number
   /**
