@@ -15,6 +15,15 @@ export function normalizeDocument(document: JSONContent | null): JSONContent | n
     : { ...document, content }
 }
 
+/** ProseMirror requires at least one block, including for a new empty article. */
+export function documentForEditor(document: JSONContent | null): JSONContent {
+  const normalized = normalizeDocument(document)
+  if (!normalized || (normalized.type === 'doc' && (!normalized.content || normalized.content.length === 0))) {
+    return { type: 'doc', content: [{ type: 'paragraph' }] }
+  }
+  return normalized
+}
+
 /** Legacy lessons keep plain text until the editor explicitly saves their block document. */
 export function documentForEditing(content: JSONContent | null | undefined, fallbackText?: string | null): JSONContent | null {
   // A stored block document (even an intentionally empty one) always wins.

@@ -2,7 +2,7 @@
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { JSONContent } from '@tiptap/core'
 import type { UploadedMedia } from '~/utils/editor/attachments'
-import { isSameDocument, normalizeDocument } from '~/utils/editor/document'
+import { isSameDocument, documentForEditor } from '~/utils/editor/document'
 import { insertBlock } from '~/utils/editor/insertBlock'
 
 const props = defineProps<{
@@ -25,7 +25,7 @@ const contentError = ref(false)
 // Rendering it during SSR produces an empty surface and a hydration mismatch.
 
 const editor = useEditor({
-  content: normalizeDocument(model.value) ?? undefined,
+  content: documentForEditor(model.value),
   enableContentCheck: true,
   extensions: useRichTextExtensions({ placeholder: props.placeholder }),
   editorProps: {
@@ -59,7 +59,7 @@ watch([model, editor], ([value, instance]) => {
   contentError.value = false
   emit('ready', false)
   try {
-    instance.commands.setContent(normalizeDocument(value) ?? { type: 'doc', content: [] }, {
+    instance.commands.setContent(documentForEditor(value), {
       emitUpdate: false,
       errorOnInvalidContent: true,
     })
